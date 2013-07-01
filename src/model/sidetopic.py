@@ -8,16 +8,46 @@ Created on 29 Jun 2013
 
 from collections import namedtuple
 import numpy as np
+import numpy.linalg as la
+import numpy.random as rd
 import scipy as sp
 import scipy.sparse as ssp
-import numpy.random as rd
 
+# TODO Consider using numba for autojit (And jit with local types)
+# TODO Investigate numba structs as an alternative to namedtuples
+# TODO Make random() stuff predictable, either by incorporating a RandomState instance into model parameters
+#      or calling a global rd.seed(0xCAFEBABE) call.
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
-    'X W lmda nu xi s'\
+    'X W lmda nu lxi s'\
 )
 
+
+def negJakkola(vec):
+    '''
+    The negated version of the Jakkola expression which was used in Bourchard's NIPS
+    2007 softmax bound
+    '''
+    
+    # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
+    return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
+
+def negJakkolaOfDerivedXi(d, lmda, nu, s):
+    '''
+    The negated version of the Jakkola expression which was used in Bourchard's NIPS
+    2007 softmax bound calculating using the estimate of xi using lambda, nu, and
+    s
+    
+    d    - the document index (for lambda and nu)
+    lmda - the DxK matrix of means of the topic distribution for each document
+    nu   - the DxK the vector of variances of the topic distribution
+    s    - The Dx1 vector of offsets.
+    '''
+    
+    # COPY AND PASTE BETWEEN THIS AND negJakkola()
+    vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s**2 + nu**2))
+    return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
 
 def train(modelState, X, W, iterations=1000, epsilon=0.001):
     '''
@@ -35,10 +65,10 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     contain X and W and also
     
     s      - A D-dimensional vector describing offset in our bound on the true value of ln sum_k e^theta_dk 
-    xi     - A DxK matrix used in the above bound
+    lxi    - A DxK matrix used in the above bound, containing the negative Jakkola function applied to the 
+             quadratic term xi
     lambda - the topics we've inferred for the current batch of documents
     nu     - the variance of topics we've inferred (independent)
-    z      - NOT USED
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
     (K, F, V, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
@@ -49,17 +79,31 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     # Assign initial values to the query parameters
     D    = np.size(W, 0)
     lmda = rd.random((D, K))
-    nu   = np.ones((D,K))
+    nu   = np.ones((D,K), np.float32)
     s    = np.zeros((D, 1))
-    xi   = np.ones((D, K), np.float32)
-    lxi  = jakkola (xi)
+    lxi  = negJakkola (np.ones((D, K), np.float32))
+    
+    halfSig2 = 1./(sigma*sigma)
     
     # Inference Step 1: Update local parameters given model parameters
+    # lmda_dk. rho is DxK
+    pred = halfSig2 * np.dot(X, A)
+    Z    = normalizerows (np.exp(lmda))
+    like = (np.dot(W, np.transpose(vocab)) * Z) / docLen[:, np.newaxis]
+    rho  = 2 * s * lxi -0.5 - like
+    
+    lmda = la.inv()
+    
+    
+    like = np.dot (W, np.transpose())
+    for d in xrange(D):
+        pred = halfSig2 * dot(A, x)
+        
     
     
     # Inference Step 2: Update model parameters given local parameters
     
-    return (modelState, VbSideTopicQueryState(X, W, lmda, nu, xi, s))
+    return (modelState, VbSideTopicQueryState(X, W, lmda, nu, lxi, s))
 
 
 
@@ -102,9 +146,13 @@ def newVbModelState(K, F, V, P):
     sigma = 0.001
     
     # Vocab is K word distributions so normalize
-    vocab = rd.random(K, V)
-    row_sums = vocab.sum(axis=1)
-    vocab   /= row_sums[:, np.newaxis]
+    vocab = normalizerows (rd.random(K, V))
+    
     
     return VbSideTopicModelState(K, F, V, P, A, varA, V, varV, U, sigma, tau, vocab)
+
+def normalizerows (matrix):
+    row_sums = matrix.sum(axis=1)
+    matrix   /= row_sums[:, np.newaxis]
+    return matrix
 
