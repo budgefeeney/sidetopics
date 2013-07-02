@@ -8,10 +8,11 @@ Created on 29 Jun 2013
 
 from collections import namedtuple
 import numpy as np
-import numpy.linalg as la
+import scipy.linalg as la
 import numpy.random as rd
 import scipy as sp
 import scipy.sparse as ssp
+import sys
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
@@ -33,21 +34,25 @@ def negJakkola(vec):
     # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
     return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
 
-def negJakkolaOfDerivedXi(d, lmda, nu, s):
+def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     '''
     The negated version of the Jakkola expression which was used in Bourchard's NIPS
-    2007 softmax bound calculating using the estimate of xi using lambda, nu, and
-    s
+    2007 softmax bound calculating using the estimate of xi using lambda, nu, and s
     
-    d    - the document index (for lambda and nu)
     lmda - the DxK matrix of means of the topic distribution for each document
     nu   - the DxK the vector of variances of the topic distribution
     s    - The Dx1 vector of offsets.
+    d    - the document index (for lambda and nu). If not specified we construct
+           the full matrix of A(xi_dk)
     '''
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
-    vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s**2 + nu**2))
-    return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
+    if d is not None:
+        vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
+        return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
+    else:
+        mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
+        return 1./(2 * mat) * (1./(1 - np.exp(-mat)) - 0.5)
 
 def train(modelState, X, W, iterations=1000, epsilon=0.001):
     '''
@@ -76,6 +81,9 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     # We'll need the total word count per document
     docLen = W.sum(axis=1)
     
+    # No need to recompute this every time
+    XXT = X.dot(X.T)
+    
     # Assign initial values to the query parameters
     D    = np.size(W, 0)
     lmda = rd.random((D, K))
@@ -83,25 +91,84 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     s    = np.zeros((D, 1))
     lxi  = negJakkola (np.ones((D, K), np.float32))
     
-    halfSig2 = 1./(sigma*sigma)
+    oldLikely = 0
+    newLikely = -epsilon;
     
-    # Inference Step 1: Update local parameters given model parameters
-    # lmda_dk. rho is DxK
-    pred = halfSig2 * np.dot(X, A)
-    Z    = normalizerows (np.exp(lmda))
-    like = (np.dot(W, np.transpose(vocab)) * Z) / docLen[:, np.newaxis]
-    rho  = 2 * s * lxi -0.5 - like
-    
-    lmda = la.inv()
-    
-    
-    like = np.dot (W, np.transpose())
-    for d in xrange(D):
-        pred = halfSig2 * dot(A, x)
+    while iterations > 0 and (newLikely - oldLikely) > epsilon:
+        # Save repeated computation
+        tsq      = tau * tau;
+        tsqI     = tsq * np.eye(F)
+        trTsqI   = np.trace(tsqI)
+        halfSig2 = 1./(sigma*sigma)
+        tau2sig2 = (tau * tau) / (sigma * sigma)
         
-    
-    
-    # Inference Step 2: Update model parameters given local parameters
+        #
+        # Inference Step 1: Update local parameters given model parameters
+        #
+        
+        #
+        # lmda_dk. rho is DxK
+        pred = halfSig2 * np.dot(X, A)
+        Z    = normalizerows (np.exp(lmda))
+        like = (W.dot(vocab.T) * Z) / docLen[:, np.newaxis]
+        rho  = 2 * s * lxi -0.5 - like
+        
+        lmda = 1. / (2 * docLen[:, np.newaxis] * lxi + 1./0.1**2)  \
+             * rho * docLen[:, np.newaxis] - pred
+        
+        #
+        # nu_dk
+        nu = 2 * docLen[:, np.newaxis] * lxi + halfSig2
+        
+        #
+        # xi_dk
+        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
+        
+        #
+        # s_d
+        s = (lxi * lmda + K/4.).sum(axis = 1) / lxi.sum(axis=1)
+        
+        #
+        # Inference Step 2: Update model parameters given local parameters
+        # 
+        
+        #
+        # vocab
+        #
+        #     z_dvk  = 1/S phi_kv * exp(lmda[d,k])
+        #
+        #     phi_kv = 1/Z sum_d w_dv * z_dvk
+        #            = 1/Z sum_d w_dv * 1/S phi_kv * exp(lmda[d,k])
+        #            = 1/Z 1/S sum_d w_dv * phi_kv * exp(lmda[d,k])
+        #            = phi_kv * 1/Z 1/S sum_d w_dv * exp(lmda[d,k])
+        #            = phi_kv * 1/Z sum_d w_dv * exp(lmda[d,k])       (as 1/S gets embedded in 1/Z)
+        # 
+        # 
+        vocab *= normalizerows (np.dot (np.transpose(np.exp(lmda))), W)
+        
+        #
+        # V, varV
+        varV = la.inv (tsqI + U.dot(U))
+        V    = varV.dot(U.T).dot(A)
+        
+        #
+        # A, varA
+        # TODO, since only tau2sig2 changes at each step, would it be possible just to
+        # amend the old inverse?
+        varA = la.inv (np.eye(F) + tau2sig2 * XXT)
+        A    = varA.dot (U.dot(V) + X.dot(lmda.T))
+        
+        #
+        # U
+        U = la.inv(trTsqI * varV + V.dot(V.T)).dot (A.dot(V.T))
+        
+        #
+        # sigma
+        # TODO Sigma and Tau optimisation is hugely expensive, not only because of these steps,
+        # but because were they fixed, we wouldn't need to do any updates for varA, which
+        # would save us doing an FxF inverse at every step.
+        # 
+        
     
     return (modelState, VbSideTopicQueryState(X, W, lmda, nu, lxi, s))
 
