@@ -1,3 +1,6 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*- 
+
 '''
 The inputs and outputs of a SideTopicModel
 
@@ -17,11 +20,18 @@ import sys
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
 # TODO Make random() stuff predictable, either by incorporating a RandomState instance into model parameters
-#      or calling a global rd.seed(0xCAFEBABE) call.
+#      or calling a global rd.seed(0xC0FFEE) call.
+# TODO The solutions for A V U etc all look similar to ridge regression - could
+#      they be replaced with calls to built-in solvers?
+# TODO Sigma and Tau optimisation is hugely expensive, not only because of their own updates,
+#      but because were they fixed, we wouldn't need to do any updates for varA, which would save 
+#      us from doing a FxF inverse at every iteration. 
+# TODO varA is a huge, likely dense, FxF matrix
+# TODO varV is a big, dense, PxP matrix...
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
-    'X W lmda nu lxi s'\
+    'lmda nu lxi s'\
 )
 
 
@@ -65,6 +75,8 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     modelState - the model state with all the model parameters
     X - the D x F matrix of side information vectors
     W - the D x V matrix of word **count** vectors.
+    iterations - how long to iterate for
+    epsilon - currently ignored, in future, allows us to stop early.
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -76,29 +88,30 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, F, V, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
        
     # We'll need the total word count per document
     docLen = W.sum(axis=1)
     
     # No need to recompute this every time
-    XXT = X.dot(X.T)
+    XTX = X.T.dot(X)
     
     # Assign initial values to the query parameters
     D    = np.size(W, 0)
     lmda = rd.random((D, K))
     nu   = np.ones((D,K), np.float32)
-    s    = np.zeros((D, 1))
+    s    = np.zeros((D,))
     lxi  = negJakkola (np.ones((D, K), np.float32))
     
-    oldLikely = 0
-    newLikely = -epsilon;
-    
-    while iterations > 0 and (newLikely - oldLikely) > epsilon:
+    XA = X.dot(A)
+    for iteration in xrange(iterations):
+        # Poor man's logging
+        print("Iteration %d" % iteration)
+        
         # Save repeated computation
         tsq      = tau * tau;
-        tsqI     = tsq * np.eye(F)
-        trTsqI   = np.trace(tsqI)
+        tsqIP    = tsq * np.eye(P)
+        trTsqIK  = K * tsq
         halfSig2 = 1./(sigma*sigma)
         tau2sig2 = (tau * tau) / (sigma * sigma)
         
@@ -108,10 +121,10 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         #
         # lmda_dk. rho is DxK
-        pred = halfSig2 * np.dot(X, A)
+        pred = halfSig2 * XA
         Z    = normalizerows (np.exp(lmda))
         like = (W.dot(vocab.T) * Z) / docLen[:, np.newaxis]
-        rho  = 2 * s * lxi -0.5 - like
+        rho  = 2 * s[:,np.newaxis] * lxi -0.5 - like # TODO Verify this against the code
         
         lmda = 1. / (2 * docLen[:, np.newaxis] * lxi + 1./0.1**2)  \
              * rho * docLen[:, np.newaxis] - pred
@@ -144,42 +157,53 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         #            = phi_kv * 1/Z sum_d w_dv * exp(lmda[d,k])       (as 1/S gets embedded in 1/Z)
         # 
         # 
-        vocab *= normalizerows (np.dot (np.transpose(np.exp(lmda))), W)
+        vocab *= normalizerows (np.exp(lmda).T.dot(W))
         
         #
         # V, varV
-        varV = la.inv (tsqI + U.dot(U))
+        varV = la.inv (tsqIP + U.T.dot(U))
         V    = varV.dot(U.T).dot(A)
         
         #
         # A, varA
         # TODO, since only tau2sig2 changes at each step, would it be possible just to
         # amend the old inverse?
-        varA = la.inv (np.eye(F) + tau2sig2 * XXT)
-        A    = varA.dot (U.dot(V) + X.dot(lmda.T))
+        varA = la.inv (np.eye(F) + tau2sig2 * XTX)
+        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
+        XA   = X.dot(A)
         
         #
         # U
-        U = la.inv(trTsqI * varV + V.dot(V.T)).dot (A.dot(V.T))
+        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
         
         #
         # sigma
-        # TODO Sigma and Tau optimisation is hugely expensive, not only because of these steps,
-        # but because were they fixed, we wouldn't need to do any updates for varA, which
-        # would save us doing an FxF inverse at every step.
-        # 
+        #    Equivalent to \frac{1}{DK} \left( \sum_d (\sum_k nu_{dk}) + tr(\Omega_A) x_d^{T} \Sigma_A x_d + (\lambda - A^{T} x_d)^{T}(\lambda - A^{T} x_d) \right)
+        #
+        sigma = 1./(D*K) * (np.sum(nu) + D*K * tsq * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
         
-    
-    return (modelState, VbSideTopicQueryState(X, W, lmda, nu, lxi, s))
+        #
+        # tau
+        #    Equivalent to \frac{1}{KF} \left( tr(\Sigma_A)tr(\Omega_A) + tr(\Sigma_V U U^{T})tr(\Omega_V) + tr ((M_A - U M_V)^{T} (M_A - U M_V)) \right)
+        #
+        varA_U = varA.dot(U)
+        tau1 = np.trace(varA)*K*tsq
+        tau2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
+        tau3 = np.sum((A - U.dot(V)) ** 2)
+        
+        tau = 1./(K*F) * (tau1 + tau2 + tau3)
+        
+        
+    return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s))
 
 
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
-    'K F V P A varA V varV U sigma tau vocab'\
+    'K F T P A varA V varV U sigma tau vocab'\
 )
 
-def newVbModelState(K, F, V, P):
+def newVbModelState(K, F, T, P):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that once trained can be kept fixed for querying.
@@ -189,7 +213,7 @@ def newVbModelState(K, F, V, P):
     K - the number of topics
     F - the number of features
     P - the number of features in the projected space, P << F
-    V - the number of words in the vocabulary
+    T - the number of terms in the vocabulary
     
     The returned object will contain K, F, V and P and also
     
@@ -213,10 +237,9 @@ def newVbModelState(K, F, V, P):
     sigma = 0.001
     
     # Vocab is K word distributions so normalize
-    vocab = normalizerows (rd.random(K, V))
+    vocab = normalizerows (rd.random((K, T)))
     
-    
-    return VbSideTopicModelState(K, F, V, P, A, varA, V, varV, U, sigma, tau, vocab)
+    return VbSideTopicModelState(K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab)
 
 def normalizerows (matrix):
     row_sums = matrix.sum(axis=1)
