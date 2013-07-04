@@ -122,7 +122,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         #
         # lmda_dk. rho is DxK
         pred = halfSig2 * XA
-        Z    = normalizerows (np.exp(lmda))
+        Z    = rowwise_softmax(lmda)
         like = (W.dot(vocab.T) * Z) / docLen[:, np.newaxis]
         rho  = 2 * s[:,np.newaxis] * lxi -0.5 - like # TODO Verify this against the code
         
@@ -233,8 +233,8 @@ def newVbModelState(K, F, T, P):
     U     = rd.random((F, P))
     A     = np.dot(U, V)
     varA  = np.identity(F, np.float32)
-    tau   = 0.001
-    sigma = 0.001
+    tau   = 0.1
+    sigma = 0.1
     
     # Vocab is K word distributions so normalize
     vocab = normalizerows (rd.random((K, T)))
@@ -242,6 +242,21 @@ def newVbModelState(K, F, T, P):
     return VbSideTopicModelState(K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab)
 
 def normalizerows (matrix):
+    row_sums = matrix.sum(axis=1)
+    matrix   /= row_sums[:, np.newaxis]
+    return matrix
+
+def rowwise_softmax (matrix):
+    '''
+    Assumes each row of the given matrix is an unnormalized distribution and
+    uses the softmax metric to normalize it. This additionally uses some
+    scaling to ensure that we never underflow.
+    '''
+    # TODO Just how compute intense is this method call?
+    
+    row_maxes = matrix.max(axis=1) # Underflow makes sense i.e. Pr(K=k) = 0. Overflow doesn't, i.e Pr(K=k) = \infty
+    matrix  -= row_maxes[:, np.newaxis]
+    matrix   = np.exp(matrix)
     row_sums = matrix.sum(axis=1)
     matrix   /= row_sums[:, np.newaxis]
     return matrix
