@@ -31,7 +31,7 @@ import sys
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
-    'lmda nu lxi s'\
+    'lmda nu lxi s docLen'\
 )
 
 
@@ -194,9 +194,49 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         tau = 1./(K*F) * (tau1 + tau2 + tau3)
         
         
-    return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s))
+    return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
 
+def varBound (modelState, queryState, X, W):
+    '''
+    For a current state of the model, and the query, for given inputs, outputs the variational
+    lower-bound.
+    
+    Params
+    
+    modelState - the state of the model currently
+    queryState - the state of the query currently
+    X          - the DxF matrix of features we're querying on, where D is the number of documents
+    W          - the DxT matrix of words ("terms") we're querying on
+    
+    Returns
+    The (positive) variational lower bound
+    '''
+    
+    # Unpack the model and query state tuples for ease of use and maybe speed improvements
+    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
 
+    # We'll need the original xi for this and also Z, the 3D tensor of which for eac document D and term T gives the strenght of topic K
+    xi = np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)
+    
+    lnVocab = np.log(vocab)
+    Z = rowwise_softmax (lmda[:,:,np.newaxis] * lnVocab) # Z is DxKxV
+    
+    # term1 is the bound on p(W|Theta). This is a bound, not an equality as we're using
+    # Bouchard's softmax bound (NIPS 2007) here. That said, most of the terms discard
+    # additive constants
+    
+    docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
+    
+    term1 =
+        - np.sum(docLenLmdaLxi * lmda)
+        - np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
+        - 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
+        + 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
+        + 
+    
+    
+    
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
