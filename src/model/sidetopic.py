@@ -9,6 +9,7 @@ Created on 29 Jun 2013
 @author: bryanfeeney
 '''
 
+from math import log
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
@@ -197,7 +198,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
     return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
 
-def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None):
+def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -216,6 +217,8 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
                  not provided
     varA_U     - the product of the column variance matrix and the matrix U. Recalculated if
                  not provided
+    XA         - dot product of X and A, recalculated if not provided
+    XTX        - dot product of X-transpose and X, recalculated if not provided.
     
     Returns
     The (positive) variational lower bound
@@ -224,6 +227,15 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
     (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
     (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
+    
+    # Get the number of samples from the shape. Ensure that the shapes are consistent
+    # with the model parameters.
+    (D, Tcheck) = W.shape
+    if Tcheck != T: raise ValueError ("The shape of the document matrix W is invalid, T is %d but the matrix W has shape (%d, %d)" % (T, D, Tcheck))
+    
+    (Dcheck, Fcheck) = X.shape
+    if Dcheck != D: raise ValueError ("Inconsistent sizes between the matrices X and W, X has %d rows but W has %d" % (Dcheck, D))
+    if Fcheck != F: raise ValueError ("The shape of the feature matrix X is invalid. F is %d but the matrix X has shape (%d, %d)" % (F, Dcheck, Fcheck)) 
 
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
     #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
@@ -234,13 +246,12 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     if lnVocab is None:
         lnVocab = np.log(vocab)
     
-    # term1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
+    # prob1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
     # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
-    # will discard additive constants, so none are -- strictly-speaking -- equalities
-    
+    # will discard additive constants, so stricly speaking none of them are equalities
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
     
-    term1 = \
+    prob1 = \
         - np.sum(docLenLmdaLxi * lmda) \
         - np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi) \
         - 0.5 * np.sum (docLen[:, np.newaxis] * lmda) \
@@ -254,10 +265,42 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
         + 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi)) \
         - np.sum(docLen[:,np.newaxis] * np.log (1 + np.exp(xi)))
         
-    # term2 is E[p(Theta|A)]
+    # prob2 is E[p(Theta|A)]
+    if XA is None:
+        XA = X.dot(A)
+    if XTX is None:
+        XTX = X.dot(X)
+    sig2  = sigma * sigma
+    tau2  = tau * tau
     
+    prob2 = -0.5 * D * K * log (sig2) \
+          -  0.5 / sig2 * (np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
     
+    # prob3 is E[p(A|V)]
+    if varA_U is None:
+        varA_U = varA.dot(U)
+        
+    prob3 = -0.5 * K * F * log(tau2) \
+          - 0.5 / tau2 * \
+          ( \
+          np.trace(varA)*K*tau2 \
+          + np.sum(varA_U * U) * K * tau2 \
+          + np.sum(A - U.dot(V) ** 2) \
+          )
+          
+    # prob4 is E[p(V)]
+    prob4 = -0.5 * (np.trace(varV) * K * tau2 + np.sum(V*V))
     
+    # ent1 is H[q(Theta)]
+    ent1 = 0.5 * np.sum (np.log(nu * nu))
+    
+    # ent2 is H[q(A|V)]
+    ent2 = 0.5 * K * log (la.det(varA)) - F * log (tau2)
+    
+    # ent3 is H[q(V)]
+    ent3 = 0.5 * K * log (la.det(varV)) - P * log (tau2)
+    
+    return prob1 + prob2 + prob3 + prob4 + ent1 + ent2 + ent3
     
 
 VbSideTopicModelState = namedtuple ( \
