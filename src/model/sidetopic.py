@@ -121,13 +121,14 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         #
         # lmda_dk. rho is DxK
+        lnVocab = np.log(vocab)
         pred = halfSig2 * XA
-        Z    = rowwise_softmax(lmda)
-        like = (W.dot(vocab.T) * Z) / docLen[:, np.newaxis]
-        rho  = 2 * s[:,np.newaxis] * lxi -0.5 - like # TODO Verify this against the code
+        Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+        rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
+            * np.einsum('dt,dkt->dk', W, Z)
         
-        lmda = 1. / (2 * docLen[:, np.newaxis] * lxi + 1./0.1**2)  \
-             * rho * docLen[:, np.newaxis] - pred
+        rhs  = docLen[:,np.newaxis] * rho + halfSig2 * X.dot(A)
+        lmda = 1. / (docLen[:,np.newaxis] * lxi + halfSig2) * rhs
         
         #
         # nu_dk
@@ -196,7 +197,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
     return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
 
-def varBound (modelState, queryState, X, W):
+def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -207,6 +208,14 @@ def varBound (modelState, queryState, X, W):
     queryState - the state of the query currently
     X          - the DxF matrix of features we're querying on, where D is the number of documents
     W          - the DxT matrix of words ("terms") we're querying on
+    Z          - if this has already been calculated, it can be passed in. If not, we
+                 recalculate it from the model and query states. Z is the DxKxT tensor which
+                 for each document D and term T gives the proportion of those terms assigned
+                 to topic K
+    lnVocab    - the KxV matrix of the natural log applied to the vocabularly. Recalculated if
+                 not provided
+    varA_U     - the product of the column variance matrix and the matrix U. Recalculated if
+                 not provided
     
     Returns
     The (positive) variational lower bound
@@ -216,24 +225,37 @@ def varBound (modelState, queryState, X, W):
     (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
     (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
 
-    # We'll need the original xi for this and also Z, the 3D tensor of which for eac document D and term T gives the strenght of topic K
+    # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
+    #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
     xi = np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)
     
-    lnVocab = np.log(vocab)
-    Z = rowwise_softmax (lmda[:,:,np.newaxis] * lnVocab) # Z is DxKxV
+    if Z is None:
+        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+    if lnVocab is None:
+        lnVocab = np.log(vocab)
     
-    # term1 is the bound on p(W|Theta). This is a bound, not an equality as we're using
-    # Bouchard's softmax bound (NIPS 2007) here. That said, most of the terms discard
-    # additive constants
+    # term1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
+    # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
+    # will discard additive constants, so none are -- strictly-speaking -- equalities
     
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
     
-    term1 =
-        - np.sum(docLenLmdaLxi * lmda)
-        - np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
-        - 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
-        + 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
-        + 
+    term1 = \
+        - np.sum(docLenLmdaLxi * lmda) \
+        - np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi) \
+        - 0.5 * np.sum (docLen[:, np.newaxis] * lmda) \
+        + 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi) \
+        + np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z)) \
+        \
+        + np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z)) \
+        - np.sum(W * np.einsum('dkt->dt', Z * np.log(Z))) \
+        \
+        - np.sum(docLen[:,np.newaxis] * lxi * (s**2[:,np.newaxis] - xi**2)) \
+        + 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi)) \
+        - np.sum(docLen[:,np.newaxis] * np.log (1 + np.exp(xi)))
+        
+    # term2 is E[p(Theta|A)]
+    
     
     
     
