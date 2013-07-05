@@ -195,8 +195,16 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         tau = 1./(K*F) * (tau1 + tau2 + tau3)
         
+        elbo = varBound ( \
+            VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
+            VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
+            Z, lnVocab, varA_U, XA, XTX)
+            
+        print ("ELBO %f" % elbo)
         
-    return (modelState, VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
+        
+    return (VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
+            VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
 
 def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
     '''
