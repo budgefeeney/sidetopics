@@ -16,6 +16,7 @@ import scipy.linalg as la
 import numpy.random as rd
 import scipy as sp
 import scipy.sparse as ssp
+import scipy.sparse.linalg as sla
 import sys
 
 # TODO Consider using numba for autojit (And jit with local types)
@@ -65,7 +66,7 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
         mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
         return 1./(2 * mat) * (1./(1 - np.exp(-mat)) - 0.5)
 
-def train(modelState, X, W, iterations=1000, epsilon=0.001):
+def train(modelState, X, W, iterations=100, epsilon=0.001):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -89,7 +90,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
        
     # We'll need the total word count per document
     docLen = W.sum(axis=1)
@@ -107,7 +108,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     XA = X.dot(A)
     for iteration in xrange(iterations):
         # Poor man's logging
-        print("Iteration %d" % iteration)
+        print("Iteration %4d  \t" % iteration),
         
         # Save repeated computation
         tsq      = tau * tau;
@@ -123,7 +124,6 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         #
         # lmda_dk. rho is DxK
         lnVocab = np.log(vocab)
-        pred = halfSig2 * XA
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
             * np.einsum('dt,dkt->dk', W, Z)
@@ -141,7 +141,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         #
         # s_d
-        s = (lxi * lmda + K/4.).sum(axis = 1) / lxi.sum(axis=1)
+#        s = (lxi * lmda + K/4.).sum(axis = 1) / lxi.sum(axis=1)
         
         #
         # Inference Step 2: Update model parameters given local parameters
@@ -159,7 +159,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         #            = phi_kv * 1/Z sum_d w_dv * exp(lmda[d,k])       (as 1/S gets embedded in 1/Z)
         # 
         # 
-        vocab *= normalizerows (np.exp(lmda).T.dot(W))
+#        vocab *= normalizerows (np.exp(lmda).T.dot(W))
         
         #
         # V, varV
@@ -170,9 +170,10 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         # A, varA
         # TODO, since only tau2sig2 changes at each step, would it be possible just to
         # amend the old inverse?
-        varA = la.inv (np.eye(F) + tau2sig2 * XTX)
-        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
-        XA   = X.dot(A)
+        # TODO Use sparse inverse
+#        varA = la.inv (tau2sig2 * XTX + np.eye(F,F)) # Approx inverse using LU decomp and the SuperLU library
+#        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
+#        XA   = X.dot(A)
         
         #
         # U
@@ -182,23 +183,24 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         # sigma
         #    Equivalent to \frac{1}{DK} \left( \sum_d (\sum_k nu_{dk}) + tr(\Omega_A) x_d^{T} \Sigma_A x_d + (\lambda - A^{T} x_d)^{T}(\lambda - A^{T} x_d) \right)
         #
-        sigma = 1./(D*K) * (np.sum(nu) + D*K * tsq * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
+        # TODO This update causes NaNs in the variational-bound
+#        sigma = 1./(D*K) * (np.sum(nu) + D*K * tsq * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
         
         #
         # tau
         #    Equivalent to \frac{1}{KF} \left( tr(\Sigma_A)tr(\Omega_A) + tr(\Sigma_V U U^{T})tr(\Omega_V) + tr ((M_A - U M_V)^{T} (M_A - U M_V)) \right)
         #
         varA_U = varA.dot(U)
-        tau1 = np.trace(varA)*K*tsq
-        tau2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
-        tau3 = np.sum((A - U.dot(V)) ** 2)
-        
-        tau = 1./(K*F) * (tau1 + tau2 + tau3)
+#        tau1 = np.trace(varA)*K*tsq
+#        tau2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
+#        tau3 = np.sum((A - U.dot(V)) ** 2)
+#        
+#        tau = 1./(K*F) * (tau1 + tau2 + tau3)
         
         elbo = varBound ( \
             VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
             VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
-            Z, lnVocab, varA_U, XA, XTX)
+            X, W, Z, lnVocab, varA_U, XA, XTX)
             
         print ("ELBO %f" % elbo)
         
@@ -233,7 +235,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.V, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
     (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
@@ -256,22 +258,20 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     
     # prob1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
     # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
-    # will discard additive constants, so stricly speaking none of them are equalities
+    # will discard additive constants, so strictly speaking none of them are equalities
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
     
-    prob1 = \
-        - np.sum(docLenLmdaLxi * lmda) \
-        - np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi) \
-        - 0.5 * np.sum (docLen[:, np.newaxis] * lmda) \
-        + 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi) \
-        + np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z)) \
-        \
-        + np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z)) \
-        - np.sum(W * np.einsum('dkt->dt', Z * np.log(Z))) \
-        \
-        - np.sum(docLen[:,np.newaxis] * lxi * (s**2[:,np.newaxis] - xi**2)) \
-        + 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi)) \
-        - np.sum(docLen[:,np.newaxis] * np.log (1 + np.exp(xi)))
+    prob1 = 0.0
+    prob1 -= np.sum(docLenLmdaLxi * lmda)
+    prob1 -= np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
+    prob1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
+    prob1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
+    prob1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
+    prob1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
+    prob1 -= np.sum(W * np.einsum('dkt->dt', Z * np.log(Z)))
+    prob1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
+    prob1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
+    prob1 - np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
         
     # prob2 is E[p(Theta|A)]
     if XA is None:
