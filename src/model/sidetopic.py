@@ -128,8 +128,8 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         
         #
         # V, varV
-#        varV = la.inv (tsqIP + U.T.dot(U))
-#        V    = varV.dot(U.T).dot(A)
+        varV = la.inv (tsqIP + U.T.dot(U))
+        V    = varV.dot(U.T).dot(A)
         
         #
         # A, varA
@@ -280,7 +280,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     if XA is None:
         XA = X.dot(A)
     if XTX is None:
-        XTX = X.dot(X)
+        XTX = X.T.dot(X)
     sig2  = sigma * sigma
     tau2  = tau * tau
     
