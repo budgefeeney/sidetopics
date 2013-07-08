@@ -152,7 +152,7 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         
         #
         # nu_dk
-#        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
+        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
 
         
         #
@@ -165,6 +165,7 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         
         #
         # s_d
+        # TODO Eventually this just overflows
 #        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
 
         #
