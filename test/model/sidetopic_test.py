@@ -62,7 +62,7 @@ class StmTest(unittest.TestCase):
         
         # Create our (sparse) features X, then our topic proportions tpcs
         # then our word counts W
-        X = np.array([1 if rd.random() > 0.3 else 0 for _ in xrange(D*F)]).reshape(D,F)
+        X = np.array([1 if rd.random() < 0.3 else 0 for _ in xrange(D*F)]).reshape(D,F)
         X = ssp.csr_matrix(X)
         
         tpcs = normalizerows (np.exp(X.dot(A)))
