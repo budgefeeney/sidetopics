@@ -172,16 +172,9 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         #
         # vocab
         #
-        #     z_dvk  = 1/S phi_kv * exp(lmda[d,k])
-        #
-        #     phi_kv = 1/Z sum_d w_dv * z_dvk
-        #            = 1/Z sum_d w_dv * 1/S phi_kv * exp(lmda[d,k])
-        #            = 1/Z 1/S sum_d w_dv * phi_kv * exp(lmda[d,k])
-        #            = phi_kv * 1/Z 1/S sum_d w_dv * exp(lmda[d,k])
-        #            = phi_kv * 1/Z sum_d w_dv * exp(lmda[d,k])       (as 1/S gets embedded in 1/Z)
-        # 
-        # 
-#        vocab *= normalizerows (np.exp(lmda).T.dot(W))
+        # TODO, since vocab is in the RHS, is there any way to optimize this?
+        Z = rowwise_softmax (lmda[:,:,np.newaxis] + (np.log(vocab))[np.newaxis,:,:]) # Z is DxKxV
+        vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
 
         #
         # U
