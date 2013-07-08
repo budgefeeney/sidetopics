@@ -41,10 +41,12 @@ def negJakkola(vec):
     '''
     The negated version of the Jakkola expression which was used in Bourchard's NIPS
     2007 softmax bound
+    
+    CTM Source reads: y = .5./x.*(1./(1+exp(-x)) -.5);
     '''
     
     # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
-    return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
+    return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
 
 def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     '''
@@ -61,10 +63,10 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
         vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
-        return 1./(2*vec) * (1./(1 - np.exp(-vec)) - 0.5)
+        return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
     else:
         mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
-        return 1./(2 * mat) * (1./(1 - np.exp(-mat)) - 0.5)
+        return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
 
 def train(modelState, X, W, iterations=100, epsilon=0.001):
     '''
@@ -167,7 +169,7 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
 
         #
         # xi_dk
-#        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
+        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
         
         #
         # vocab
