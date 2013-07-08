@@ -68,7 +68,7 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
         mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
 
-def train(modelState, X, W, iterations=100, epsilon=0.001):
+def train(modelState, X, W, iterations=1000, epsilon=0.001):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -142,6 +142,9 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         
         #
         # lmda_dk
+        if iteration == 267:
+            print ("Boo")
+            
         lnVocab = np.log(vocab)
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
@@ -271,8 +274,10 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     prob1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
     prob1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
     prob1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
+    
     prob1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
-    prob1 -= np.sum(W * np.einsum('dkt->dt', Z * np.log(Z)))
+    prob1 -= np.sum(W * np.einsum('dkt->dt', safe_x_log_x(Z)))
+    
     prob1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
     prob1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
     prob1 -= np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
@@ -378,3 +383,9 @@ def rowwise_softmax (matrix):
     matrix   /= row_sums[:, np.newaxis]
     return matrix
 
+# TODO: How slow is this...
+def safe_x_log_x(x):
+    x          = np.asarray(x)
+    log_x      = np.zeros_like(x)
+    log_x[x>0] = np.log(x[x>0])
+    return x * log_x
