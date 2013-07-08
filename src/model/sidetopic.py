@@ -136,9 +136,9 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         # TODO, since only tau2sig2 changes at each step, would it be possible just to
         # amend the old inverse?
         # TODO Use sparse inverse
-#        varA = la.inv (tau2sig2 * XTX + np.eye(F))
-#        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
-#        XA   = X.dot(A)
+        varA = la.inv (tau2sig2 * XTX + np.eye(F))
+        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
+        XA   = X.dot(A)
         
         #
         # lmda_dk
@@ -181,7 +181,7 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
 
         #
         # U
-#        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
         
         #
         # sigma
