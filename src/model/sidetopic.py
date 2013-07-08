@@ -274,7 +274,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     prob1 -= np.sum(W * np.einsum('dkt->dt', Z * np.log(Z)))
     prob1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
     prob1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    prob1 - np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
+    prob1 -= np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
         
     # prob2 is E[p(Theta|A)]
     if XA is None:
