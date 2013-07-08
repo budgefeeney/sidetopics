@@ -117,35 +117,57 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         halfSig2 = 1./(sigma*sigma)
         tau2sig2 = (tau * tau) / (sigma * sigma)
         
+        
         #
-        # Inference Step 1: Update local parameters given model parameters
+        # E-Step
+        #   Model dists are q(Theta|A;Lambda;nu) q(A|V) q(V)
+        #   Where lambda is the posterior mean of theta.
         #
         
         #
-        # lmda_dk. rho is DxK
+        # V, varV
+#        varV = la.inv (tsqIP + U.T.dot(U))
+#        V    = varV.dot(U.T).dot(A)
+        
+        #
+        # A, varA
+        # TODO, since only tau2sig2 changes at each step, would it be possible just to
+        # amend the old inverse?
+        # TODO Use sparse inverse
+#        varA = la.inv (tau2sig2 * XTX + np.eye(F))
+#        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
+#        XA   = X.dot(A)
+        
+        #
+        # lmda_dk
         lnVocab = np.log(vocab)
-        Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+        Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
             * np.einsum('dt,dkt->dk', W, Z)
         
         rhs  = docLen[:,np.newaxis] * rho + halfSig2 * X.dot(A)
-        lmda = 1. / (docLen[:,np.newaxis] * lxi + halfSig2) * rhs
+        lmda = 1. / (docLen[:,np.newaxis] * lxi + halfSig2) * rhs    
         
         #
         # nu_dk
-        nu = 2 * docLen[:, np.newaxis] * lxi + halfSig2
+#        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
+
         
         #
-        # xi_dk
-        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
+        # M-Step
+        #    Parameters for the softmax bound: lxi and s
+        #    The projection used for A: U
+        #    The vocabulary : vocab
+        #    The variances: tau, sigma
+        #
         
         #
         # s_d
-#        s = (lxi * lmda + K/4.).sum(axis = 1) / lxi.sum(axis=1)
-        
+#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+
         #
-        # Inference Step 2: Update model parameters given local parameters
-        # 
+        # xi_dk
+#        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
         
         #
         # vocab
@@ -160,24 +182,10 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         # 
         # 
 #        vocab *= normalizerows (np.exp(lmda).T.dot(W))
-        
-        #
-        # V, varV
-        varV = la.inv (tsqIP + U.T.dot(U))
-        V    = varV.dot(U.T).dot(A)
-        
-        #
-        # A, varA
-        # TODO, since only tau2sig2 changes at each step, would it be possible just to
-        # amend the old inverse?
-        # TODO Use sparse inverse
-#        varA = la.inv (tau2sig2 * XTX + np.eye(F,F)) # Approx inverse using LU decomp and the SuperLU library
-#        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
-#        XA   = X.dot(A)
-        
+
         #
         # U
-        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+#        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
         
         #
         # sigma
@@ -191,11 +199,11 @@ def train(modelState, X, W, iterations=100, epsilon=0.001):
         #    Equivalent to \frac{1}{KF} \left( tr(\Sigma_A)tr(\Omega_A) + tr(\Sigma_V U U^{T})tr(\Omega_V) + tr ((M_A - U M_V)^{T} (M_A - U M_V)) \right)
         #
         varA_U = varA.dot(U)
-#        tau1 = np.trace(varA)*K*tsq
-#        tau2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
-#        tau3 = np.sum((A - U.dot(V)) ** 2)
+#        tau_term1 = np.trace(varA)*K*tsq
+#        tau_term2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
+#        tau_term3 = np.sum((A - U.dot(V)) ** 2)
 #        
-#        tau = 1./(K*F) * (tau1 + tau2 + tau3)
+#        tau = 1./(K*F) * (tau_term1 + tau_term2 + tau_term3)
         
         elbo = varBound ( \
             VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
@@ -344,7 +352,7 @@ def newVbModelState(K, F, T, P):
     V     = rd.random((P, K))
     varV  = np.identity(P, np.float32)
     U     = rd.random((F, P))
-    A     = np.dot(U, V)
+    A     = U.dot(V)
     varA  = np.identity(F, np.float32)
     tau   = 0.1
     sigma = 0.1
