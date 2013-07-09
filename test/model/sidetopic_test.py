@@ -76,7 +76,7 @@ class StmTest(unittest.TestCase):
         # Now finally try to train the model
         #
         modelState = newVbModelState(K, F, T, P)
-        (trainedState, queryState) = train (modelState, X, W)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1)
         
         print("Sum of squared difference between true and estimated A is %f" % (np.sum((A - trainedState.A)**2)))
         

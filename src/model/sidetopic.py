@@ -32,6 +32,10 @@ import sys
 #      us from doing a FxF inverse at every iteration. 
 # TODO varA is a huge, likely dense, FxF matrix
 # TODO varV is a big, dense, PxP matrix...
+# TODO Storing the vocab twice (vocab and lnVocab) is expensive
+# TODO How slow is safe_log?
+# TODO Eventually s just overflows
+# TODO Sigma update causes NaNs in the variational-bound
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
@@ -70,7 +74,7 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
         mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
 
-def train(modelState, X, W, iterations=1000, epsilon=0.001):
+def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -111,8 +115,6 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
     
     XA = X.dot(A)
     for iteration in xrange(iterations):
-        # Poor man's logging
-        print("Iteration %4d  \t" % iteration),
         
         # Save repeated computation
         tsq      = tau * tau;
@@ -132,6 +134,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         # V, varV
         varV = la.inv (tsqIP + U.T.dot(U))
         V    = varV.dot(U.T).dot(A)
+        _quickPrintElbo ("E-Step: q(V)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # A, varA
@@ -141,12 +144,10 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         varA = la.inv (tau2sig2 * XTX + np.eye(F))
         A    = varA.dot (U.dot(V) + X.T.dot(lmda))
         XA   = X.dot(A)
-        
+        _quickPrintElbo ("E-Step: q(A|V)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+       
         #
         # lmda_dk
-            
-        # TODO Storing the vocab twice is expensive
-        # TODO How slow is safe_log?
         lnVocab = safe_log (vocab)
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
@@ -155,10 +156,13 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         rhs  = docLen[:,np.newaxis] * rho + halfSig2 * X.dot(A)
         lmda = 1. / (docLen[:,np.newaxis] * lxi + halfSig2) * rhs    
         
+        _quickPrintElbo ("E-Step: q(Theta|A;lamda)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        
         #
         # nu_dk
-        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
+#        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
 
+        _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # M-Step
@@ -170,13 +174,15 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         #
         # s_d
-        # TODO Eventually this just overflows
-        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-        print ("  Avg s = %d   " % s.mean()),
+#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+#        print ("  Avg s = %d   " % s.mean()),
+        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        
 
         #
         # xi_dk
         lxi = negJakkolaOfDerivedXi(lmda, nu, s)
+        _quickPrintElbo ("M-Step: max xi", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # vocab
@@ -184,16 +190,17 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         # TODO, since vocab is in the RHS, is there any way to optimize this?
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
         vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
-
+        _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        
         #
         # U
         U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
         #    Equivalent to \frac{1}{DK} \left( \sum_d (\sum_k nu_{dk}) + tr(\Omega_A) x_d^{T} \Sigma_A x_d + (\lambda - A^{T} x_d)^{T}(\lambda - A^{T} x_d) \right)
         #
-        # TODO This update causes NaNs in the variational-bound
 #        sigma = 1./(D*K) * (np.sum(nu) + D*K * tsq * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
         
         #
@@ -207,16 +214,32 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
 #        
 #        tau = 1./(K*F) * (tau_term1 + tau_term2 + tau_term3)
         
-        elbo = varBound ( \
-            VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
-            VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
-            X, W, Z, lnVocab, varA_U, XA, XTX)
-            
-        print ("ELBO %f" % elbo)
+        if (logInterval > 0) and (iteration % logInterval == 0):
+            elbo = varBound ( \
+                VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
+                VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
+                X, W, Z, lnVocab, varA_U, XA, XTX)
+                
+            print ("Iteration %5d  ELBO %f" % (iteration, elbo))
         
         
     return (VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
             VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
+    
+def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen):
+    '''
+    Calculates the variational lower bound and prints it to stdout,
+    prefixed with a tabl and the given updateMsg
+    
+    See varBound() for a full description of all parameters
+    
+    Obviously this is a very ugly inefficient method.
+    '''
+    elbo = varBound ( \
+                      VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
+                      VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
+                      X, W)
+    print ("\t Update %-20s  ELBO : %f" % (updateMsg, elbo))
 
 def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
     '''
@@ -260,12 +283,12 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
     #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
     xi = np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)
-    print "  Avg of xi is %f" % xi.mean(), 
     
-    if Z is None:
-        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
     if lnVocab is None:
         lnVocab = np.log(vocab)
+    if Z is None:
+        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+   
     
     # lnProb1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
     # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
@@ -323,10 +346,8 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
     
     result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
-    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
-        print ("Whoopsie - lnProb > 0")
-#    if (ent1 < 0) or (ent2 < 0) or (ent3 < 0):
-#        print ("Whoopsie - ent < 0")
+#    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
+#        print ("Whoopsie - lnProb > 0")
     
     return result
     
@@ -408,4 +429,5 @@ def safe_log (x, out = None):
         out[:] = 0
     
     out[x>0] = np.log(x[x>0])
+    out[x<=0] = np.log(1E-300)
     return out
