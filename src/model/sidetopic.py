@@ -274,7 +274,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     
     lnProb1 = 0.0
     lnProb1 -= np.sum(docLenLmdaLxi * lmda)
-    lnProb1 -= np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
+    lnProb1 -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
     lnProb1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
     lnProb1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
     lnProb1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
@@ -317,16 +317,16 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     ent1 = 0.5 * np.sum (np.log(nu * nu))
     
     # ent2 is H[q(A|V)]
-    ent2 = 0.5 * K * log (la.det(varA)) + F * log (tau2)
+    ent2 = 0.5 * F * K + log(2 * pi * e) + 0.5 * K * log (la.det(varA)) + 0.5 * F * K * log (tau2)
     
     # ent3 is H[q(V)]
-    ent3 = 0.5 * K * log (la.det(varV)) + P * log (tau2)
+    ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
     
     result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
     if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
         print ("Whoopsie - lnProb > 0")
-    if (ent1 < 0) or (ent2 < 0) or (ent3 < 0):
-        print "Whoopsie - ent < 0"
+#    if (ent1 < 0) or (ent2 < 0) or (ent3 < 0):
+#        print ("Whoopsie - ent < 0")
     
     return result
     
