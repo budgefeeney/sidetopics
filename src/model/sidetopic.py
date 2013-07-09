@@ -10,6 +10,8 @@ Created on 29 Jun 2013
 '''
 
 from math import log
+from math import pi
+from math import e
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
@@ -142,10 +144,10 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         
         #
         # lmda_dk
-        if iteration == 267:
-            print ("Boo")
             
-        lnVocab = np.log(vocab)
+        # TODO Storing the vocab twice is expensive
+        # TODO How slow is safe_log?
+        lnVocab = safe_log (vocab)
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
             * np.einsum('dt,dkt->dk', W, Z)
@@ -169,7 +171,8 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         #
         # s_d
         # TODO Eventually this just overflows
-#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+        print ("  Avg s = %d   " % s.mean()),
 
         #
         # xi_dk
@@ -179,7 +182,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001):
         # vocab
         #
         # TODO, since vocab is in the RHS, is there any way to optimize this?
-        Z = rowwise_softmax (lmda[:,:,np.newaxis] + (np.log(vocab))[np.newaxis,:,:]) # Z is DxKxV
+        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
         vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
 
         #
@@ -257,32 +260,33 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
     #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
     xi = np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)
+    print "  Avg of xi is %f" % xi.mean(), 
     
     if Z is None:
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
     if lnVocab is None:
         lnVocab = np.log(vocab)
     
-    # prob1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
+    # lnProb1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
     # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
     # will discard additive constants, so strictly speaking none of them are equalities
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
     
-    prob1 = 0.0
-    prob1 -= np.sum(docLenLmdaLxi * lmda)
-    prob1 -= np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
-    prob1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
-    prob1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
-    prob1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
+    lnProb1 = 0.0
+    lnProb1 -= np.sum(docLenLmdaLxi * lmda)
+    lnProb1 -= np.sum(docLen[:, np.newaxis] * nu   * nu   * lxi)
+    lnProb1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
+    lnProb1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
+    lnProb1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
     
-    prob1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
-    prob1 -= np.sum(W * np.einsum('dkt->dt', safe_x_log_x(Z)))
+    lnProb1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
+    lnProb1 -= np.sum(W * np.einsum('dkt->dt', safe_x_log_x(Z)))
     
-    prob1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
-    prob1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    prob1 -= np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
+    lnProb1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
+    lnProb1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
+    lnProb1 -= np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
         
-    # prob2 is E[p(Theta|A)]
+    # lnProb2 is E[p(Theta|A)]
     if XA is None:
         XA = X.dot(A)
     if XTX is None:
@@ -290,34 +294,41 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     sig2  = sigma * sigma
     tau2  = tau * tau
     
-    prob2 = -0.5 * D * K * log (sig2) \
+    lnProb2 = -0.5 * D * K * log (sig2) \
           -  0.5 / sig2 * (np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
     
-    # prob3 is E[p(A|V)]
+    # lnProb3 is E[p(A|V)]
     if varA_U is None:
         varA_U = varA.dot(U)
         
-    prob3 = -0.5 * K * F * log(tau2) \
+    lnProb3 = -log (2 * pi * e) \
+          -0.5 * K * F * log(tau2) \
           - 0.5 / tau2 * \
           ( \
           np.trace(varA)*K*tau2 \
-          + np.sum(varA_U * U) * K * tau2 \
-          + np.sum(A - U.dot(V) ** 2) \
+          + np.sum(varA_U * U) * K * tau2  \
+          + np.sum((A - U.dot(V)) ** 2) \
           )
           
-    # prob4 is E[p(V)]
-    prob4 = -0.5 * (np.trace(varV) * K * tau2 + np.sum(V*V))
+    # lnProb4 is E[p(V)]
+    lnProb4 = -0.5 * (np.trace(varV) * K * tau2 + np.sum(V*V))
     
     # ent1 is H[q(Theta)]
     ent1 = 0.5 * np.sum (np.log(nu * nu))
     
     # ent2 is H[q(A|V)]
-    ent2 = 0.5 * K * log (la.det(varA)) - F * log (tau2)
+    ent2 = 0.5 * K * log (la.det(varA)) + F * log (tau2)
     
     # ent3 is H[q(V)]
-    ent3 = 0.5 * K * log (la.det(varV)) - P * log (tau2)
+    ent3 = 0.5 * K * log (la.det(varV)) + P * log (tau2)
     
-    return prob1 + prob2 + prob3 + prob4 + ent1 + ent2 + ent3
+    result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
+    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
+        print ("Whoopsie - lnProb > 0")
+    if (ent1 < 0) or (ent2 < 0) or (ent3 < 0):
+        print "Whoopsie - ent < 0"
+    
+    return result
     
 
 VbSideTopicModelState = namedtuple ( \
@@ -389,3 +400,12 @@ def safe_x_log_x(x):
     log_x      = np.zeros_like(x)
     log_x[x>0] = np.log(x[x>0])
     return x * log_x
+
+def safe_log (x, out = None):
+    if out is None:
+        out = np.zeros_like(x)
+    else:
+        out[:] = 0
+    
+    out[x>0] = np.log(x[x>0])
+    return out
