@@ -160,7 +160,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # nu_dk
-        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
+        nu = np.sqrt(2. * docLen[:, np.newaxis] * lxi + halfSig2)
 
         _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
@@ -241,7 +241,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
                       X, W)
     
     
-    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), xi.mean(), s.mean()))
+    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), nu.mean(), xi.mean(), s.mean()))
 
 def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
     '''
