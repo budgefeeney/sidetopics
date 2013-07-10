@@ -56,8 +56,8 @@ def negJakkola(vec):
 
 def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     '''
-    The negated version of the Jakkola expression which was used in Bourchard's NIPS
-    2007 softmax bound calculating using the estimate of xi using lambda, nu, and s
+    The negated version of the Jakkola expression which was used in Bouchard's NIPS '07
+    softmax bound calculated using an estimate of xi derived from lambda, nu, and s
     
     lmda - the DxK matrix of means of the topic distribution for each document
     nu   - the DxK the vector of variances of the topic distribution
@@ -91,7 +91,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
     
-    s      - A D-dimensional vector describing offset in our bound on the true value of ln sum_k e^theta_dk 
+    s      - A D-dimensional vector describing the offset in our bound on the true value of ln sum_k e^theta_dk 
     lxi    - A DxK matrix used in the above bound, containing the negative Jakkola function applied to the 
              quadratic term xi
     lambda - the topics we've inferred for the current batch of documents
@@ -160,7 +160,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # nu_dk
-#        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
+        nu = 2. * docLen[:, np.newaxis] * lxi + halfSig2
 
         _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
@@ -174,8 +174,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # s_d
-#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-#        print ("  Avg s = %d   " % s.mean()),
+        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
         _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
 
@@ -224,7 +223,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         
     return (VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
-            VbSideTopicQueryState(lmda, nu, lxi, s, docLen))
+            VbSideTopicQueryState (lmda, nu, lxi, s, docLen))
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen):
     '''
@@ -235,11 +234,14 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
+    xi = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
     elbo = varBound ( \
                       VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
                       VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
                       X, W)
-    print ("\t Update %-20s  ELBO : %f" % (updateMsg, elbo))
+    
+    
+    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), xi.mean(), s.mean()))
 
 def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
     '''
@@ -404,7 +406,7 @@ def rowwise_softmax (matrix):
     '''
     Assumes each row of the given matrix is an unnormalized distribution and
     uses the softmax metric to normalize it. This additionally uses some
-    scaling to ensure that we never underflow.
+    scaling to ensure that we never overflow.
     '''
     # TODO Just how compute intense is this method call?
     
