@@ -37,6 +37,8 @@ import sys
 # TODO Eventually s just overflows
 # TODO Sigma update causes NaNs in the variational-bound
 
+ALMOST_ZERO = 1E-300
+
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
     'lmda nu lxi s docLen'\
@@ -302,8 +304,8 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     lnProb1 = 0.0
     lnProb1 -= np.sum(docLenLmdaLxi * lmda)
     lnProb1 -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
-    lnProb1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
     lnProb1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
+    lnProb1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
     lnProb1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
     
     lnProb1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
@@ -322,15 +324,15 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     tau2  = tau * tau
     
     lnProb2 = -0.5 * D * K * log (sig2) \
-          -  0.5 / sig2 * (np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
+            -  0.5 / sig2 * (np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
     
     # lnProb3 is E[p(A|V)]
     if varA_U is None:
         varA_U = varA.dot(U)
         
-    lnProb3 = -log (2 * pi * e) \
+    lnProb3 = -0.5 * K * F * log (2 * pi) \
           -0.5 * K * F * log(tau2) \
-          - 0.5 / tau2 * \
+          -0.5 / tau2 * \
           ( \
           np.trace(varA)*K*tau2 \
           + np.sum(varA_U * U) * K * tau2  \
@@ -350,8 +352,11 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
     
     result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
-#    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
-#        print ("Whoopsie - lnProb > 0")
+    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
+        print ("Whoopsie - lnProb > 0")
+    
+    if result > 100:
+        print ("Well this is just ridiculous")
     
     return result
     
@@ -421,9 +426,10 @@ def rowwise_softmax (matrix):
 
 # TODO: How slow is this...
 def safe_x_log_x(x):
-    x          = np.asarray(x)
-    log_x      = np.zeros_like(x)
-    log_x[x>0] = np.log(x[x>0])
+    x           = np.asarray(x)
+    log_x       = np.ndarray(x.shape)
+    log_x[x>0]  = np.log(x[x>0])
+    log_x[x<=0] = np.log(ALMOST_ZERO)
     return x * log_x
 
 def safe_log (x, out = None):
@@ -433,5 +439,5 @@ def safe_log (x, out = None):
         out[:] = 0
     
     out[x>0] = np.log(x[x>0])
-    out[x<=0] = np.log(1E-300)
+    out[x<=0] = np.log(ALMOST_ZERO)
     return out
