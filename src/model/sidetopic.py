@@ -160,7 +160,8 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # nu_dk
-        nu = np.sqrt(2. * docLen[:, np.newaxis] * lxi + halfSig2)
+        # TODO Double check this again...
+        nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + halfSig2)
 
         _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
