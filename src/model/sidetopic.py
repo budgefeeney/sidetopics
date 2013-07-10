@@ -148,40 +148,6 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
        
         #
         # lmda_dk
-                
-        # For debugging purposes we do this twice, first in (very slow) scalar form, second vectorized
-        Z_manual = np.zeros((D,T,K))
-        for d in xrange(D):
-            for t in xrange(T):
-                denom = 0
-                for k in xrange(K):
-                    num      = vocab[k,t] * np.exp(lmda[d,k])
-                    Z_manual[d,t,k] = num
-                    denom   += num
-                for k in xrange(K):
-                    Z_manual[d,t,k] /= denom
-        
-        lmda_manual = np.zeros((D,K))
-        for d in xrange(D):
-            Dd  = 2 * np.diag(lxi[d,:])
-            Nd  = docLen[d]
-            lhs_inner = Nd * Dd + 1./(sigma*sigma) * np.eye(K)
-            lhs = la.inv(lhs_inner)
-            wz  = np.zeros((K,))
-            for k in xrange(K):
-                for t in xrange(T):
-                    wz[k] += W[d,t] * Z_manual[d,t,k]
-            rhod = 2 * s[d] * lxi[d,:] - 0.5 + wz / Nd
-            
-            x  = np.zeros((F,))
-            Xd = X[d,:]
-            x[Xd.indices] = Xd.data
-            rhs = Nd * rhod + A.T.dot(x)/(sigma * sigma)
-            lmda_manual[d,:] = lhs.dot(rhs)
-        
-        
-        # The vectorized version
-        
         lnVocab = safe_log (vocab)
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
