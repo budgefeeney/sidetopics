@@ -150,13 +150,14 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         # lmda_dk
         lnVocab = safe_log (vocab)
         Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
-        rho = 2 * s[:,np.newaxis] * lxi - 0.5 + 1./docLen[:,np.newaxis] \
-            * np.einsum('dt,dkt->dk', W, Z)
+        rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
+            + np.einsum('dt,dkt->dk', W, Z) / docLen[:,np.newaxis]
         
         rhs  = docLen[:,np.newaxis] * rho + halfSig2 * X.dot(A)
-        lmda = 1. / (docLen[:,np.newaxis] * lxi + halfSig2) * rhs    
+        lmda = 1. / (docLen[:,np.newaxis] * 2 * lxi + halfSig2) * rhs    
         
         _quickPrintElbo ("E-Step: q(Theta|A;lamda)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+              
         
         #
         # nu_dk
