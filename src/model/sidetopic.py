@@ -21,6 +21,8 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import sys
 
+from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
+
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
 # TODO Make random() stuff predictable, either by incorporating a RandomState instance into model parameters
@@ -37,7 +39,6 @@ import sys
 # TODO Eventually s just overflows
 # TODO Sigma update causes NaNs in the variational-bound
 
-ALMOST_ZERO = 1E-300
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
@@ -73,7 +74,7 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
         vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
     else:
-        mat = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
+        mat = deriveXi(lmda, nu, s)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
 
 def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
@@ -102,14 +103,14 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
        
-    # We'll need the total word count per document
+    # We'll need the total word count per doc, and total count of docs
     docLen = W.sum(axis=1)
+    D      = len(docLen)
     
     # No need to recompute this every time
     XTX = X.T.dot(X)
     
     # Assign initial values to the query parameters
-    D    = np.size(W, 0)
     lmda = rd.random((D, K))
     nu   = np.ones((D,K), np.float32)
     s    = np.zeros((D,))
@@ -124,7 +125,6 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         trTsqIK  = K * tsq
         halfSig2 = 1./(sigma*sigma)
         tau2sig2 = (tau * tau) / (sigma * sigma)
-        
         
         #
         # E-Step
@@ -238,7 +238,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
-    xi = np.sqrt(lmda ** 2 - 2 * lmda * s[:, np.newaxis] + (s**2)[:, np.newaxis] + nu**2)
+    xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
                       VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
                       VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
@@ -288,10 +288,10 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
 
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
     #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
-    xi = np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)
+    xi = deriveXi (lmda, nu, s)
     
     if lnVocab is None:
-        lnVocab = np.log(vocab)
+        lnVocab = safe_log(vocab)
     if Z is None:
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
    
@@ -313,7 +313,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     
     lnProb1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
     lnProb1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    lnProb1 -= np.sum(docLen[:,np.newaxis] * np.log (1. + np.exp(xi)))
+    lnProb1 -= np.sum(docLen[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
         
     # lnProb2 is E[p(Theta|A)]
     if XA is None:
@@ -355,11 +355,17 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
         print ("Whoopsie - lnProb > 0")
     
-    if result > 100:
-        print ("Well this is just ridiculous")
+#    if result > 100:
+#        print ("Well this is just ridiculous")
     
     return result
-    
+ 
+def deriveXi (lmda, nu, s):
+    '''
+    Derives a value for xi. This is not normally needed directly, as we
+    normally just work with the negJakkola() function of it
+    '''
+    return np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)   
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
@@ -388,7 +394,7 @@ def newVbModelState(K, F, T, P):
              tau^2 I_K
     U      - the F x P projection matrix, such that A = UV
     sigma  - the variance in the estimation of the topic memberships lambda ~ N(A'x, sigma^2I)
-    vocab  - The K x V matrix of voabularly distributions.
+    vocab  - The K x V matrix of vocabulary distributions.
     '''
     
     V     = rd.random((P, K))
@@ -424,20 +430,3 @@ def rowwise_softmax (matrix):
     matrix   /= row_sums[:, np.newaxis]
     return matrix
 
-# TODO: How slow is this...
-def safe_x_log_x(x):
-    x           = np.asarray(x)
-    log_x       = np.ndarray(x.shape)
-    log_x[x>0]  = np.log(x[x>0])
-    log_x[x<=0] = np.log(ALMOST_ZERO)
-    return x * log_x
-
-def safe_log (x, out = None):
-    if out is None:
-        out = np.zeros_like(x)
-    else:
-        out[:] = 0
-    
-    out[x>0] = np.log(x[x>0])
-    out[x<=0] = np.log(ALMOST_ZERO)
-    return out
