@@ -352,8 +352,8 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
     
     result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
-    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
-        print ("Whoopsie - lnProb > 0")
+#    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
+#        print ("Whoopsie - lnProb > 0")
     
 #    if result > 100:
 #        print ("Well this is just ridiculous")
