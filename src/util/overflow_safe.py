@@ -53,7 +53,7 @@ def _very_safe_log_one_plus_exp_of (x):
     http://www.codeproject.com/Articles/25294/Avoiding-Overflow-Underflow-and-Loss-of-Precision
     
     Params
-    x - A numpy buffer, assumes to have double-prescision floating point numbers
+    x - A numpy buffer, assumes to have double-precision floating point numbers
         (THIS BREAKS FOR FLOATING POINT!)
     
     Returns
