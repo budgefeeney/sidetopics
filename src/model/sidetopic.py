@@ -35,8 +35,8 @@ from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 # TODO varA is a huge, likely dense, FxF matrix
 # TODO varV is a big, dense, PxP matrix...
 # TODO Storing the vocab twice (vocab and lnVocab) is expensive
-# TODO How slow is safe_log?
-# TODO Eventually s just overflows
+# TODO How slow is safe_log and friends?
+# TODO s Eventually s just overflows
 # TODO Sigma update causes NaNs in the variational-bound
 
 
@@ -76,8 +76,30 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     else:
         mat = deriveXi(lmda, nu, s)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
+    
+    
+def jakkolaOfDerivedXi(lmda, nu, s, d = None):
+    '''
+    The standard version of the Jakkola expression which was used in Bouchard's NIPS '07
+    softmax bound calculated using an estimate of xi derived from lambda, nu, and s
+    
+    lmda - the DxK matrix of means of the topic distribution for each document
+    nu   - the DxK the vector of variances of the topic distribution
+    s    - The Dx1 vector of offsets.
+    d    - the document index (for lambda and nu). If not specified we construct
+           the full matrix of A(xi_dk)
+    '''
+    
+    # COPY AND PASTE BETWEEN THIS AND negJakkola()
+    if d is not None:
+        vec = (np.sqrt (lmda[d,:] ** 2 -2 *lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
+        return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
+    else:
+        mat = deriveXi(lmda, nu, s)
+        return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
-def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
+
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -112,9 +134,9 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
     
     # Assign initial values to the query parameters
     lmda = rd.random((D, K))
-    nu   = np.ones((D,K), np.float32)
+    nu   = np.ones((D,K), np.float64)
     s    = np.zeros((D,))
-    lxi  = negJakkola (np.ones((D, K), np.float32))
+    lxi  = negJakkola (np.ones((D, K), np.float64))
     
     XA = X.dot(A)
     for iteration in xrange(iterations):
@@ -122,15 +144,15 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         # Save repeated computation
         tsq      = tau * tau;
         tsqIP    = tsq * np.eye(P)
-        trTsqIK  = K * tsq
+        trTsqIK  = K * tsq # trace of the matrix tau * tau * np.eye(K)
         halfSig2 = 1./(sigma*sigma)
         tau2sig2 = (tau * tau) / (sigma * sigma)
         
-        #
+        # =============================================================
         # E-Step
         #   Model dists are q(Theta|A;Lambda;nu) q(A|V) q(V)
         #   Where lambda is the posterior mean of theta.
-        #
+        # =============================================================
         
         #
         # V, varV
@@ -151,7 +173,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         #
         # lmda_dk
         lnVocab = safe_log (vocab)
-        Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
+        Z   = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + np.einsum('dt,dkt->dk', W, Z) / docLen[:,np.newaxis]
         
@@ -168,37 +190,38 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
 
         _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
-        #
+        # =============================================================
         # M-Step
         #    Parameters for the softmax bound: lxi and s
         #    The projection used for A: U
         #    The vocabulary : vocab
         #    The variances: tau, sigma
-        #
+        # =============================================================
         
         #
         # s_d
-        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
-        
+#         s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+#         _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#         
 
         #
         # xi_dk
-        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
+        lxi = jakkolaOfDerivedXi(lmda, nu, s)
         _quickPrintElbo ("M-Step: max xi", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # vocab
         #
         # TODO, since vocab is in the RHS, is there any way to optimize this?
-        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
-        vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
-        _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+#         vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
+#         _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # U
-        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
-        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        # U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))  # Assumes that the variance is symmetric...
+#         U = 2 * A.dot(V.T)
+#         _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
@@ -398,10 +421,10 @@ def newVbModelState(K, F, T, P):
     '''
     
     V     = rd.random((P, K))
-    varV  = np.identity(P, np.float32)
+    varV  = np.identity(P, np.float64)
     U     = rd.random((F, P))
     A     = U.dot(V)
-    varA  = np.identity(F, np.float32)
+    varA  = np.identity(F, np.float64)
     tau   = 0.1
     sigma = 0.1
     
