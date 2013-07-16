@@ -197,8 +197,8 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # U
-        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
-        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+#        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
@@ -238,6 +238,9 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
+#    if iteration % 1000 != 0:
+#        return
+    
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
                       VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
@@ -424,9 +427,8 @@ def rowwise_softmax (matrix):
     # TODO Just how compute intense is this method call?
     
     row_maxes = matrix.max(axis=1) # Underflow makes sense i.e. Pr(K=k) = 0. Overflow doesn't, i.e Pr(K=k) = \infty
-    matrix  -= row_maxes[:, np.newaxis]
-    matrix   = np.exp(matrix)
-    row_sums = matrix.sum(axis=1)
-    matrix   /= row_sums[:, np.newaxis]
-    return matrix
+    result    = np.exp(matrix - row_maxes[:, np.newaxis])
+    row_sums  = result.sum(axis=1)
+    result   /= row_sums[:, np.newaxis]
+    return result
 
