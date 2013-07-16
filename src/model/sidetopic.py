@@ -151,7 +151,7 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         #
         # lmda_dk
         lnVocab = safe_log (vocab)
-        Z    = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
+        Z   = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + np.einsum('dt,dkt->dk', W, Z) / docLen[:,np.newaxis]
         
@@ -178,8 +178,8 @@ def train(modelState, X, W, iterations=1000, epsilon=0.001, logInterval = 0):
         
         #
         # s_d
-        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+#        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
 
         #
@@ -238,8 +238,8 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
-#    if iteration % 1000 != 0:
-#        return
+    if iteration % 100 != 0:
+        return
     
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
