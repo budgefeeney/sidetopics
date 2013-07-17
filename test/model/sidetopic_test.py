@@ -7,7 +7,7 @@ Created on 3 Jul 2013
 @author: bryanfeeney
 '''
 import unittest
-from model.sidetopic import newVbModelState, train, normalizerows
+from model.sidetopic import newVbModelState, train, normalizerows, rowwise_softmax
 
 import numpy as np
 import scipy.linalg as la
@@ -46,7 +46,7 @@ class StmTest(unittest.TestCase):
         cdf = [sum(S[:f]) for f in xrange(1,F+1)]
         P = len ([i for i in xrange(F) if cdf[i] > 0.75 * sum(S)])
         
-        if P == 8: raise ValueError("Can't reduce the dimension")
+        if P == F: raise ValueError("Can't reduce the dimension")
         
         U = U[:,:P]; 
         V = np.ndarray((P,K))
@@ -63,9 +63,11 @@ class StmTest(unittest.TestCase):
         # Create our (sparse) features X, then our topic proportions tpcs
         # then our word counts W
         X = np.array([1 if rd.random() < 0.3 else 0 for _ in xrange(D*F)]).reshape(D,F)
-        X = ssp.csr_matrix(X)
+#        X = ssp.csr_matrix(X)
         
-        tpcs = normalizerows (np.exp(X.dot(A)))
+        lmda = X.dot(A)
+        print ("lmda.mean() = %f" % (lmda.mean()))
+        tpcs = rowwise_softmax (lmda)
         
         docLens = rd.poisson(avgWordsPerDoc, (D,))
         W = tpcs.dot(vocab)

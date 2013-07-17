@@ -35,8 +35,8 @@ from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 # TODO varA is a huge, likely dense, FxF matrix
 # TODO varV is a big, dense, PxP matrix...
 # TODO Storing the vocab twice (vocab and lnVocab) is expensive
-# TODO How slow is safe_log and friends?
-# TODO s Eventually s just overflows
+# TODO How slow is safe_log?
+# TODO Eventually s just overflows
 # TODO Sigma update causes NaNs in the variational-bound
 
 
@@ -200,9 +200,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         
         #
         # s_d
-#         s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-#         _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
-#         
+#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+#        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        
 
         #
         # xi_dk
@@ -219,9 +219,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         
         #
         # U
-        # U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))  # Assumes that the variance is symmetric...
-#         U = 2 * A.dot(V.T)
-#         _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+#        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
@@ -261,6 +260,9 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
+    if iteration % 100 != 0:
+        return
+    
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
                       VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
@@ -447,9 +449,8 @@ def rowwise_softmax (matrix):
     # TODO Just how compute intense is this method call?
     
     row_maxes = matrix.max(axis=1) # Underflow makes sense i.e. Pr(K=k) = 0. Overflow doesn't, i.e Pr(K=k) = \infty
-    matrix  -= row_maxes[:, np.newaxis]
-    matrix   = np.exp(matrix)
-    row_sums = matrix.sum(axis=1)
-    matrix   /= row_sums[:, np.newaxis]
-    return matrix
+    result    = np.exp(matrix - row_maxes[:, np.newaxis])
+    row_sums  = result.sum(axis=1)
+    result   /= row_sums[:, np.newaxis]
+    return result
 
