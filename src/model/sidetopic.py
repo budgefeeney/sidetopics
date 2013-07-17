@@ -20,6 +20,7 @@ import scipy as sp
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import sys
+import matplotlib.pyplot as plt
 
 from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 
@@ -39,6 +40,15 @@ from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 # TODO Eventually s just overflows
 # TODO Sigma update causes NaNs in the variational-bound
 
+# ==============================================================
+# CONSTANTS
+# ==============================================================
+
+MAX_X_TICKS_PER_PLOT = 50
+
+# ==============================================================
+# CODE
+# ==============================================================
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
@@ -125,6 +135,11 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
        
+    # Get ready to plot the evolution of the likelihood
+    if logInterval > 0:
+        elbos = np.zeros((iterations / logInterval,))
+        iters = np.zeros((iterations / logInterval,))
+    
     # We'll need the total word count per doc, and total count of docs
     docLen = W.sum(axis=1)
     D      = len(docLen)
@@ -206,21 +221,21 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
 
         #
         # xi_dk
-        lxi = jakkolaOfDerivedXi(lmda, nu, s)
+        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
         _quickPrintElbo ("M-Step: max xi", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # vocab
         #
         # TODO, since vocab is in the RHS, is there any way to optimize this?
-#         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
-#         vocab = normalizerows (np.einsum('dt,dkt->kt', W, Z))
-#         _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+        vocab = normalizerows_ip (np.einsum('dt,dkt->kt', W, Z))
+        _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # U
-#        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
-#        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
@@ -245,11 +260,30 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
                 VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
                 X, W, Z, lnVocab, varA_U, XA, XTX)
                 
+            elbos[iteration / logInterval] = elbo
+            iters[iteration / logInterval] = iteration
             print ("Iteration %5d  ELBO %f" % (iteration, elbo))
         
-        
+    if logInterval > 0:
+        plot_bound(iters, elbos)
+    
     return (VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
             VbSideTopicQueryState (lmda, nu, lxi, s, docLen))
+    
+def plot_bound (iters, bounds):
+    '''
+    Plots the evoluation of the variational bound. The input is a pair of
+    matched arrays: for a given point i, iters[i] was the iteration at which
+    the bound bounds[i] was calculated
+    '''
+    
+    fig  = plt.figure()
+    plot = fig.add_subplot(1,1,1)
+    plot.plot (iters, bounds)
+    plot.yaxis.set_label("Bound")
+    plot.xaxis.set_label("Iteration")
+    plot.set_xticks(np.arange(0, len(bounds), max(1, len(bounds) / MAX_X_TICKS_PER_PLOT)))
+    plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen):
     '''
@@ -260,8 +294,8 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, F, T, P, A, varA, V, varV, U
     
     Obviously this is a very ugly inefficient method.
     '''
-    if iteration % 100 != 0:
-        return
+#     if iteration % 100 != 0:
+#         return
     
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
@@ -431,11 +465,14 @@ def newVbModelState(K, F, T, P):
     sigma = 0.1
     
     # Vocab is K word distributions so normalize
-    vocab = normalizerows (rd.random((K, T)))
+    vocab = normalizerows_ip (rd.random((K, T)))
     
     return VbSideTopicModelState(K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab)
 
-def normalizerows (matrix):
+def normalizerows_ip (matrix):
+    '''
+    Normalizes a matrix IN-PLACE.
+    '''
     row_sums = matrix.sum(axis=1)
     matrix   /= row_sums[:, np.newaxis]
     return matrix
@@ -450,7 +487,6 @@ def rowwise_softmax (matrix):
     
     row_maxes = matrix.max(axis=1) # Underflow makes sense i.e. Pr(K=k) = 0. Overflow doesn't, i.e Pr(K=k) = \infty
     result    = np.exp(matrix - row_maxes[:, np.newaxis])
-    row_sums  = result.sum(axis=1)
-    result   /= row_sums[:, np.newaxis]
+    result   /= result.sum(axis=1)[:,np.newaxis]
     return result
 
