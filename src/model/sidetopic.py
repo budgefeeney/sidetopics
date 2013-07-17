@@ -22,6 +22,8 @@ import scipy.sparse.linalg as sla
 import sys
 import matplotlib.pyplot as plt
 
+from math import sqrt
+
 from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 
 # TODO Consider using numba for autojit (And jit with local types)
@@ -215,8 +217,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         
         #
         # s_d
-#        s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-#        _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
+#         s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+#         _quickPrintElbo ("M-Step: max s", iteration, X, W, K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab, lmda, nu, lxi, s, docLen)
         
 
         #
