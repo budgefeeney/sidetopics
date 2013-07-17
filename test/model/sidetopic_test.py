@@ -7,7 +7,7 @@ Created on 3 Jul 2013
 @author: bryanfeeney
 '''
 import unittest
-from model.sidetopic import newVbModelState, train, normalizerows, rowwise_softmax
+from model.sidetopic import newVbModelState, train, rowwise_softmax, normalizerows_ip
 
 import numpy as np
 import scipy.linalg as la
@@ -32,7 +32,7 @@ class StmTest(unittest.TestCase):
         rd.seed(0xC0FFEE) # Global init for repeatable test!
         
         T = 100 # Vocabulary size, the number of "terms"
-        K = 10
+        K = 5
         F = 8
         D = 200
         
@@ -58,7 +58,7 @@ class StmTest(unittest.TestCase):
         
         # Create the vocabulary
         #
-        vocab = normalizerows (rd.random((K, T)))
+        vocab = normalizerows_ip (rd.random((K, T)))
         
         # Create our (sparse) features X, then our topic proportions tpcs
         # then our word counts W
@@ -78,7 +78,7 @@ class StmTest(unittest.TestCase):
         # Now finally try to train the model
         #
         modelState = newVbModelState(K, F, T, P)
-        (trainedState, queryState) = train (modelState, X, W, logInterval=1)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1000)
         
         print("Sum of squared difference between true and estimated A is %f" % (np.sum((A - trainedState.A)**2)))
         
