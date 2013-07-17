@@ -282,8 +282,8 @@ def plot_bound (iters, bounds):
     fig  = plt.figure()
     plot = fig.add_subplot(1,1,1)
     plot.plot (iters, bounds)
-    plot.yaxis.set_label("Bound")
-    plot.xaxis.set_label("Iteration")
+    plot.set_ylabel("Bound")
+    plot.set_xlabel("Iteration")
     plot.set_xticks(np.arange(0, len(bounds), max(1, len(bounds) / MAX_X_TICKS_PER_PLOT)))
     plt.show()
     
