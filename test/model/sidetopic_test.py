@@ -31,14 +31,79 @@ class StmTest(unittest.TestCase):
     def tearDown(self):
         pass
 
-
-    def testInference(self):
-        rd.seed(0xC0FFEE) # Global init for repeatable test!
+    
+    def testInferenceFromModelDerivedExample(self):
+        rd.seed(0xC0FFEE) # Global init for repeatable test
         
         T = 100 # Vocabulary size, the number of "terms". Must be a square number
-        K = 6   # This cannot be changed without changing the code that generates the vocabulary
-        F = 8
-        D = 200
+        K = 6   # Topics: This cannot be changed without changing the code that generates the vocabulary
+        F = 8   # Features
+        P = 6   # Size of principle subspace
+        D = 200 # Sample documents (each with associated features) 
+        avgWordsPerDoc = 500
+        
+        # Generate vocab
+        beta = 0.01
+        betaVec = np.ndarray((T,))
+        betaVec.fill(beta)
+        vocab = np.zeros((K,T))
+        for k in xrange(K):
+            vocab[k,:] = rd.dirichlet(betaVec)
+        
+        # Generate U, then V, then A
+        vStdev = 5.0
+        uStdev = 5.0
+        aStdev = 2.0
+        tau    = 0.1
+        
+        U = rd.multivariate_normal(np.zeros((F,P)).reshape(F * P,1), np.kron(uStdev * np.eye(F), tau * np.eye(P)))
+        V = rd.multivariate_normal(np.zeros((P,K)).reshape(P * K,1), np.kron(vStdev * np.eye(P), tau * np.eye(K)))
+        V = rd.multivariate_normal(U.dot(V).reshape(F * K, 1), np.kron(aStdev * np.eye(F), tau * np.eye(K)))
+        
+        # Generate the input features. Assume the features are multinomial and sparse
+        # (matches the twitter example)
+        featuresHyper = 0.01;
+        maxFeaturesOn = 3;
+        X = rd.multinomial(3, rd.dirichlet(featuresHyper), (D,F))
+        
+        # Use the features and the matrix A to generate the topics and documents
+        tpcs = rowwise_softmax (X.dot(A))
+        
+        docLens = rd.poisson(avgWordsPerDoc, (D,))
+        W = tpcs.dot(vocab)
+        W *= docLens[:, np.newaxis]
+        W = np.array(W, dtype=np.int32) # truncate word counts to integers
+        
+        #
+        # Now finally try to train the model
+        #
+        modelState = newVbModelState(K, F, T, P)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=200)
+        
+        tpcs_inf = rowwise_softmax(queryState.lmda)
+        W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
+        
+        print("Model Driven Test-Case")
+        print("=====================================================================")
+        print("Average, squared, per-element difference between true and estimated:")
+        print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),))
+        print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),))
+        print("Average absolute difference between true and reconstructed documents:")
+        print("    Documents:             %f" % (np.sum(np.abs(W - W_inf)) / np.sum(W),))
+        
+        
+        print("End of Test")
+        
+        
+        
+
+    def _testInferenceFromHandcraftedExample(self):
+        rd.seed(0xC0FFEE) # Global init for repeatable test
+        
+        T = 100 # Vocabulary size, the number of "terms". Must be a square number
+        K = 6   # Topics: This cannot be changed without changing the code that generates the vocabulary
+        F = 8   # Features
+        D = 200 # Sample documents (each with associated features) 
         
         avgWordsPerDoc = 500
         
@@ -87,12 +152,15 @@ class StmTest(unittest.TestCase):
         
         tpcs_inf = rowwise_softmax(queryState.lmda)
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
-        
+                
+        print("Handcrafted Test-Case")
+        print("=====================================================================")
         print("Average, squared, per-element difference between true and estimated:")
         print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),))
         print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),))
         print("Average absolute difference between true and reconstructed documents")
         print("    Documents:             %f" % (np.sum(np.abs(W - W_inf)) / np.sum(W),))
+        
         
         print("End of Test")
         
@@ -186,6 +254,32 @@ def _showvocs(vocab):
         print ("=============================================")
         side = int (sqrt(len(vocab[k,:])))
         _showme (vocab[k,:].reshape(side,side))
+
+def vec(A):
+    '''
+    The standard vec operator from linear algebra, which extracts all the columns
+    of the given matrix, and from left to right stacks them from top to bottom.
+    
+    Params
+    A - a PxN matrix
+    
+    Return
+    a P*N,1 vector
+    '''
+    return np.reshape(np.transpose(A), (-1,1))
+
+def matrix_normal(mean, rowCov, colCov):
+    '''
+    Draw from a matrix variate normal distribution
+    
+    mean the mean matrix, with dimensions PxN
+    rowCov the row covariance matrix, with dimensions NxN
+    colCov the column covariance matrix, with dimensions PxP
+    
+    Return
+    a PxN matrix
+    '''
+    return rd.multivariate_normal(vec(mean), np.kron(colCov, rowCov))
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
