@@ -33,7 +33,7 @@ class StmTest(unittest.TestCase):
 
     
     def testInferenceFromModelDerivedExample(self):
-        rd.seed(0xC0FFEE) # Global init for repeatable test
+        rd.seed(0xDEADD0C5) # Global init for repeatable test
         
         T = 100 # Vocabulary size, the number of "terms". Must be a square number
         K = 6   # Topics: This cannot be changed without changing the code that generates the vocabulary
@@ -56,17 +56,21 @@ class StmTest(unittest.TestCase):
         aStdev = 2.0
         tau    = 0.1
         
-        U = rd.multivariate_normal(np.zeros((F,P)).reshape(F * P,1), np.kron(uStdev * np.eye(F), tau * np.eye(P)))
-        V = rd.multivariate_normal(np.zeros((P,K)).reshape(P * K,1), np.kron(vStdev * np.eye(P), tau * np.eye(K)))
-        V = rd.multivariate_normal(U.dot(V).reshape(F * K, 1), np.kron(aStdev * np.eye(F), tau * np.eye(K)))
+        U = matrix_normal(np.zeros((F,P)), np.eye(P), uStdev * np.eye(F))
+        V = matrix_normal(np.zeros((P,K)), tau**2 * np.eye(K), vStdev**2 * np.eye(P))
+        A = matrix_normal (U.dot(V), tau**2 * np.eye(K), aStdev**2 * np.eye(F))
         
         # Generate the input features. Assume the features are multinomial and sparse
-        # (matches the twitter example)
-        featuresHyper = 0.01;
-        maxFeaturesOn = 3;
-        X = rd.multinomial(3, rd.dirichlet(featuresHyper), (D,F))
+        # (almost matches the twitter example: twitter is binary, this may not be)
+        featuresDist  = [1. / F] * F
+        maxNonZeroFeatures = 3
+        
+        X = np.zeros((D,F))
+        for d in xrange(D):
+            X[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
         
         # Use the features and the matrix A to generate the topics and documents
+        A = matrix_normal (U.dot(V), tau**2 * np.eye(K), aStdev**2 * np.eye(F))
         tpcs = rowwise_softmax (X.dot(A))
         
         docLens = rd.poisson(avgWordsPerDoc, (D,))
@@ -86,8 +90,8 @@ class StmTest(unittest.TestCase):
         print("Model Driven Test-Case")
         print("=====================================================================")
         print("Average, squared, per-element difference between true and estimated:")
-        print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),))
-        print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),))
+#        print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),)) Fails due to identifiability
+#         print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),)) Likewise
         print("Average absolute difference between true and reconstructed documents:")
         print("    Documents:             %f" % (np.sum(np.abs(W - W_inf)) / np.sum(W),))
         
@@ -266,12 +270,14 @@ def vec(A):
     Return
     a P*N,1 vector
     '''
-    return np.reshape(np.transpose(A), (-1,1))
+    (rows, cols) = A.shape
+    return A.T.reshape((rows*cols,))
 
 def matrix_normal(mean, rowCov, colCov):
     '''
-    Draw from a matrix variate normal distribution
+    Draw from a matrix-variate normal distribution
     
+    Params:
     mean the mean matrix, with dimensions PxN
     rowCov the row covariance matrix, with dimensions NxN
     colCov the column covariance matrix, with dimensions PxP
@@ -279,7 +285,7 @@ def matrix_normal(mean, rowCov, colCov):
     Return
     a PxN matrix
     '''
-    return rd.multivariate_normal(vec(mean), np.kron(colCov, rowCov))
+    return rd.multivariate_normal(vec(mean), np.kron(colCov, rowCov)).reshape(mean.shape, order='F')
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
