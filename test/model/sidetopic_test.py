@@ -82,19 +82,18 @@ class StmTest(unittest.TestCase):
         # Now finally try to train the model
         #
         modelState = newVbModelState(K, F, T, P)
-        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=200)
         
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
+        tpcs_inf = rowwise_softmax(queryState.lmda)
+        W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
+        priorReconsError = np.sum(np.abs(W - W_inf)**2) / D
+        
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=200)
         tpcs_inf = rowwise_softmax(queryState.lmda)
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         
-        print("Model Driven Test-Case")
-        print("=====================================================================")
-        print("Average, squared, per-element difference between true and estimated:")
-#        print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),)) Fails due to identifiability
-#         print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),)) Likewise
-        print("Average absolute difference between true and reconstructed documents:")
-        print("    Documents:             %f" % (np.sum(np.abs(W - W_inf)) / np.sum(W),))
-        
+        print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
+        print ("Model Driven: Final Reconstruction Error: %f" % (np.sum(np.abs(W - W_inf)**2) / D,))
         
         print("End of Test")
         

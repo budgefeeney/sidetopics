@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*- 
 '''
 A collection of functions that perform various log / exp related calculations
-without over or under flowing on numpy buffers. Buffers are assumed to be
-double precision.
+without over or under flowing on numpy buffers. 
+
 
 Created on 11 Jul 2013
 
@@ -11,8 +11,6 @@ Created on 11 Jul 2013
 '''
 
 import numpy as np
-
-ALMOST_ZERO = 1E-300
 
 # TODO This works, but how and why does it work?
 def safe_log_one_plus_exp_of (x):
@@ -54,7 +52,7 @@ def _very_safe_log_one_plus_exp_of (x):
     
     Params
     x - A numpy buffer, assumes to have double-precision floating point numbers
-        (THIS BREAKS FOR FLOATING POINT!)
+        (THIS BREAKS FOR SINGLE PRECISION FLOATING POINT!)
     
     Returns
     A numpy buffer of the same size, such that each element is log(1+exp(x))
@@ -122,8 +120,10 @@ def safe_log_one_plus(x):
 
 # TODO: How slow is this...
 def safe_x_log_x(x):
+    almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
+    
     log_x  = np.ndarray(x.shape)
-    log_x.fill(np.log(ALMOST_ZERO))
+    log_x.fill(np.log(almostZero))
     
     log_x[x>0]  = np.log(x[x>0])
     return x * log_x
@@ -131,7 +131,9 @@ def safe_x_log_x(x):
 def safe_log (x, out = None):
     if out is None:
         out = np.ndarray(x.shape)
-    out.fill(np.log(ALMOST_ZERO))
+        
+    almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
+    out.fill(np.log(almostZero))
     
     out[x>0] = np.log(x[x>0])
     return out
