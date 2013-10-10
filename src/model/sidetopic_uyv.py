@@ -304,7 +304,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, P, F, T, A, varA, Y, varY
     
     print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = None, XA = None, XTX = None):
+def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -331,20 +331,20 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
     # with the model parameters.
     (D, Tcheck) = W.shape
-    if Tcheck != T: raise ValueError ("The shape of the document matrix W is invalid, T is %d but the matrix W has shape (%d, %d)" % (T, D, Tcheck))
+    if Tcheck != T: raise ValueError ("The shape of the DxT document matrix W is invalid, T is %d but the matrix W has shape (%d, %d)" % (T, D, Tcheck))
     
     (Dcheck, Fcheck) = X.shape
     if Dcheck != D: raise ValueError ("Inconsistent sizes between the matrices X and W, X has %d rows but W has %d" % (Dcheck, D))
-    if Fcheck != F: raise ValueError ("The shape of the feature matrix X is invalid. F is %d but the matrix X has shape (%d, %d)" % (F, Dcheck, Fcheck)) 
+    if Fcheck != F: raise ValueError ("The shape of the DxF feature matrix X is invalid. F is %d but the matrix X has shape (%d, %d)" % (F, Dcheck, Fcheck)) 
 
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
-    #and term T gives the strenght of topic K. We'll also need the log of the vocab dist
+    # and term T gives the strength of topic K. We'll also need the log of the vocab dist
     xi = deriveXi (lmda, nu, s)
     
     if lnVocab is None:
@@ -354,72 +354,56 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, varA_U = N
    
     # <ln p(Y)>
     # 
-    lnP_Y = -0.5 * Q*P * LOG_2PI - 0.5 * np.trace(varY) + Y.T.dot(Y);
+    lnP_Y = -0.5 * (Q*P * LOG_2PI - np.trace(sigY) * np.trace(omY) - np.sum(Y * Y))
     
     # <ln P(A|Y)>
     # 
     halfKF = 0.5 * K * F
     halfTsq = 0.5 / (tau * tau)
     lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
-          -halfTsq 
+            -halfTsq * (np.sum(sigY * V.T.dot(V)) * np.sum(omY * U.T.dot(U)) \
+                      + np.trace(varA) * K
+                      + np.sum (A - U.dot(Y).dot(V.T)))
     
-    # lnProb1 is the bound on E[p(W|Theta)]. This is a bound, not an equality as we're using
-    # Bouchard's softmax bound (NIPS 2007) here. That said, most of the subsequent terms
-    # will discard additive constants, so strictly speaking none of them are equalities
-    docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    
-    lnProb1 = 0.0
-    lnProb1 -= np.sum(docLenLmdaLxi * lmda)
-    lnProb1 -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
-    lnProb1 += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
-    lnProb1 -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
-    lnProb1 += np.sum (lmda * np.einsum ('dt,dkt->dk', W, Z))
-    
-    lnProb1 += np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))
-    lnProb1 -= np.sum(W * np.einsum('dkt->dt', safe_x_log_x(Z)))
-    
-    lnProb1 -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
-    lnProb1 += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    lnProb1 -= np.sum(docLen[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
-        
-    # lnProb2 is E[p(Theta|A)]
-    if XA is None:
-        XA = X.dot(A)
-    if XTX is None:
-        XTX = X.T.dot(X)
+    # <ln p(Theta|A,X)
+    # 
     sig2  = sigma * sigma
     tau2  = tau * tau
     
-    lnProb2 = -0.5 * D * K * log (sig2) \
-            -  0.5 / sig2 * (np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
+    lnP_Theta = -0.5 * D * log (2 * pi) -0.5 * D * K * log (sig2) \
+                - 0.5 / sig2 * ( \
+                    np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
     
-    # lnProb3 is E[p(A|V)]
-    if varA_U is None:
-        varA_U = varA.dot(U)
+    # <ln p(Z|Theta)
+    # 
+    docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
+    
+    lnP_Z = 0.0
+    lnP_Z -= np.sum(docLenLmdaLxi * lmda)
+    lnP_Z -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
+    lnP_Z += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
+    lnP_Z -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
+    lnP_Z += np.sum (lmda * np.sum(Z, axis=1)) # <-- Need to add simple sum over Z here
+    lnP_Z -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
+    lnP_Z += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
+    lnP_Z -= np.sum(docLen[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
+    lnP_Z -= np.sum (docLen * s)
         
-    lnProb3 = -0.5 * K * F * log (2 * pi) \
-          -0.5 * K * F * log(tau2) \
-          -0.5 / tau2 * \
-          ( \
-          np.trace(varA)*K*tau2 \
-          + np.sum(varA_U * U) * K * tau2  \
-          + np.sum((A - U.dot(V)) ** 2) \
-          )
-          
-    # lnProb4 is E[p(V)]
-    lnProb4 = -0.5 * (np.trace(varV) * K * tau2 + np.sum(V*V))
+    # <ln p(W|Z, vocab)>
+    # 
+    lnP_W = np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))   # <-- Part of p(W)
     
     # ent1 is H[q(Theta)]
     ent1 = 0.5 * np.sum (np.log(nu * nu))
     
-    # ent2 is H[q(A|V)]
+    # ent2 is H[q(A|Y)]
     ent2 = 0.5 * F * K + log(2 * pi * e) + 0.5 * K * log (la.det(varA)) + 0.5 * F * K * log (tau2)
     
-    # ent3 is H[q(V)]
+    # ent3 is H[q(Y)]
     ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
     
-    result = lnProb1 + lnProb2 + lnProb3 + lnProb4 + ent1 + ent2 + ent3
-#    if (lnProb1 > 0) or (lnProb2 > 0) or (lnProb3 > 0) or (lnProb4 > 0):
+    result = lnP_Z + lnP_Theta + lnProb3 + lnProb4 + ent1 + ent2 + ent3
+#    if (lnP_Z > 0) or (lnP_Theta > 0) or (lnProb3 > 0) or (lnProb4 > 0):
 #        print ("Whoopsie - lnProb > 0")
     
 #    if result > 100:
@@ -436,10 +420,10 @@ def deriveXi (lmda, nu, s):
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
-    'K Q P F T A varA Y varY B vocab tau sigma'
+    'K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma'
 )
 
-def newVbModelState(K, Q, P, F, T):
+def newVbModelState(K, Q, F, P, T):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that once trained can be kept fixed for querying.
@@ -448,38 +432,44 @@ def newVbModelState(K, Q, P, F, T):
     
     K - the number of topics
     Q - the number of latent topics, Q << K
-    P - the number of latent features in the projected space, P << F
     F - the number of features
+    P - the number of latent features in the projected space, P << F
     T - the number of terms in the vocabulary
     
-    The returned object will contain K, Q, P, F and T and also
+    The returned object will contain K, Q, F, P and T and also
     
     A      - the mean of the F x K matrix mapping F features to K topics. This is stored
              as a vector, as if the vec() operator had been applied.
     varA   - a vector containing the  diagonal column variance of the distribution over A
-    Y      - the vector created by applying the vec operator to the Q x P matrix mapping P 
-            projected features to Q latent topics
-    varY   - the column variance of the distribution over V (the row variance is I_P
-    B      - A F x K matrix equivalent to the kronecker product V (x) U. According to 
-             the model A = U * Y * V' 
+    Y      - the latent space which is mixed by U and V into the observed space
+    omY    - the row variance of the distribution over Y
+    sigY   - the column variance of the distribution over Y
+    U      - the KxQ transformation from the K dimensional observed topic space to the
+             Q-dimensional topic space
+    V      - the FxP transformation from the F-dimensinal observed features space to the
+             latent P-dimensional feature-space
     vocab  - The K x V matrix of vocabulary distributions.
     tau    - the row variance of A is tau^2 I_K
-    sigma  - the variance in the estimation of the topic memberships lambda ~ N(A'x, sigma^2I)
+    sigma  - the variance in the estimation of the topic memberships. lambda ~ N(A'x, sigma^2I)
     '''
     
     tau   = 0.1
     sigma = 0.1
     
-    Y     = rd.random((Q*P,)).astype(DTYPE)
-    varY  = np.identity(P, DTYPE)
-    B     = rd.random((F, K))
-    A     = 1. / (tau * tau) * B.dot(Y)
+    Y     = rd.random((Q,P)).astype(DTYPE)
+    omY   = np.identity(P, DTYPE)
+    sigY  = np.identity(Q, DTYPE)
+    
+    U     = rd.random((K,Q)).astype(DTYPE)
+    V     = rd.random((F,P)).astype(DTYPE)
+    
+    A     = U.dot(Y).dot(V)
     varA  = np.ones((F,1), DTYPE)
     
     # Vocab is K word distributions so normalize
-    vocab = normalizerows_ip (rd.random((K, T)))
+    vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
     
-    return VbSideTopicModelState(K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma)
+    return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma)
 
 def normalizerows_ip (matrix):
     '''
