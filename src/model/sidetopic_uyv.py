@@ -233,14 +233,6 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
         _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
-        # =============================================================
-        # M-Step
-        #    Parameters for the softmax bound: lxi and s <-- ?
-        #    The projection used for A: U and V
-        #    The vocabulary : vocab
-        #    The variances: tau, sigma
-        # =============================================================
-        
         #
         # s_d
         s = (K/4. - 0.5 + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
@@ -251,6 +243,25 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         lxi = negJakkolaOfDerivedXi(lmda, nu, s)
         _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
+       
+        # =============================================================
+        # M-Step
+        #    Parameters for the softmax bound: lxi and s <-- ?
+        #    The projection used for A: U and V
+        #    The vocabulary : vocab
+        #    The variances: tau, sigma
+        # =============================================================
+        
+               
+        # U
+        #
+        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+
+        # V
+        # 
+        
+        
         #
         # vocab
         #
@@ -258,28 +269,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
         vocab = normalizerows_ip (np.einsum('dt,dkt->kt', W, Z))
         _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-       
-        #
-        # U
-        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
-        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+
         
-        #
-        # sigma
-        #    Equivalent to \frac{1}{DK} \left( \sum_d (\sum_k nu_{dk}) + tr(\Omega_A) x_d^{T} \Sigma_A x_d + (\lambda - A^{T} x_d)^{T}(\lambda - A^{T} x_d) \right)
-        #
-#        sigma = 1./(D*K) * (np.sum(nu) + D*K * tsq * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
-        
-        #
-        # tau
-        #    Equivalent to \frac{1}{KF} \left( tr(\Sigma_A)tr(\Omega_A) + tr(\Sigma_V U U^{T})tr(\Omega_V) + tr ((M_A - U M_V)^{T} (M_A - U M_V)) \right)
-        #
-        varA_U = varA.dot(U)
-#        tau_term1 = np.trace(varA)*K*tsq
-#        tau_term2 = sum(varA_U[p,:].dot(U[p,:]) for p in xrange(P)) * K * tsq
-#        tau_term3 = np.sum((A - U.dot(V)) ** 2)
-#        
-#        tau = 1./(K*F) * (tau_term1 + tau_term2 + tau_term3)
         
         if (logInterval > 0) and (iteration % logInterval == 0):
             elbo = varBound ( \
