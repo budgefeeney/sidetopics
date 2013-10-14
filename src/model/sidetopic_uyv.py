@@ -42,7 +42,8 @@ from util.array_utils import normalizerows_ip, rowwise_softmax
 MAX_X_TICKS_PER_PLOT = 50
 DTYPE = np.float32
 
-LOG_2PI = log(2 * pi)
+LOG_2PI   = log(2 * pi)
+LOG_2PI_E = log(2 * pi * e)
 
 # ==============================================================
 # CODE
@@ -304,7 +305,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, P, F, T, A, varA, Y, varY
     
     print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
+def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, XTX = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -319,11 +320,9 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
                  recalculate it from the model and query states. Z is the DxKxT tensor which
                  for each document D and term T gives the proportion of those terms assigned
                  to topic K
-    lnVocab    - the KxV matrix of the natural log applied to the vocabularly. Recalculated if
+    lnVocab    - the KxV matrix of the natural log applied to the vocabulary. Recalculated if
                  not provided
-    varA_U     - the product of the column variance matrix and the matrix U. Recalculated if
-                 not provided
-    XA         - dot product of X and A, recalculated if not provided
+    AX         - KxD dot product of AX', recalculated if not provided
     XTX        - dot product of X-transpose and X, recalculated if not provided.
     
     Returns
@@ -331,7 +330,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
@@ -351,10 +350,17 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
         lnVocab = safe_log(vocab)
     if Z is None:
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
+    
+    # If not already provided, we'll also need the the product of XA
+    #
+    if AX is None:
+        AX = A.dot(X.T)
+    if XTX is None:
+        XTX = X.T.dot(X)
    
     # <ln p(Y)>
     # 
-    lnP_Y = -0.5 * (Q*P * LOG_2PI - np.trace(sigY) * np.trace(omY) - np.sum(Y * Y))
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + np.trace(sigY) * np.trace(omY) + np.sum(Y * Y))
     
     # <ln P(A|Y)>
     # 
@@ -362,17 +368,17 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
     halfTsq = 0.5 / (tau * tau)
     lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
             -halfTsq * (np.sum(sigY * V.T.dot(V)) * np.sum(omY * U.T.dot(U)) \
-                      + np.trace(varA) * K
-                      + np.sum (A - U.dot(Y).dot(V.T)))
+                      + np.trace(omA.dot(XTX)) * K \
+                      + np.sum (np.square(A - U.dot(Y).dot(V.T))))
     
     # <ln p(Theta|A,X)
     # 
     sig2  = sigma * sigma
     tau2  = tau * tau
     
-    lnP_Theta = -0.5 * D * log (2 * pi) -0.5 * D * K * log (sig2) \
+    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sig2) \
                 - 0.5 / sig2 * ( \
-                    np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum((lmda - XA)**2))
+                    np.sum(nu) + D*K * tau2 * np.sum(XTX * omA) + np.sum(np.square(lmda - AX)))
     
     # <ln p(Z|Theta)
     # 
@@ -394,15 +400,15 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None):
     lnP_W = np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))   # <-- Part of p(W)
     
     # ent1 is H[q(Theta)]
-    ent1 = 0.5 * np.sum (np.log(nu * nu))
+    ent_Theta = 0.5 * (K * LOG_2PI_E + np.sum (np.log(nu * nu)))
     
     # ent2 is H[q(A|Y)]
-    ent2 = 0.5 * F * K + log(2 * pi * e) + 0.5 * K * log (la.det(varA)) + 0.5 * F * K * log (tau2)
+    ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))
     
     # ent3 is H[q(Y)]
-    ent3 = 0.5 * P * K * log (2 * pi * e) + 0.5 * K * log (la.det(varV)) + 0.5 * P * K * log (tau2)
+    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
     
-    result = lnP_Z + lnP_Theta + lnProb3 + lnProb4 + ent1 + ent2 + ent3
+    result = lnP_Y + lnP_A + +lnP_Theta + lnP_Z + ent_Y + ent_A + ent_Theta
 #    if (lnP_Z > 0) or (lnP_Theta > 0) or (lnProb3 > 0) or (lnProb4 > 0):
 #        print ("Whoopsie - lnProb > 0")
     
