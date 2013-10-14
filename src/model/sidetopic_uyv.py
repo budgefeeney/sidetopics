@@ -15,6 +15,7 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
+import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib.pyplot as plt
 
@@ -46,7 +47,7 @@ LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
 # ==============================================================
-# CODE
+# TUPLES
 # ==============================================================
 
 VbSideTopicQueryState = namedtuple ( \
@@ -54,6 +55,15 @@ VbSideTopicQueryState = namedtuple ( \
     'lmda nu lxi s docLen'\
 )
 
+
+VbSideTopicModelState = namedtuple ( \
+    'VbSideTopicState', \
+    'K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma'
+)
+
+# ==============================================================
+# CODE
+# ==============================================================
 
 def negJakkola(vec):
     '''
@@ -132,7 +142,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma) = (modelState.K, modelState.F, modelState.T, modelState.P, modelState.A, modelState.varA, modelState.V, modelState.varV, modelState.U, modelState.sigma, modelState.tau, modelState.vocab)
+    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
        
     # Get ready to plot the evolution of the likelihood
     if logInterval > 0:
@@ -146,43 +156,63 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     # No need to recompute this every time
     XTX = X.T.dot(X)
     
-    # Assign initial values to the query parameters
-    lmda = rd.random((D, K))
-    nu   = np.ones((D,K), np.float64)
-    s    = np.zeros((D,))
-    lxi  = negJakkola (np.ones((D, K), np.float64))
+    # Identity matrices that occur
+    I_PQ = np.ones((P,Q), DTYPE)
+    I_P  = np.ones((P,P), DTYPE)
+    I_Q  = np.ones((Q,Q), DTYPE)
+    I_F  = np.ones((F,F), DTYPE)
     
-    XA = X.dot(A)
+    # Assign initial values to the query parameters
+    lmda = rd.random((D, K)).astype(DTYPE)
+    nu   = np.ones((D, K), DTYPE)
+    s    = np.zeros((D,), DTYPE)
+    lxi  = negJakkola (np.ones((D,K), DTYPE))
+    
+    # If we don't bother optimising either tau or sigma we can just do all this here once only 
+    tsq     = tau * tau;
+    ssq     = sigma * sigma;
+    overTsq = 1. / tsq
+    overSsq = 1. / ssq
+    over2Ssq = 0.5 * overSsq;
+    over2Tsq = 0.5 * overTsq;
+    
+    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
+   
     for iteration in xrange(iterations):
         
         # Save repeated computation
-        tsq      = tau * tau;
-        tsqIP    = tsq * np.eye(P)
-        trTsqIK  = K * tsq # trace of the matrix tau * tau * np.eye(K)
-        halfSig2 = 1./(sigma*sigma)
-        tau2sig2 = (tau * tau) / (sigma * sigma)
+#         tsq     = tau * tau;
+#         ssq     = sigma * sigma;
+#         overTsq = 1. / tsq
+#         overSsq = 1. / ssq
+#         over2Ssq = 0.5 * overSsq;
+#         over2Tsq = 0.5 * overTsq;
         
         # =============================================================
         # E-Step
-        #   Model dists are q(Theta|A;Lambda;nu) q(A|V) q(V)
+        #   Model dists are q(Theta|A;Lambda;nu) q(A|Y) q(Y) and q(Z)....
         #   Where lambda is the posterior mean of theta.
         # =============================================================
         
-        #
-        # V, varV
-        varV = la.inv (tsqIP + U.T.dot(U))
-        V    = varV.dot(U.T).dot(A)
-        _quickPrintElbo ("E-Step: q(V)", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        # Y, sigY, omY
+        # 
+        VTV = V.T.dot(V)
+        UTU = U.T.dot(U)
         
-        #
+        y = la.inv(I_PQ + np.kron (VTV, UTU)).dot(vec(U.dot(A).dot(V.T)))
+        Y = np.reshape(y, (P,Q))
+        sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsq * np.trace(omY.dot(VTV) * UTU))
+        omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsq * np.trace(sigY.dot(UTU)) * VTV)
+        
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        
         # A, varA
+        #
         # TODO, since only tau2sig2 changes at each step, would it be possible just to
         # amend the old inverse?
         # TODO Use sparse inverse
-        varA = la.inv (tau2sig2 * XTX + np.eye(F))
-        A    = varA.dot (U.dot(V) + X.T.dot(lmda))
-        XA   = X.dot(A)
-        _quickPrintElbo ("E-Step: q(A|V)", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        A = K * varA.dot(overTsq * U.dot(Y).dot(V.T) + overSsq * lmda.T.dot(X))
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
         #
         # lmda_dk
@@ -191,50 +221,48 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + np.einsum('dt,dkt->dk', W, Z) / docLen[:,np.newaxis]
         
-        rhs  = docLen[:,np.newaxis] * rho + halfSig2 * X.dot(A)
-        lmda = rhs / (docLen[:,np.newaxis] * 2 * lxi + halfSig2)
+        rhs  = docLen[:,np.newaxis] * rho + overSsq * X.dot(A.T)
+        lmda = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         
-        _quickPrintElbo ("E-Step: q(Theta|A;lamda)", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-              
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+             
         
         #
         # nu_dk
         # TODO Double check this again...
-        nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + halfSig2)
-
-        _quickPrintElbo ("E-Step: q(Theta|A;nu)", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-        
+        nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+       
         # =============================================================
         # M-Step
-        #    Parameters for the softmax bound: lxi and s
-        #    The projection used for A: U
+        #    Parameters for the softmax bound: lxi and s <-- ?
+        #    The projection used for A: U and V
         #    The vocabulary : vocab
         #    The variances: tau, sigma
         # =============================================================
         
         #
         # s_d
-#         s = (K/4. + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-#         _quickPrintElbo ("M-Step: max s", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-        
+        s = (K/4. - 0.5 + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
+        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
 
         #
         # xi_dk
         lxi = negJakkolaOfDerivedXi(lmda, nu, s)
-        _quickPrintElbo ("M-Step: max xi", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-        
+        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+       
         #
         # vocab
         #
         # TODO, since vocab is in the RHS, is there any way to optimize this?
         Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
         vocab = normalizerows_ip (np.einsum('dt,dkt->kt', W, Z))
-        _quickPrintElbo ("M-Step: max vocab", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
-        
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+       
         #
         # U
         U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
-        _quickPrintElbo ("M-Step: max U", iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
         
         #
         # sigma
@@ -255,7 +283,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         
         if (logInterval > 0) and (iteration % logInterval == 0):
             elbo = varBound ( \
-                VbSideTopicModelState (K, F, T, P, A, varA, V, varV, U, sigma, tau, vocab), \
+                VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
                 VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
                 X, W, Z, lnVocab, varA_U, XA, XTX)
                 
@@ -266,7 +294,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     if logInterval > 0:
         plot_bound(iters, elbos)
     
-    return (VbSideTopicModelState (K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma), \
+    return (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
             VbSideTopicQueryState (lmda, nu, lxi, s, docLen))
     
 def plot_bound (iters, bounds):
@@ -284,7 +312,7 @@ def plot_bound (iters, bounds):
     plot.set_xticks(np.arange(0, len(bounds), max(1, len(bounds) / MAX_X_TICKS_PER_PLOT)))
     plt.show()
     
-def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma, lmda, nu, lxi, s, docLen):
+def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen):
     '''
     Calculates the variational lower bound and prints it to stdout,
     prefixed with a tabl and the given updateMsg
@@ -298,14 +326,14 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, P, F, T, A, varA, Y, varY
     
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
-                      VbSideTopicModelState (K, Q, P, F, T, A, varA, Y, varY, B, vocab, tau, sigma), \
+                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
                       VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
                       X, W)
     
     
     print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, XTX = None):
+def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, XAT=None, XTX = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -322,11 +350,11 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, X
                  to topic K
     lnVocab    - the KxV matrix of the natural log applied to the vocabulary. Recalculated if
                  not provided
-    AX         - KxD dot product of AX', recalculated if not provided
+    XAT        - DxK dot product of XA', recalculated if not provided, where X is DxF and A' is FxK
     XTX        - dot product of X-transpose and X, recalculated if not provided.
     
     Returns
-    The (positive) variational lower bound
+        The (positive) variational lower bound
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
@@ -353,8 +381,8 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, X
     
     # If not already provided, we'll also need the the product of XA
     #
-    if AX is None:
-        AX = A.dot(X.T)
+    if XAT is None:
+        XAT = X.dot(A.T)
     if XTX is None:
         XTX = X.T.dot(X)
    
@@ -378,7 +406,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, X
     
     lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sig2) \
                 - 0.5 / sig2 * ( \
-                    np.sum(nu) + D*K * tau2 * np.sum(XTX * omA) + np.sum(np.square(lmda - AX)))
+                    np.sum(nu) + D*K * tau2 * np.sum(XTX * omA) + np.sum(np.square(lmda - XAT)))
     
     # <ln p(Z|Theta)
     # 
@@ -424,10 +452,6 @@ def deriveXi (lmda, nu, s):
     '''
     return np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)   
 
-VbSideTopicModelState = namedtuple ( \
-    'VbSideTopicState', \
-    'K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma'
-)
 
 def newVbModelState(K, Q, F, P, T):
     '''
@@ -444,9 +468,8 @@ def newVbModelState(K, Q, F, P, T):
     
     The returned object will contain K, Q, F, P and T and also
     
-    A      - the mean of the F x K matrix mapping F features to K topics. This is stored
-             as a vector, as if the vec() operator had been applied.
-    varA   - a vector containing the  diagonal column variance of the distribution over A
+    A      - the mean of the KxF matrix mapping F features to K topics. 
+    varA   - a vector containing the variance over the F features of the distribution over A
     Y      - the latent space which is mixed by U and V into the observed space
     omY    - the row variance of the distribution over Y
     sigY   - the column variance of the distribution over Y
@@ -476,6 +499,9 @@ def newVbModelState(K, Q, F, P, T):
     vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
     
     return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma)
+
+def vec(A):
+    np.reshape(np.transpose(A), (-1,1))
 
 def normalizerows_ip (matrix):
     '''
