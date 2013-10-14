@@ -363,7 +363,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, AX=None, X
     lnP_Y = -0.5 * (Q*P * LOG_2PI + np.trace(sigY) * np.trace(omY) + np.sum(Y * Y))
     
     # <ln P(A|Y)>
-    # 
+    # TODO it looks like I should take the trace of omA \otimes I_K here.
     halfKF = 0.5 * K * F
     halfTsq = 0.5 / (tau * tau)
     lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
