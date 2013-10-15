@@ -178,7 +178,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     
     varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
    
-    for iteration in xrange(iterations):
+    for iteration in range(iterations):
         
         # Save repeated computation
 #         tsq     = tau * tau;
