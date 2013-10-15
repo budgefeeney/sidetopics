@@ -157,10 +157,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_PQ = np.ones((P,Q), DTYPE)
-    I_P  = np.ones((P,P), DTYPE)
-    I_Q  = np.ones((Q,Q), DTYPE)
-    I_F  = np.ones((F,F), DTYPE)
+    I_PQ = np.eye((P,Q), DTYPE)
+    I_P  = np.eye((P,P), DTYPE)
+    I_Q  = np.eye((Q,Q), DTYPE)
+    I_F  = np.eye((F,F), DTYPE)
     
     # Assign initial values to the query parameters
     lmda = rd.random((D, K)).astype(DTYPE)
