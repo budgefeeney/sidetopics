@@ -15,6 +15,7 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
+import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib.pyplot as plt
@@ -157,10 +158,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_PQ = np.eye((P,Q), DTYPE)
-    I_P  = np.eye((P,P), DTYPE)
-    I_Q  = np.eye((Q,Q), DTYPE)
-    I_F  = np.eye((F,F), DTYPE)
+    I_PQ = np.eye(P,Q, 0, DTYPE)
+    I_P  = np.eye(P,P, 0, DTYPE)
+    I_Q  = np.eye(Q,Q, 0, DTYPE)
+    I_F  = ssp.eye(F,F, 0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     
     # Assign initial values to the query parameters
     lmda = rd.random((D, K)).astype(DTYPE)
@@ -176,6 +177,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     over2Ssq = 0.5 * overSsq;
     over2Tsq = 0.5 * overTsq;
     
+    # TODO the inverse being almost always dense means that it might
+    # be faster to convert to dense and use the normal solver, despite
+    # the size constraints.
     varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
    
     for iteration in range(iterations):
