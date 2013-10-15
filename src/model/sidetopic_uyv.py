@@ -203,7 +203,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
         
-        y = la.inv(I_PQ + np.kron (VTV, UTU)).dot(vec(U.dot(A).dot(V.T)))
+        # Todo double check the math for this... it's obviously wrong, but there
+        # are many possible "right" answers.
+        y = la.inv(I_PQ + np.kron (VTV, UTU)).dot(vec(U.T.dot(A).dot(V.T)))
         Y = np.reshape(y, (P,Q))
         sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsq * np.trace(omY.dot(VTV) * UTU))
         omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsq * np.trace(sigY.dot(UTU)) * VTV)
