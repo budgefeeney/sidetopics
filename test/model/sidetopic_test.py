@@ -47,7 +47,7 @@ class StmTest(unittest.TestCase):
         betaVec = np.ndarray((T,))
         betaVec.fill(beta)
         vocab = np.zeros((K,T))
-        for k in xrange(K):
+        for k in range(K):
             vocab[k,:] = rd.dirichlet(betaVec)
         
         # Generate U, then V, then A
@@ -66,7 +66,7 @@ class StmTest(unittest.TestCase):
         maxNonZeroFeatures = 3
         
         X = np.zeros((D,F))
-        for d in xrange(D):
+        for d in range(D):
             X[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
         
         # Use the features and the matrix A to generate the topics and documents
@@ -115,14 +115,14 @@ class StmTest(unittest.TestCase):
         A = rd.random((F,K)) * 10
         (U, S, _) = la.svd (A)
         
-        cdf = [sum(S[:f]) for f in xrange(1,F+1)]
-        P = len ([i for i in xrange(F) if cdf[i] > 0.75 * sum(S)])
+        cdf = [sum(S[:f]) for f in range(1,F+1)]
+        P = len ([i for i in range(F) if cdf[i] > 0.75 * sum(S)])
         
         if P == F: raise ValueError("Can't reduce the dimension")
         
         U = U[:,:P]; 
         V = np.ndarray((P,K))
-        for col in xrange(K):
+        for col in range(K):
             (soln, _, _, _ ) = la.lstsq(U, A[:,col]) 
             V[:,col] = soln
         
@@ -135,7 +135,7 @@ class StmTest(unittest.TestCase):
         
         # Create our (sparse) features X, then our topic proportions ("tpcs")
         # then our word counts W
-        X = np.array([1 if rd.random() < 0.3 else 0 for _ in xrange(D*F)]).reshape(D,F)
+        X = np.array([1 if rd.random() < 0.3 else 0 for _ in range(D*F)]).reshape(D,F)
 #        X = ssp.csr_matrix(X)
         
         lmda = X.dot(A)
@@ -184,8 +184,8 @@ def makeSixTopicVocab(T):
     LOWERED   = 2
     RANGE     = AMPLIFIED + LOWERED
     
-    upperArr = np.array([AMPLIFIED if i < side/2 else LOWERED   for i in xrange(side)])
-    lowerArr = np.array([LOWERED   if i < side/2 else AMPLIFIED for i in xrange(side)])
+    upperArr = np.array([AMPLIFIED if i < side/2 else LOWERED   for i in range(side)])
+    lowerArr = np.array([LOWERED   if i < side/2 else AMPLIFIED for i in range(side)])
     bandArr  = makeBandMatrix (side)
     innerBand = (bandArr * (AMPLIFIED - LOWERED)) + LOWERED;
     outerBand = -(innerBand - RANGE)
@@ -219,8 +219,8 @@ def makeBandMatrix (side):
     
     mat = np.ndarray((side,side))
     mat.fill(0)
-    for row in xrange(side):
-        for band in xrange(bandWidth):
+    for row in range(side):
+        for band in range(bandWidth):
             if row + band < side:
                 mat[row, row+band] = 1
             if row - band >= 0:
@@ -236,8 +236,8 @@ def _showme(mat):
     '''
     mat = np.array(mat * 100, dtype=np.int32)
     (rows, _) = mat.shape
-    for row in xrange(rows):
-        print str(mat[row,:])
+    for row in range(rows):
+        print (str(mat[row,:]))
 
 def _showvoc(vocab, k):
     '''
@@ -252,7 +252,7 @@ def _showvocs(vocab):
     '''
     (K,_) = vocab.shape
     
-    for k in xrange(K):
+    for k in range(K):
         print ("K = %d" % (k))
         print ("=============================================")
         side = int (sqrt(len(vocab[k,:])))
