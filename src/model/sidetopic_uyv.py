@@ -216,12 +216,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
        
         #
         # lmda_dk
+        XAT = X.dot(A.T)
         lnVocab = safe_log (vocab)
         Z   = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + np.einsum('dt,dkt->dk', W, Z) / docLen[:,np.newaxis]
         
-        rhs  = docLen[:,np.newaxis] * rho + overSsq * X.dot(A.T)
+        rhs  = docLen[:,np.newaxis] * rho + overSsq * XAT
         lmda = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         
         _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
@@ -255,12 +256,12 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
                
         # U
         #
-        U = A.dot(V.T).dot (la.inv(trTsqIK * varV + V.dot(V.T)))
+        U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V).dot(V.T).dot(Y.T) + np.trace(omY.dot(V).dot(V.T)) * sigY))
         _quickPrintElbo ("E-Step: q(Y)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
 
         # V
         # 
-        
+        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
         
         #
         # vocab
@@ -276,7 +277,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
             elbo = varBound ( \
                 VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
                 VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
-                X, W, Z, lnVocab, varA_U, XA, XTX)
+                X, W, Z, lnVocab, XAT, XTX)
                 
             elbos[iteration / logInterval] = elbo
             iters[iteration / logInterval] = iteration
