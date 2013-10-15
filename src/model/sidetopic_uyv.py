@@ -484,7 +484,7 @@ def newVbModelState(K, Q, F, P, T):
     U     = rd.random((K,Q)).astype(DTYPE)
     V     = rd.random((F,P)).astype(DTYPE)
     
-    A     = U.dot(Y).dot(V)
+    A     = U.dot(Y).dot(V.T)
     varA  = np.ones((F,1), DTYPE)
     
     # Vocab is K word distributions so normalize

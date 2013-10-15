@@ -12,15 +12,14 @@ import unittest
 from math import sqrt
 
 from model.sidetopic_uyv import newVbModelState, train, rowwise_softmax, normalizerows_ip
-from model.sidetopic_test import makeBandMatrix, makeSixTopicVocab, matrix_normal
+from model_test.sidetopic_test import makeBandMatrix, makeSixTopicVocab, matrix_normal
 
 import numpy as np
 import scipy.linalg as la
 import numpy.random as rd
 import scipy.sparse as ssp
 
-
-class Test:
+class StUyvTest(unittest.TestCase):
     '''
     Provides basic unit tests for the variational SideTopic inference engine using
     A=UYV with small inputs derived from known parameters.
@@ -73,16 +72,16 @@ class Test:
         featuresDist  = [1. / P] * P
         maxNonZeroFeatures = 3
         
-        X_low = np.zeros((D,P))
+        X_low = np.zeros((D,P), dtype=np.float32)
         for d in range(D):
             X_low[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
         X = np.round(X_low.dot(V.T))
         X = ssp.csr_matrix(X)
         
         # Use the features and the matrix A to generate the topics and documents
-        tpcs = rowwise_softmax (X.dot(A))
+        tpcs = rowwise_softmax (X.dot(A.T))
         
-        docLens = rd.poisson(avgWordsPerDoc, (D,))
+        docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
         W = tpcs.dot(vocab)
         W *= docLens[:, np.newaxis]
         W = np.array(W, dtype=np.int32) # truncate word counts to integers
@@ -91,7 +90,7 @@ class Test:
         #
         # Now finally try to train the model
         #
-        modelState = newVbModelState(K, F, T, P)
+        modelState = newVbModelState(K, Q, F, P, T)
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
         tpcs_inf = rowwise_softmax(queryState.lmda)
