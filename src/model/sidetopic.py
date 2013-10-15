@@ -153,7 +153,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0):
     lxi  = negJakkola (np.ones((D, K), np.float64))
     
     XA = X.dot(A)
-    for iteration in xrange(iterations):
+    for iteration in range(iterations):
         
         # Save repeated computation
         tsq      = tau * tau;
