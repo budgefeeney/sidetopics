@@ -34,6 +34,8 @@ class StUyvTest(unittest.TestCase):
 
 
     def testInferenceFromModelDerivedExample(self):
+        print("Model derived example")
+        
         rd.seed(0xBADB055) # Global init for repeatable test
         
         T = 100 # Vocabulary size, the number of "terms". Must be a square number
@@ -46,7 +48,7 @@ class StUyvTest(unittest.TestCase):
         avgWordsPerDoc = 500
         
         # Generate vocab
-        beta = 0.01
+        beta = 0.1
         betaVec = np.ndarray((T,))
         betaVec.fill(beta)
         vocab = np.zeros((K,T))
@@ -95,14 +97,17 @@ class StUyvTest(unittest.TestCase):
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
         tpcs_inf = rowwise_softmax(queryState.lmda)
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
-        priorReconsError = np.sum(np.abs(W - W_inf)**2) / D
+        priorReconsError = np.sum(np.square(W - W_inf)) / D
         
-        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=200)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 50, iterations=130)
         tpcs_inf = rowwise_softmax(queryState.lmda)
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         
         print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
-        print ("Model Driven: Final Reconstruction Error: %f" % (np.sum(np.abs(W - W_inf)**2) / D,))
+        print ("Model Driven: Final Reconstruction Error: %f" % (np.sum(np.square(W - W_inf)) / D,))
+        
+        print (str(tpcs[4,:]))
+        print (str(tpcs_inf[4,:]))
         
         print("End of Test")
         
@@ -110,6 +115,7 @@ class StUyvTest(unittest.TestCase):
         
 
     def _testInferenceFromHandcraftedExample(self):
+        print ("Partially hand-crafted example")
         rd.seed(0xC0FFEE) # Global init for repeatable test
         
         T = 100 # Vocabulary size, the number of "terms". Must be a square number
@@ -137,9 +143,9 @@ class StUyvTest(unittest.TestCase):
         X_low = np.array([1 if rd.random() < 0.3 else 0 for _ in range(D*P)]).reshape(D,P)
         X     = ssp.csr_matrix(X_low.dot(V.T))
         
-        lmda = X_low.dot(Y.T).dot(U.T)
-        print ("lmda.mean() = %f" % (lmda.mean()))
-        tpcs = rowwise_softmax (lmda)
+        lmda_low = X_low.dot(Y.T)
+        print ("lmda_low.mean() = %f" % (lmda_low.mean()))
+        tpcs = rowwise_softmax (lmda_low)
         
         docLens = rd.poisson(avgWordsPerDoc, (D,))
         W = tpcs.dot(vocab)
@@ -151,7 +157,7 @@ class StUyvTest(unittest.TestCase):
         # Now finally try to train the model
         #
         modelState = newVbModelState(K, Q, F, P, T)
-        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=200)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 10, iterations=10)
         
         tpcs_inf = rowwise_softmax(queryState.lmda)
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
@@ -159,13 +165,75 @@ class StUyvTest(unittest.TestCase):
         print("Handcrafted Test-Case")
         print("=====================================================================")
         print("Average, squared, per-element difference between true and estimated:")
-        print("    Topic Distribution:    %f" % (np.sum((tpcs - tpcs_inf)**2) / len(tpcs),))
-        print("    Vocab Distribution:    %f" % (np.sum((vocab - trainedState.vocab)**2) / len(vocab),))
+        print("    Topic Distribution:    %f" % (np.sum(np.square(tpcs.dot(U.T) - tpcs_inf)) / len(tpcs),))
+        print("    Vocab Distribution:    %f" % (np.sum(np.square(U.dot(vocab) - trainedState.vocab)) / len(vocab),))
         print("Average absolute difference between true and reconstructed documents")
-        print("    Documents:             %f" % (np.sum(np.abs(W - W_inf)) / np.sum(W),))
+        print("    Documents:             %f" % (np.sum(np.abs(W.todense() - W_inf)) / np.sum(W.todense()),))
         
         
         print("End of Test")
+        
+        
+
+    def testInferenceFromHandcraftedExampleWithKEqualingQ(self):
+        print ("Fully handcrafted example, K=Q")
+        rd.seed(0xC0FFEE) # Global init for repeatable test
+        
+        T = 100 # Vocabulary size, the number of "terms". Must be a square number
+        Q = 6   # Topics: This cannot be changed without changing the code that generates the vocabulary
+        K = 6   # Observed topics
+        P = 8   # Features
+        F = 12  # Observed features
+        D = 200 # Sample documents (each with associated features) 
+        
+        avgWordsPerDoc = 500
+        
+        # The vocabulary. Presented graphically there are two with horizontal bands
+        # (upper lower); two with vertical bands (left, right);  and two with 
+        # horizontal bands (inside, outside)
+        vocab = makeSixTopicVocab(T)
+        
+        # Create our (sparse) features X, then our topic proportions ("tpcs")
+        # then our word counts W
+        lmda = np.zeros((D,K))
+        X    = np.zeros((D,F))
+        for d in range(D):
+            for _ in range(3):
+                lmda[d,rd.randint(K)] += 1./3
+            for _ in range(int(F/3)):
+                X[d,rd.randint(F)] += 1
+        
+        A = rd.random((K,F))
+        X = lmda.dot(la.pinv(A).T)
+        X = ssp.csr_matrix(X)
+        
+        tpcs = lmda
+        
+        docLens = rd.poisson(avgWordsPerDoc, (D,))
+        W = tpcs.dot(vocab)
+        W *= docLens[:, np.newaxis]
+        W = np.array(W, dtype=np.int32) # truncate word counts to integers
+        W = ssp.csr_matrix(W)
+        
+        #
+        # Now finally try to train the model
+        #
+        modelState = newVbModelState(K, Q, F, P, T)
+        
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
+        tpcs_inf = rowwise_softmax(queryState.lmda)
+        W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
+        priorReconsError = np.sum(np.square(W - W_inf)) / D
+        
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 100, iterations=130)
+        tpcs_inf = rowwise_softmax(queryState.lmda)
+        W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
+        
+        print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
+        print ("Model Driven: Final Reconstruction Error: %f" % (np.sum(np.square(W - W_inf)) / D,))
+        
+        print("End of Test")
+
 
 
 if __name__ == "__main__":
