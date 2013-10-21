@@ -183,7 +183,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     # be faster to convert to dense and use the normal solver, despite
     # the size constraints.
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
-    omA = 1./K * la.inv ((overTsq * I_F + overSsq * XTX).todense())
+    tI_sXTX = (overTsq * I_F + overSsq * XTX).todense(); 
+    omA = la.inv (tI_sXTX)
     n_dk = np.zeros((D,K), DTYPE)
    
     for iteration in range(iterations):
@@ -241,10 +242,15 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsqSsq * np.trace(sigY.dot(UTU)) * VTV) 
         _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
         
-        # A (no need to update omA as it only depends on hyper-param tau)
+        # A 
         #
-        A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(lmda).T).dot(omA)
-#         A = la.solve(omA, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
+        # So it's normally A = (UYV' + L'X) omA with omA = inv(t*I_F + s*XTX)
+        #   so A inv(omA) = UYV' + L'X
+        #   so inv(omA)' A' = VY'U' + X'L
+        # at which point we can use a built-in solve
+        #
+#       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(lmda).T).dot(omA)
+        A = la.solve(tI_sXTX, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
         #
