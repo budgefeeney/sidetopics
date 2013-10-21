@@ -222,12 +222,16 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # 
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
-        invUTU = la.inv(UTU)
+        try:
+            invUTU = la.inv(UTU)
+        except np.linalg.linalg.LinAlgError as e:
+            invUTU = la.pinvh(UTU) # U seems to rapidly become non-singular (before 5 iters have passed)
         
         # The update for Y is 
         #    ssq * tsq * Y + UTU.dot(Y).dot(VTV) = U.T.dot(A).V
         # If we pre-multiply by la.inv(UTU) (the smallest matrix going) we use the built in solve
         #    ssq * tsq * la.inv(UTU) * Y + Y.dot(VTV) = la.inv(UTU).dot(U.T).dot(A).dot(V)
+        # However as UTU rapidly becomes non-singular, we use the pseudo inverse, which isn't great...
         Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V)) 
         _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
         
@@ -237,9 +241,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsqSsq * np.trace(sigY.dot(UTU)) * VTV) 
         _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
         
-        # A, varA
+        # A (no need to update omA as it only depends on hyper-param tau)
         #
-        A = la.solve(omA, (overTsq * U.dot(Y).dot(V.T) + lmda.T.dot(X)).T).T
+        A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(lmda).T).dot(omA)
+#         A = la.solve(omA, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
         #
@@ -473,11 +478,7 @@ def varBound (modelState, queryState, X, W, Z = None, lnVocab = None, XAT=None, 
 #    lnP_W = np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))   # <-- Part of p(W)
     
     # H[q(Y)]
-    try:
-        ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
-    except ValueError as e:
-        print (str(e))
-        print ("Oh dear")
+    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
     
     # H[q(A|Y)]
     ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))
