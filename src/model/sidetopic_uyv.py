@@ -222,9 +222,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # 
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
+        invUTU = la.inv(UTU)
         
-        y = la.inv(ssq*tsq*I_PQ + np.kron (VTV, UTU)).dot(vec(U.T.dot(A).dot(V)))
-        Y = np.reshape(y, (Q,P), 'F') 
+        # The update for Y is 
+        #    ssq * tsq * Y + UTU.dot(Y).dot(VTV) = U.T.dot(A).V
+        # If we pre-multiply by la.inv(UTU) (the smallest matrix going) we use the built in solve
+        #    ssq * tsq * la.inv(UTU) * Y + Y.dot(VTV) = la.inv(UTU).dot(U.T).dot(A).dot(V)
+        Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V)) 
         _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
         
         sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsqSsq * np.trace(omY.dot(VTV)) * UTU)
