@@ -239,8 +239,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         
         # A, varA
         #
-        # TODO Use sparse inverse
-        A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(lmda).T).dot(omA)
+        A = la.solve(omA, (overTsq * U.dot(Y).dot(V.T) + lmda.T.dot(X)).T).T
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
        
         #
