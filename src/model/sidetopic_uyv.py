@@ -364,7 +364,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     
     print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None):
+def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -379,8 +379,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
                  recalculate it from the model and query states. Z is the DxKxT tensor which
                  for each document D and term T gives the proportion of those terms assigned
                  to topic K
-    lnVocab    - the KxV matrix of the natural log applied to the vocabulary. Recalculated if
-                 not provided
+    vocab      - the KxV matrix of the vocabulary distribution
     XAT        - DxK dot product of XA', recalculated if not provided, where X is DxF and A' is FxK
     XTX        - dot product of X-transpose and X, recalculated if not provided.
     
@@ -404,10 +403,6 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
     # and term T gives the strength of topic K. We'll also need the log of the vocab dist
     xi = deriveXi (lmda, nu, s)
-    
-    if lnVocab is None:
-        lnVocab = safe_log(vocab)
-    Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxV
     
     # If not already provided, we'll also need the the product of XA
     #
@@ -441,12 +436,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Z|Theta)
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    # Count of words in document d assigned to topic k
-    # TODO Horribly inefficient, get rid of Z entirely
-    n_dk = np.zeros((D,K), DTYPE)
-    for d in range(D):
-        n_dk[d,:] = W[d,:].dot(Z.T[:,:,d])
-    
+
     lnP_Z = 0.0
     lnP_Z -= np.sum(docLenLmdaLxi * lmda)
     lnP_Z -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
