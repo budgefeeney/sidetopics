@@ -235,8 +235,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # lmda_dk
         #
         
-        # There are many more opportunities to opimtise the: sc = W / lmda.dot(vocab)
-        #  Using the indices to evaluate the individual dot products sc[r,c] = w[r,c] / sum_k l[r,k] v[k,c]
+        # There are many more opportunities to optimise the expression: sc = W / lmda.dot(vocab)
+        #  e.g. Using the indices to evaluate the individual dot products sc[r,c] = w[r,c] / sum_k l[r,k] v[k,c]
         #  without fully materialising the dense DxT dot product
         scaledWordCounts.data[:] = W.data
         scaledWordCounts.data /= expLmda.dot(vocab)[scaledWordCounts.tolil().nonzero()]
@@ -292,7 +292,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #
         # vocab
         #
-        vocab *= expLmda.T.dot(scaledWordCounts)
+        factor = (scaledWordCounts.T.dot(expLmda)).T
+        vocab *= factor
         normalizerows_ip(vocab)
         _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
@@ -301,7 +302,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
             elbo = varBound ( \
                 VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
                 VbSideTopicQueryState(expLmda, nu, lxi, s, docLen),
-                X, W, None, None, XAT, XTX)
+                X, W, None, XAT, XTX)
             
             np.exp(expLmda, out=expLmda)
                 
