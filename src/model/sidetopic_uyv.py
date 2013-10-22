@@ -292,7 +292,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #
         # vocab
         #
-        factor = (scaledWordCounts.T.dot(expLmda)).T
+        factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
         _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
@@ -326,7 +326,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     
 def plot_bound (iters, bounds):
     '''
-    Plots the evoluation of the variational bound. The input is a pair of
+    Plots the evolution of the variational bound. The input is a pair of
     matched arrays: for a given point i, iters[i] was the iteration at which
     the bound bounds[i] was calculated
     '''
@@ -345,7 +345,7 @@ def plot_bound (iters, bounds):
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
     '''
     Calculates the variational lower bound and prints it to stdout,
-    prefixed with a tabl and the given updateMsg
+    prefixed with a table and the given updateMsg
     
     See varBound() for a full description of all parameters
     
