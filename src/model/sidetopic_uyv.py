@@ -77,25 +77,29 @@ def negJakkola(vec):
     # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
     return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
 
-def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
+def negJakkolaOfDerivedXi(expLmda, nu, s, d = None):
     '''
     The negated version of the Jakkola expression which was used in Bouchard's NIPS '07
     softmax bound calculated using an estimate of xi derived from lambda, nu, and s
     
-    lmda - the DxK matrix of means of the topic distribution for each document
-    nu   - the DxK the vector of variances of the topic distribution
-    s    - The Dx1 vector of offsets.
-    d    - the document index (for lambda and nu). If not specified we construct
-           the full matrix of A(xi_dk)
+    expLmda - the DxK matrix of means of e to the power of the topic distribution for each document.
+              Note that this is different to all other implementations of neg-Jaakkola which assume
+              the topic distribution is provided, and not e to the power of it.
+    nu      - the DxK the vector of variances of the topic distribution
+    s       - The Dx1 vector of offsets.
+    d       - the document index (for lambda and nu). If not specified we construct
+              the full matrix of A(xi_dk)
     '''
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
+    np.log(expLmda, out=expLmda)
     if d is not None:
-        vec = (np.sqrt (lmda[d,:]**2 - 2 * lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
+        vec = (np.sqrt (expLmda[d,:]**2 - 2 * expLmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
     else:
-        mat = deriveXi(lmda, nu, s)
+        mat = deriveXi(expLmda, nu, s)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
+    np.exp(expLmda, out=expLmda)
     
     
 def jakkolaOfDerivedXi(lmda, nu, s, d = None):
@@ -165,7 +169,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     I_F  = ssp.eye(F,F, 0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     
     # Assign initial values to the query parameters
-    lmda = rd.random((D, K)).astype(DTYPE)
+    expLmda = rd.random((D, K)).astype(DTYPE)
     nu   = np.ones((D, K), DTYPE)
     s    = np.zeros((D,), DTYPE)
     lxi  = negJakkola (np.ones((D,K), DTYPE))
@@ -185,7 +189,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
     tI_sXTX = (overTsq * I_F + overSsq * XTX).todense(); 
     omA = la.inv (tI_sXTX)
-    n_dk = np.zeros((D,K), DTYPE)
+
+    np.exp(expLmda, out=expLmda)
    
     for iteration in range(iterations):
         
@@ -196,21 +201,6 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
 #         overSsq = 1. / ssq
 #         over2Ssq = 0.5 * overSsq;
 #         over2Tsq = 0.5 * overTsq;
-        
-        # =============================================================
-        # M-Step [Preliminary]
-        #   We need an initial Z for the E-Step.
-        # =============================================================
-       
-        # Z
-        #
-        lnVocab = safe_log (vocab)
-        Z = rowwise_softmax (lmda[:,:,np.newaxis] + lnVocab[np.newaxis,:,:]) # Z is DxKxT
-        
-        # Count of words in document d assigned to topic k
-        # TODO Horribly inefficient, get rid of Z entirely
-        for d in range(D):
-            n_dk[d,:] = W[d,:].dot(Z.T[:,:,d])
         
         # =============================================================
         # E-Step
@@ -234,13 +224,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #    ssq * tsq * la.inv(UTU) * Y + Y.dot(VTV) = la.inv(UTU).dot(U.T).dot(A).dot(V)
         # However as UTU rapidly becomes non-singular, we use the pseudo inverse, which isn't great...
         Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V)) 
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsqSsq * np.trace(omY.dot(VTV)) * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsqSsq * np.trace(sigY.dot(UTU)) * VTV) 
-        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
@@ -249,41 +239,39 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #   so inv(omA)' A' = VY'U' + X'L
         # at which point we can use a built-in solve
         #
-#       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(lmda).T).dot(omA)
-        A = la.solve(tI_sXTX, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+#       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
+        A = la.solve(tI_sXTX, X.T.dot(expLmda) + V.dot(Y.T).dot(U.T)).T
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
-        #
         # lmda_dk
         #
-        # TODO Determine if Z is proportions or counts. If it's proportions, then we can't
-        # Just sum it up as we're doing, we need the inner product with word couns.
+        # Can re-write this using a solver too...
         #
-        # Also think about the fact that Z is too big to hold in memory, and so needs to be
-        # elided out, look to Guillaume's note to simplify this.
+        scaledWordCounts = W / (expLmda.dot(vocab)) # assume expLmda is in fact exp(expLmda here)
+        
         XAT = X.dot(A.T)
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
-            + n_dk / docLen[:,np.newaxis]
+            + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]
         
         rhs  = docLen[:,np.newaxis] * rho + overSsq * XAT
-        lmda = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
+        expLmda = np.exp(rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq))
         
-        _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         #
         # nu_dk..
         nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
         #
         # s_d
-        s = (K/4. - 0.5 + (lxi * lmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        s = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
+        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         #
         # xi_dk
-        lxi = negJakkolaOfDerivedXi(lmda, nu, s)
-        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        lxi = negJakkolaOfDerivedXi(expLmda, nu, s)
+        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
        
         # =============================================================
@@ -298,12 +286,12 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # U
         # TODO Verify this...
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         # V
         # 
         V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         #
         # vocab
@@ -313,15 +301,15 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
             vocab[k,:] = np.sum(W.multiply(Z[:,k,:]), axis=0)
         vocab = normalizerows_ip (vocab)
 #        vocab = normalizerows_ip (np.einsum('dt,dkt->kt', W, Z))
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         
         
         if (logInterval > 0) and (iteration % logInterval == 0):
             elbo = varBound ( \
                 VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-                VbSideTopicQueryState(lmda, nu, lxi, s, docLen),
-                X, W, None, lnVocab, XAT, XTX)
+                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen),
+                X, W, None, None, XAT, XTX)
                 
             elbos[iteration / logInterval] = elbo
             iters[iteration / logInterval] = iteration
@@ -339,7 +327,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         plot_bound(iters, elbos)
     
     return (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-            VbSideTopicQueryState (lmda, nu, lxi, s, docLen))
+            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen))
     
 def plot_bound (iters, bounds):
     '''
@@ -359,7 +347,7 @@ def plot_bound (iters, bounds):
     plot.set_xticks(itersFilled)
     plt.show()
     
-def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, lmda, nu, lxi, s, docLen):
+def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
     '''
     Calculates the variational lower bound and prints it to stdout,
     prefixed with a tabl and the given updateMsg
@@ -371,6 +359,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
 #     if iteration % 100 != 0:
 #         return
     
+    lmda = np.log(expLmda)
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
                       VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
