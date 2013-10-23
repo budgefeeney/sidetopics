@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip, rowwise_softmax
 
+from numba import autojit
+
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
 # TODO Make random() stuff predictable, either by incorporating a RandomState instance into model parameters
@@ -203,9 +205,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
         try:
-            invUTU = la.inv(UTU)
-        except np.linalg.linalg.LinAlgError as e:
-            invUTU = la.pinvh(UTU) # U seems to rapidly become non-singular (before 5 iters have passed)
+            invUTU = la.inv(UTU)                  # [ should we experiment with chol decomp? And why is it singular? ]
+        except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters) Need to add a switch 
+            invUTU = la.pinvh(UTU)                # for this, it causes the monotonically increasing VB bound to decrease!
+                                  
         
         # The update for Y is 
         #    ssq * tsq * Y + UTU.dot(Y).dot(VTV) = U.T.dot(A).V
@@ -239,7 +242,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #  e.g. Using the indices to evaluate the individual dot products sc[r,c] = w[r,c] / sum_k l[r,k] v[k,c]
         #  without fully materialising the dense DxT dot product
         scaledWordCounts.data[:] = W.data
-        scaledWordCounts.data /= expLmda.dot(vocab)[scaledWordCounts.tolil().nonzero()]
+        scaledWordCounts.data /= expLmda.dot(vocab)[csr_indices(scaledWordCounts.indptr, scaledWordCounts.indices)]
         
         XAT = X.dot(A.T)
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
@@ -436,13 +439,17 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Z|Theta)
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
+    expLmda = np.exp(lmda)
+    if scaledWordCounts is None:
+        scaledWordCounts = W.copy()
+        scaledWordCounts.data /= expLmda.dot(vocab)[csr_indices(scaledWordCounts.indptr, scaledWordCounts.indices)]
 
     lnP_Z = 0.0
     lnP_Z -= np.sum(docLenLmdaLxi * lmda)
     lnP_Z -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
     lnP_Z += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
     lnP_Z -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
-    lnP_Z += np.sum (lmda * n_dk) 
+    lnP_Z += np.sum (lmda * expLmda * (scaledWordCounts.dot(vocab.T))) # n(d,k) = expLmda * (scaledWordCounts.dot(vocab.T))
     lnP_Z -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
     lnP_Z += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
     lnP_Z -= np.sum(docLen[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
@@ -450,11 +457,9 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
         
     # <ln p(W|Z, vocab)>
     # 
-#    n_kt = np.zeros((K,T), DTYPE)
-#    for k in range(K):
-#        n_kt[k,:] = np.sum(W.multiply(Z[:,k,:]), axis=0)
-    lnP_W = np.sum(W.dot (np.einsum("dkt,kt->td", Z, lnVocab)))
-#    lnP_W = np.sum(lnVocab * np.einsum('dt,dkt->kt', W, Z))   # <-- Part of p(W)
+    lnP_w_dt = scaledWordCounts.copy() # Probability matrix of every term t in every individual document d
+    lnP_w_dt.data *= (expLmda.dot(vocab * np.log(vocab)))[csr_indices(lnP_w_dt.indptr, lnP_w_dt.indices)]
+    lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
     ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
@@ -466,7 +471,19 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     ent_Theta = 0.5 * (K * LOG_2PI_E + np.sum (np.log(nu * nu)))
     
     # H[q(Z|\Theta)
-    ent_Z = np.sum (Z * np.log(Z))
+    #
+    # So Z_dtk \propto expLmda_dt * vocab_tk. We let N here be the normalizer (which is 
+    # \sum_j expLmda_dt * vocab_tj, which implies N is DxT. We need to evaluate
+    # Z_dtk * log Z_dtk. We can pull out the normalizer of the first term, but it has
+    # to stay in the log Z_dtk expression, hence the third term in the sum. We can however
+    # take advantage of the ability to mix dot and element-wise products for the different
+    # components of Z_dtk in that three-term sum, which we denote as S
+    #   Finally we use np.sum to sum over d and t
+    #
+    N = expLmda.dot(vocab) # DxT !!!
+    S = expLmda.dot(vocab * np.log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * np.log(N)
+    np.reciprocal(N, out=N)
+    ent_Z = -np.sum (N * S)
     
     result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
 #    if (lnP_Z > 0) or (lnP_Theta > 0) or (lnProb3 > 0) or (lnProb4 > 0):
@@ -531,6 +548,26 @@ def newVbModelState(K, Q, F, P, T):
     vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
     
     return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma)
+
+@autojit
+def csr_indices(ptr, ind):
+    '''
+    Returns the indices of a CSR matrix, given its indptr and indices arrays.
+    '''
+    rowCount = len(ptr) - 1 
+    
+    rows = [0] * len(ind)
+    totalElemCount = 0
+
+    for r in range(rowCount):
+        elemCount = ptr[r+1] - ptr[r]
+        if elemCount > 0:
+            rows[totalElemCount : totalElemCount + elemCount] = [r] * elemCount
+        totalElemCount += elemCount
+
+    return [rows, ind.tolist()]
+
+
 
 def vec(A):
     return np.reshape(np.transpose(A), (-1,1))
