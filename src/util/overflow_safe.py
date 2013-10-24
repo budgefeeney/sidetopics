@@ -120,6 +120,12 @@ def safe_log_one_plus(x):
 
 # TODO: How slow is this...
 def safe_x_log_x(x):
+    '''
+    An implementation of x * log(x), applied to arrays, which substitutes tiny numbers
+    for values of zero in those arrays, so that the standard numpy log function
+    will work
+    '''
+    
     almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
     
     log_x  = np.ndarray(x.shape)
@@ -128,7 +134,13 @@ def safe_x_log_x(x):
     log_x[x>0]  = np.log(x[x>0])
     return x * log_x
 
+
 def safe_log (x, out = None):
+    '''
+    An implementation of log, applied to arrays, which substitutes tiny numbers
+    for values of zero in those arrays, so that the standard numpy log function
+    will work
+    '''
     if out is None:
         out = np.ndarray(x.shape)
         
