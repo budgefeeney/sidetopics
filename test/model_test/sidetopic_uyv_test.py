@@ -175,7 +175,7 @@ class StUyvTest(unittest.TestCase):
         
         
 
-    def _testInferenceFromHandcraftedExampleWithKEqualingQ(self):
+    def testInferenceFromHandcraftedExampleWithKEqualingQ(self):
         print ("Fully handcrafted example, K=Q")
         rd.seed(0xC0FFEE) # Global init for repeatable test
         
