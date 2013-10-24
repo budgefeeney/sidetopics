@@ -123,7 +123,7 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0):
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -166,9 +166,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_P  = np.eye(P,P, 0, DTYPE)
-    I_Q  = np.eye(Q,Q, 0, DTYPE)
-    I_F  = ssp.eye(F,F, 0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
+    I_P  = np.eye(P,P,     0, DTYPE)
+    I_Q  = np.eye(Q,Q,     0, DTYPE)
+    I_QP = np.eye(Q*P,Q*P, 0, DTYPE)
+    I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -201,21 +202,23 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
               
       
         # Y, sigY, omY
+        #
+        # If U'U is invertible, use inverse to convert Y to a Sylvester eqn
+        # which has a much, much faster solver. Recall update for Y is of the form
+        #   Y + AYB = C where A = U'U, B = V'V and C=U'AV
         # 
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
         try:
             invUTU = la.inv(UTU)                  # [ should we experiment with chol decomp? And why is it singular? ]
-        except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters) Need to add a switch 
-            invUTU = la.pinvh(UTU)                # for this, it causes the monotonically increasing VB bound to decrease!
-                                  
-        
-        # The update for Y is 
-        #    ssq * tsq * Y + UTU.dot(Y).dot(VTV) = U.T.dot(A).V
-        # If we pre-multiply by la.inv(UTU) (the smallest matrix going) we use the built in solve
-        #    ssq * tsq * la.inv(UTU) * Y + Y.dot(VTV) = la.inv(UTU).dot(U.T).dot(A).dot(V)
-        # However as UTU rapidly becomes non-singular, we use the pseudo inverse, which isn't great...
-        Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V)) 
+            Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))                  
+        except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters)
+            if fastButInaccurate:                 
+                invUTU = la.pinvh(UTU) # Obviously instable, gets stuck much earlier than the correct form
+                Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))  
+            else:
+                Y = np.reshape (la.solve(ssq * tsq * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
+                
         _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsqSsq * np.trace(omY.dot(VTV)) * UTU)
@@ -238,11 +241,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # lmda_dk
         #
         
-        # There are many more opportunities to optimise the expression: sc = W / lmda.dot(vocab)
-        #  e.g. Using the indices to evaluate the individual dot products sc[r,c] = w[r,c] / sum_k l[r,k] v[k,c]
-        #  without fully materialising the dense DxT dot product
-        scaledWordCounts.data[:] = W.data
-        scaledWordCounts.data /= expLmda.dot(vocab)[csr_indices(scaledWordCounts.indptr, scaledWordCounts.indices)]
+        # sc = W / lmda.dot(vocab)
+        scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
         XAT = X.dot(A.T)
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
@@ -440,9 +440,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
     expLmda = np.exp(lmda)
-    if scaledWordCounts is None:
-        scaledWordCounts = W.copy()
-        scaledWordCounts.data /= expLmda.dot(vocab)[csr_indices(scaledWordCounts.indptr, scaledWordCounts.indices)]
+    scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
 
     lnP_Z = 0.0
     lnP_Z -= np.sum(docLenLmdaLxi * lmda)
@@ -457,8 +455,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
         
     # <ln p(W|Z, vocab)>
     # 
-    lnP_w_dt = scaledWordCounts.copy() # Probability matrix of every term t in every individual document d
-    lnP_w_dt.data *= (expLmda.dot(vocab * safe_log(vocab)))[csr_indices(lnP_w_dt.indptr, lnP_w_dt.indices)]
+    lnP_w_dt = sparseScalarProductOfDot(scaledWordCounts, expLmda, vocab * safe_log(vocab))
     lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
@@ -493,6 +490,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
 #        print ("Well this is just ridiculous")
     
     return result
+ 
+
  
 def deriveXi (lmda, nu, s):
     '''
@@ -567,6 +566,25 @@ def csr_indices(ptr, ind):
 
     return [rows, ind.tolist()]
 
+
+def sparseScalarProductOfDot(A,B,C, out=None):
+    '''Calculates A * B.dot(C) where A is a sparse matrix'''
+    if out is None:
+        out = A.copy()
+    out.data[:] = A.data
+    out.data *= B.dot(C)[csr_indices(out.indptr, out.indices)]
+    
+    return out
+
+
+def sparseScalarQuotientOfDot(A,B,C, out=None):
+    '''Calculates A / B.dot(C) where A is a sparse matrix'''
+    if out is None:
+        out = A.copy()
+    out.data[:] = A.data
+    out.data /= B.dot(C)[csr_indices(out.indptr, out.indices)]
+    
+    return out
 
 
 def vec(A):
