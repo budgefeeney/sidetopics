@@ -458,7 +458,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(W|Z, vocab)>
     # 
     lnP_w_dt = scaledWordCounts.copy() # Probability matrix of every term t in every individual document d
-    lnP_w_dt.data *= (expLmda.dot(vocab * np.log(vocab)))[csr_indices(lnP_w_dt.indptr, lnP_w_dt.indices)]
+    lnP_w_dt.data *= (expLmda.dot(vocab * safe_log(vocab)))[csr_indices(lnP_w_dt.indptr, lnP_w_dt.indices)]
     lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
@@ -480,8 +480,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # components of Z_dtk in that three-term sum, which we denote as S
     #   Finally we use np.sum to sum over d and t
     #
-    N = expLmda.dot(vocab) # DxT !!!
-    S = expLmda.dot(vocab * np.log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * np.log(N)
+    N = expLmda.dot(vocab) + 1E-35 # DxT !!! TODO Figure out why this is zero sometimes (better init of vocab?)
+    S = expLmda.dot(vocab * safe_log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * safe_log(N)
     np.reciprocal(N, out=N)
     ent_Z = -np.sum (N * S)
     
