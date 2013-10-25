@@ -325,7 +325,8 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
     modelState   - the model used to assign topics to documents. This is kept fixed
     X            - the DxF matrix of feature-vectors associated with the documents
     W            - The DxT matrix of word-count vectors representing the documents
-    queryState   - the query-state object, with initial topic assignments
+    queryState   - the query-state object, with initial topic assignments. The members
+                   of this are directly mutatated.
     scaledWordCounts - a DxT matrix with the same number of non-zero entries as W.
                        This is overwritten.
     XAT          - the product of X.dot(modelState.A.T)
@@ -334,7 +335,10 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
     logInterval  - the interval between iterations where we calculate and display
                    the log-likelihood bound
     plotInterval - the interval between iterations we we display the log-likelihood
-                   bound values calcuated at each log-interval
+                   bound values calculated at each log-interval
+                   
+    Returns
+      The original query state, with the mutated in-place matrices
     '''
     
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
@@ -359,7 +363,7 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
             + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]  
         rhs  = docLen[:,np.newaxis] * rho + overSsq * XAT
         
-        expLmda = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
+        expLmda[:] = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
         
@@ -367,17 +371,17 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
          
         # nu_dk
         #
-        nu = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
+        nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
         _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
           
         # s_d
         #
-        s = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
+        s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
         _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
         
         # xi_dk
         # 
-        lxi = negJakkolaOfDerivedXi(expLmda, nu, s)
+        lxi[:] = negJakkolaOfDerivedXi(expLmda, nu, s)
         _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
 
         # Now finally we finish off the estimate of exp(lmda)
@@ -411,27 +415,23 @@ def plot_bound (iters, bounds, likes):
     plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
-    pass
-#    '''
-#    Calculates the variational lower bound and prints it to stdout,
-#    prefixed with a table and the given updateMsg
-#    
-#    See varBound() for a full description of all parameters
-#    
-#    Obviously this is a very ugly inefficient method.
-#    '''
-##     if iteration % 100 != 0:
-##         return
-#    
-#    lmda = np.log(expLmda)
-#    xi = deriveXi(lmda, nu, s)
-#    elbo = varBound ( \
-#                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-#                      VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
-#                      X, W)
-#    
-#    
-#    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    '''
+    Calculates the variational lower bound and prints it to stdout,
+    prefixed with a table and the given updateMsg
+    
+    See varBound() for a full description of all parameters
+    
+    Obviously this is a very ugly inefficient method.
+    '''
+    lmda = np.log(expLmda)
+    xi = deriveXi(lmda, nu, s)
+    elbo = varBound ( \
+                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+                      VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
+                      X, W)
+    
+    
+    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
     '''
@@ -459,7 +459,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     (lmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
-    np.log(lmda, out=lmda)
+    
+    safe_log(lmda, out=lmda)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
     # with the model parameters.
