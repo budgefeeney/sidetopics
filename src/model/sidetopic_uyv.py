@@ -84,7 +84,7 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     The negated version of the Jakkola expression which was used in Bouchard's NIPS '07
     softmax bound calculated using an estimate of xi derived from lambda, nu, and s
     
-    expLmda - the DxK matrix of means of e to the power of the topic distribution for each document.
+    lmda    - the DxK matrix of means of the topic distribution for each document.
               Note that this is different to all other implementations of neg-Jaakkola which assume
               the topic distribution is provided, and not e to the power of it.
     nu      - the DxK the vector of variances of the topic distribution
