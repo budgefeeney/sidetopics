@@ -55,7 +55,7 @@ LOG_2PI_E = log(2 * pi * e)
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
-    'lmda nu lxi s docLen'\
+    'expLmda nu lxi s docLen'\
 )
 
 
@@ -123,7 +123,7 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False, fixVocab=False):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -132,10 +132,17 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     The parameters are
     
     modelState - the model state with all the model parameters
-    X - the D x F matrix of side information vectors
-    W - the D x V matrix of word **count** vectors.
+    X          - the D x F matrix of side information vectors
+    W          - the D x V matrix of word **count** vectors.
     iterations - how long to iterate for
-    epsilon - currently ignored, in future, allows us to stop early.
+    epsilon    - currently ignored, in future, allows us to stop early.
+    logInterval  - the interval between iterations where we calculate and display
+                   the log-likelihood bound
+    plotInterval - the interval between iterations we we display the log-likelihood
+                   bound values calcuated at each log-interval
+    fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
+                        when solving for Y when the true inverse is unavailable.
+    fixVocab - If true the vocabulary is not updated. Used, e.g., for querying.
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -149,7 +156,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     # Unpack the model state tuple for ease of use and maybe speed improvements
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
-    if W.dtype.kind == 'i':
+    if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
     
     # Get ready to plot the evolution of the likelihood
@@ -239,13 +246,102 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         A = la.solve(tI_sXTX, X.T.dot(expLmda) + V.dot(Y.T).dot(U.T)).T
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
-        # lmda_dk
+        # lmda_dk, nu_dk, s_d, and xi_dk
         #
+        XAT = X.dot(A.T)
+        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma),
+               X, W, \
+               VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+               scaledWordCounts=scaledWordCounts, \
+               XAT = XAT, \
+               iterations=1, \
+               logInterval = 0, plotInterval = 0)
+       
+       
+        # =============================================================
+        # M-Step
+        #    Parameters for the softmax bound: lxi and s <-- ?
+        #    The projection used for A: U and V
+        #    The vocabulary : vocab
+        #    The variances: tau, sigma
+        # =============================================================
         
+               
+        # U
+        # TODO Verify this...
+        U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+
+        # V
+        # 
+        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
+        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+
+        # vocab
+        #
+        factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
+        vocab *= factor
+        normalizerows_ip(vocab)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        
+        # =============================================================
+        # Handle logging of variational bound, likelihood, etc.
+        # =============================================================
+        if (logInterval > 0) and (iteration % logInterval == 0):
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma)
+            queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
+            
+            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
+            likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
+                
+            elbos[iteration / logInterval] = elbo
+            iters[iteration / logInterval] = iteration
+            likes[iteration / logInterval] = likely
+            print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
+        
+        if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
+            plot_bound(iters, elbos, likes)
+            
+        if (iteration % 10 == 0) and (iteration > 0):
+            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
+            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
+            
+    
+    # Right before we end, plot the evoluation of the bound and likelihood
+    # if we've been asked to do so.
+    if plotInterval > 0:
+        plot_bound(iters, elbos, likes)
+    
+    return (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+            VbSideTopicQueryState (np.log(expLmda, out=expLmda), nu, lxi, s, docLen))
+
+def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None, iterations=10, epsilon=0.001, logInterval = 0, plotInterval = 0):
+    '''
+    Determines the most likely topic memberships for the given documents as
+    described by their feature and word matrices X and W. All  elements of
+    the model are kept fixed. The query state, if provied, will be mutated 
+    in-place, so one should make a defensive copy if this behaviour is 
+    undesirable.
+    '''
+    
+    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    if queryState is None:
+        queryState = newVbQueryState(W, K)
+    expLmda, nu, lxi, s, docLen = queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen
+    
+    overSsq = 1. / (sigma * sigma)
+    
+    if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
+        W = W.astype(np.float32)
+    if scaledWordCounts is None:
+        scaledWordCounts = W.copy()
+    if XAT is None:
+        XAT = X.dot(A.T)
+    
+    for iteration in range(iterations):
         # sc = W / lmda.dot(vocab)
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
-        XAT = X.dot(A.T)
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]  
         rhs  = docLen[:,np.newaxis] * rho + overSsq * XAT
@@ -273,63 +369,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
 
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
-       
-        # =============================================================
-        # M-Step
-        #    Parameters for the softmax bound: lxi and s <-- ?
-        #    The projection used for A: U and V
-        #    The vocabulary : vocab
-        #    The variances: tau, sigma
-        # =============================================================
         
-               
-        # U
-        # TODO Verify this...
-        U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
-
-        # V
-        # 
-        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
-
-        #
-        # vocab
-        #
-        factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
-        vocab *= factor
-        normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
-        
-        if (logInterval > 0) and (iteration % logInterval == 0):
-            np.log(expLmda, out=expLmda) # temporarily revert to just lmda...
-            
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma)
-            queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
-            
-            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
-            likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
-            
-            np.exp(expLmda, out=expLmda) # and now take the exp again
-                
-            elbos[iteration / logInterval] = elbo
-            iters[iteration / logInterval] = iteration
-            likes[iteration / logInterval] = likely
-            print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
-        
-        if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
-            plot_bound(iters, elbos, likes)
-            
-        if (iteration % 10 == 0) and (iteration > 0):
-            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
-            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
-            
-    
-    if plotInterval > 0:
-        plot_bound(iters, elbos, likes)
-    
-    return (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-            VbSideTopicQueryState (np.log(expLmda, out=expLmda), nu, lxi, s, docLen))
+    return VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
     
 def plot_bound (iters, bounds, likes):
     '''
@@ -357,8 +398,7 @@ def plot_bound (iters, bounds, likes):
     plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
-    topics = rowwise_softmax(np.log(expLmda))
-    print (str(topics[13,:]))
+    pass
 #    '''
 #    Calculates the variational lower bound and prints it to stdout,
 #    prefixed with a table and the given updateMsg
@@ -405,7 +445,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
-    (lmda, nu, lxi, s, docLen) = (queryState.lmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
+    (lmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
+    np.log(lmda, out=lmda)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
     # with the model parameters.
@@ -496,23 +537,21 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     ent_Z = -np.sum (N * S)
     
     result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
-#    if (lnP_Z > 0) or (lnP_Theta > 0) or (lnProb3 > 0) or (lnProb4 > 0):
-#        print ("Whoopsie - lnProb > 0")
-    
-#    if result > 100:
-#        print ("Well this is just ridiculous")
+
+    # As we're working with references, undo our log-transform of the
+    # expLmda parameter of the query-state
+    np.exp(lmda, out=lmda)
     
     return result
+
  
 def recons_error (modelState, X, W, queryState):
-    like = log_likelihood(modelState, X, W)
     tpcs_inf = rowwise_softmax(queryState.lmda)
     W_inf    = np.array(tpcs_inf.dot(modelState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
     return np.sum(np.square(W - W_inf)) / X.shape[0]
-        
 
 
-def log_likelihood(modelState, X, W, queryState=None):
+def log_likelihood(modelState, X, W, queryState):
     '''
     Returns the log likelihood of the given features and words according to the
     given model.
@@ -524,17 +563,23 @@ def log_likelihood(modelState, X, W, queryState=None):
     Return:
         The marginal likelihood of the data
     '''
-    F, T, A, vocab = modelState.F, modelState.T, modelState.A, modelState.vocab
+    if W.dtype.kind == 'i':      # for the sparseScalorProductOf() method to work
+        W = W.astype(np.float32)
+    
+    F, T, vocab = modelState.F, modelState.T, modelState.vocab
     assert X.shape[1] == F, "Model is trained to expect " + str(F) + " features but feature-matrix has " + str(X.shape[1]) + " features"
     assert W.shape[1] == T, "Model is trained to expect " + str(T) + " words, but word-matrix has " + str(W.shape[1]) + " words"
+   
+    expLmda  = queryState.expLmda;
+    row_sums = expLmda.sum(axis=1)
+    expLmda /= row_sums[:, np.newaxis] # converts it to a true distribution
     
-    if queryState is None:
-        tpc_dist = rowwise_softmax(X.dot(A.T))
-    else:
-        tpc_dist = rowwise_softmax(queryState.lmda)
-    return np.sum (sparseScalarProductOf(W, safe_log(tpc_dist.dot(vocab))).data)
-
-
+    likely = np.sum (sparseScalarProductOf(W, safe_log(expLmda.dot(vocab))).data)
+    
+    # Revert expLmda to its original value as this is a ref to, not a copy of, the oroginal matrix
+    expLmda *= row_sums[:, np.newaxis]
+    
+    return likely
 
  
 def deriveXi (lmda, nu, s):
@@ -544,6 +589,40 @@ def deriveXi (lmda, nu, s):
     '''
     return np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)   
 
+def newVbQueryState(W, K):
+    '''
+    Creates a new query state for a given document set, which can in this
+    case simply be described by the document-term matrix W. The query state
+    has all the parameters associated with the inference of topic memberships.
+    
+    Params:
+    W - the DxT document-term matrix for D documents and T possible terms
+    K - the number of topics to infer
+    
+    Returns:
+    A named tuple containing
+        expLmda - the DxK matrix of the posterior topic means, having been pumped
+                  through the exp() function.
+        nu      - the DxK matrix of diagonal covariances of the posterior topic
+                  distributions for each of the K documents.
+        lxi     - The DxK matrix xi is a parameter of the approximation to the
+                  soft-mutionax distrib, and lxi is the DxK matrix resulting having
+                  applied the negative Jaakkola function to it
+        s       - Dx1 matrix of the offsets used for the approximations to the
+                  non-conjugate soft-max topic distribution.
+        docLen  - the Dx1 vector of the lengths of each of the documents.
+    '''
+    D = W.shape[0]
+    docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
+    
+    
+    expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
+    nu   = np.ones((D, K), DTYPE)
+    s    = np.zeros((D,), DTYPE)
+    lxi  = negJakkola (np.ones((D,K), DTYPE))
+    
+    return VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
+    
 
 def newVbModelState(K, Q, F, P, T):
     '''
@@ -616,6 +695,10 @@ def sparseScalarProductOfDot(A,B,C, out=None):
     Calculates A * B.dot(C) where A is a sparse matrix
     
     Retains sparsity in the result, unlike the built-in operator
+    
+    Note the type of the return-value is the same as the type of
+    the sparse matrix A. If this has an integral type, this will
+    only provide integer-based multiplication.
     '''
     if out is None:
         out = A.copy()
@@ -629,6 +712,10 @@ def sparseScalarProductOf(A,B, out=None):
     Calculates A * B where A is a sparse matrix
     
     Retains sparsity in the result, unlike the built-in operator
+    
+    Note the type of the return-value is the same as the type of
+    the sparse matrix A. If this has an integral type, this will
+    only provide integer-based multiplication.
     '''
     if out is None:
         out = A.copy()
@@ -642,6 +729,10 @@ def sparseScalarQuotientOfDot(A,B,C, out=None):
     Calculates A / B.dot(C) where A is a sparse matrix
     
     Retains sparsity in the result, unlike the built-in operator
+    
+    Note the type of the return-value is the same as the type of
+    the sparse matrix A. If this has an integral type, this will
+    only provide integer-based multiplication.
     '''
     if out is None:
         out = A.copy()
