@@ -123,7 +123,7 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False, fixVocab=False):
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -142,7 +142,6 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                    bound values calcuated at each log-interval
     fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
                         when solving for Y when the true inverse is unavailable.
-    fixVocab - If true the vocabulary is not updated. Used, e.g., for querying.
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -265,10 +264,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #    The vocabulary : vocab
         #    The variances: tau, sigma
         # =============================================================
-        
                
         # U
-        # TODO Verify this...
+        # 
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
         _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
@@ -312,8 +310,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     if plotInterval > 0:
         plot_bound(iters, elbos, likes)
     
-    return (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-            VbSideTopicQueryState (np.log(expLmda, out=expLmda), nu, lxi, s, docLen))
+    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+            VbSideTopicQueryState (np.log(expLmda, out=expLmda), nu, lxi, s, docLen)
 
 def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None, iterations=10, epsilon=0.001, logInterval = 0, plotInterval = 0):
     '''
@@ -322,6 +320,21 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
     the model are kept fixed. The query state, if provied, will be mutated 
     in-place, so one should make a defensive copy if this behaviour is 
     undesirable.
+    
+    Parameters
+    modelState   - the model used to assign topics to documents. This is kept fixed
+    X            - the DxF matrix of feature-vectors associated with the documents
+    W            - The DxT matrix of word-count vectors representing the documents
+    queryState   - the query-state object, with initial topic assignments
+    scaledWordCounts - a DxT matrix with the same number of non-zero entries as W.
+                       This is overwritten.
+    XAT          - the product of X.dot(modelState.A.T)
+    iterations   - the number of iterations to execute
+    epsilon      - ignored
+    logInterval  - the interval between iterations where we calculate and display
+                   the log-likelihood bound
+    plotInterval - the interval between iterations we we display the log-likelihood
+                   bound values calcuated at each log-interval
     '''
     
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
