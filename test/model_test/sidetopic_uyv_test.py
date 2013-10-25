@@ -9,10 +9,9 @@ Created on 15 Oct 2013
 from __future__ import division
 import unittest
 
-from math import sqrt
 
-from model.sidetopic_uyv import newVbModelState, train, rowwise_softmax, normalizerows_ip
-from model_test.sidetopic_test import makeBandMatrix, makeSixTopicVocab, matrix_normal
+from model.sidetopic_uyv import newVbModelState, train, query, rowwise_softmax, log_likelihood
+from model_test.sidetopic_test import makeSixTopicVocab, matrix_normal
 
 import numpy as np
 import scipy.linalg as la
@@ -98,18 +97,18 @@ class StUyvTest(unittest.TestCase):
         W = np.array(W, dtype=np.int32) # truncate word counts to integers
         W = ssp.csr_matrix(W)
         
-        # Initialisse the model
+        # Initialise the model
         modelState = newVbModelState(K, Q, F, P, T)
         
         # Return the initialised model, the true parameter values, and the
         # generated observations
         return modelState, tpcs, vocab, docLens, X, W
         
-    def _testLikelihoodOnModelDerivedExample(self):
-        print("Model derived example")
+    def testLikelihoodOnModelDerivedExample(self):
+        print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
-        modelState, tpcs, _, _, X, W = self._sampleFromModel()
+        modelState, _, _, _, X, W = self._sampleFromModel()
         D, T, K, Q, F, P = X.shape[0], modelState.T, modelState.K, modelState.Q, modelState.F, modelState.P
         
         # Create the cross-validation folds
@@ -125,12 +124,18 @@ class StUyvTest(unittest.TestCase):
             trainSet = np.arange(start,end) if start < end else np.hstack((np.arange(start, D), np.arange(0, end)))
             querySet = np.arange(end, end + querySize) if end + querySize < D else np.arange(0, querySize)
             
-            X_train = X[trainSet,:]
-            X_query = X[querySet,:]
+            X_train, W_train = X[trainSet,:], W[trainSet,:]
+            X_query, W_query = X[querySet,:], W[querySet,:]
             
+            modelState = newVbModelState(K, Q, F, P, T)
+            modelState, queryState = train(modelState, X_train, W_train, iterations=100, logInterval=10, plotInterval=100)
+            trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
             
+            queryState = query(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 10, plotInterval = 100)
+            querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
             
-        
+            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f", (fold, trainSetLikely, querySetLikely))
+           
         print("End of Test")
     
         
