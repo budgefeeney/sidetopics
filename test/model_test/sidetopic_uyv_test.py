@@ -18,6 +18,7 @@ import numpy as np
 import scipy.linalg as la
 import numpy.random as rd
 import scipy.sparse as ssp
+from math import ceil
 
 class StUyvTest(unittest.TestCase):
     '''
@@ -33,19 +34,27 @@ class StUyvTest(unittest.TestCase):
         pass
 
 
-    def testInferenceFromModelDerivedExample(self):
-        print("Model derived example")
+    def _sampleFromModel(self, D=200, T=100, K=10, Q=6, F=12, P=8, avgWordsPerDoc = 500):
+        '''
+        Create a test dataset according to the model
         
-        rd.seed(0xBADB055) # Global init for repeatable test
+        Params:
+            T - Vocabulary size, the number of "terms". Must be a square number
+            Q - Latent Topics:
+            K - Observed topics
+            P - Latent features
+            F - Observed features
+            D - Sample documents (each with associated features)
+            avgWordsPerDoc - average number of words per document generated (Poisson)
         
-        T = 100 # Vocabulary size, the number of "terms". Must be a square number
-        Q = 6   # Topics: This cannot be changed without changing the code that generates the vocabulary
-        K = 10  # Observed topics
-        P = 8   # Features
-        F = 12  # Observed features
-        D = 200 # Sample documents (each with associated features) 
-        
-        avgWordsPerDoc = 500
+        Returns:
+            modelState - a model state object configured for training
+            tpcs       - the matrix of per-document topic distribution
+            vocab      - the matrix of per-topic word distributions
+            docLens    - the vector of document lengths
+            X          - the DxF side information matrix
+            W          - The DxW word matrix
+        '''
         
         # Generate vocab
         beta = 0.1
@@ -89,18 +98,56 @@ class StUyvTest(unittest.TestCase):
         W = np.array(W, dtype=np.int32) # truncate word counts to integers
         W = ssp.csr_matrix(W)
         
-        #
-        # Now finally try to train the model
-        #
+        # Initialisse the model
         modelState = newVbModelState(K, Q, F, P, T)
         
+        # Return the initialised model, the true parameter values, and the
+        # generated observations
+        return modelState, tpcs, vocab, docLens, X, W
+        
+    def _testLikelihoodOnModelDerivedExample(self):
+        print("Model derived example")
+        
+        rd.seed(0xBADB055) # Global init for repeatable test
+        modelState, tpcs, _, _, X, W = self._sampleFromModel()
+        D, T, K, Q, F, P = X.shape[0], modelState.T, modelState.K, modelState.Q, modelState.F, modelState.P
+        
+        # Create the cross-validation folds
+        folds     = 5
+        foldSize  = ceil(D / 5)
+        querySize = foldSize
+        trainSize = D - querySize
+        
+        for fold in range(folds):
+            start = fold * foldSize
+            end   = start + trainSize
+            
+            trainSet = np.arange(start,end) if start < end else np.hstack((np.arange(start, D), np.arange(0, end)))
+            querySet = np.arange(end, end + querySize) if end + querySize < D else np.arange(0, querySize)
+            
+            X_train = X[trainSet,:]
+            X_query = X[querySet,:]
+            
+            
+            
+        
+        print("End of Test")
+    
+        
+    def testInferenceOnModelDerivedData(self):
+        print("Model derived example")
+        
+        rd.seed(0xBADB055) # Global init for repeatable test
+        modelState, tpcs, _, _, X, W = self._sampleFromModel()
+        D = X.shape[0]
+        
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
-        tpcs_inf = rowwise_softmax(queryState.lmda)
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         priorReconsError = np.sum(np.square(W - W_inf)) / D
         
-        (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 50, iterations=130)
-        tpcs_inf = rowwise_softmax(queryState.lmda)
+        (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 50, iterations=200)
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         
         print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
@@ -109,9 +156,7 @@ class StUyvTest(unittest.TestCase):
         print (str(tpcs[4,:]))
         print (str(tpcs_inf[4,:]))
         
-        print("End of Test")
-        
-        
+        print("End of Test")       
         
 
     def _testInferenceFromHandcraftedExample(self):
@@ -221,12 +266,12 @@ class StUyvTest(unittest.TestCase):
         modelState = newVbModelState(K, Q, F, P, T)
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
-        tpcs_inf = rowwise_softmax(queryState.lmda)
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         priorReconsError = np.sum(np.square(W - W_inf)) / D
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 100, iterations=130)
-        tpcs_inf = rowwise_softmax(queryState.lmda)
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         
         print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
