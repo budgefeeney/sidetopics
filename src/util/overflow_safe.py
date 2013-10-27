@@ -145,7 +145,7 @@ def safe_log (x, out = None):
         out = np.ndarray(x.shape)
         
     almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
-    out.fill(np.log(almostZero))
+    out[x < almostZero] = almostZero
+    out[x >= almostZero] = np.log(x[x >= almostZero])
     
-    out[x>0] = np.log(x[x>0])
     return out
