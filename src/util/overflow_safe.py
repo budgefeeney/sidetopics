@@ -141,11 +141,18 @@ def safe_log (x, out = None):
     for values of zero in those arrays, so that the standard numpy log function
     will work
     '''
+    
+    almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
+    ln_0 = np.log(almostZero)
+    
     if out is None:
         out = np.ndarray(x.shape)
-        
-    almostZero = 1E-35 if x.dtype == np.float32 else 1E-300
-    out[x < almostZero] = almostZero
-    out[x >= almostZero] = np.log(x[x >= almostZero])
+    
+    if out is not x:
+        out.fill (ln_0)
+        out[x >= almostZero] = np.log(x[x >= almostZero])
+    else: # out and x refer to the same memoryview
+        x[x < almostZero] = almostZero
+        np.log (x, out=x)
     
     return out
