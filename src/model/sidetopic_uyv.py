@@ -242,7 +242,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # at which point we can use a built-in solve
         #
 #       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
+        np.log(expLmda, out=expLmda)
         A = la.solve(tI_sXTX, X.T.dot(expLmda) + V.dot(Y.T).dot(U.T)).T
+        np.exp(expLmda, out=expLmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
@@ -253,7 +255,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
                XAT = XAT, \
-               iterations=1, \
+               iterations=10, \
                logInterval = 0, plotInterval = 0)
        
        
@@ -427,7 +429,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     xi = deriveXi(lmda, nu, s)
     elbo = varBound ( \
                       VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-                      VbSideTopicQueryState(lmda, nu, lxi, s, docLen), \
+                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                       X, W)
     
     
@@ -507,7 +509,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Z|Theta)
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    expLmda = np.exp(lmda)
+    expLmda = np.exp(lmda) # TODO do this in-place and avoid copies
     scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
 
     lnP_Z = 0.0
