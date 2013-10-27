@@ -313,7 +313,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         plot_bound(iters, elbos, likes)
     
     return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-            VbSideTopicQueryState (np.log(expLmda, out=expLmda), nu, lxi, s, docLen)
+           VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None, iterations=10, epsilon=0.001, logInterval = 0, plotInterval = 0):
     '''
@@ -417,25 +417,26 @@ def plot_bound (iters, bounds, likes):
     plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
-    '''
-    Calculates the variational lower bound and prints it to stdout,
-    prefixed with a table and the given updateMsg
-    
-    See varBound() for a full description of all parameters
-    
-    Obviously this is a very ugly inefficient method.
-    '''
-    lmda = np.log(expLmda)
-    xi = deriveXi(lmda, nu, s)
-    elbo = varBound ( \
-                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
-                      X, W)
-    
-    
-    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    pass
+#    '''
+#    Calculates the variational lower bound and prints it to stdout,
+#    prefixed with a table and the given updateMsg
+#    
+#    See varBound() for a full description of all parameters
+#    
+#    Obviously this is a very ugly inefficient method.
+#    '''
+#    lmda = np.log(expLmda)
+#    xi = deriveXi(lmda, nu, s)
+#    elbo = varBound ( \
+#                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+#                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+#                      X, W)
+#    
+#    
+#    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
+def     varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -460,9 +461,9 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
-    (lmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
+    (expLmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
-    safe_log(lmda, out=lmda)
+    lmda = np.log(expLmda)
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
     # with the model parameters.
@@ -509,7 +510,6 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Z|Theta)
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    expLmda = np.exp(lmda) # TODO do this in-place and avoid copies
     scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
 
     lnP_Z = 0.0
@@ -553,10 +553,6 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     ent_Z = -np.sum (N * S)
     
     result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
-
-    # As we're working with references, undo our log-transform of the
-    # expLmda parameter of the query-state
-    np.exp(lmda, out=lmda)
     
     return result
 
@@ -592,7 +588,7 @@ def log_likelihood(modelState, X, W, queryState):
     
     likely = np.sum (sparseScalarProductOf(W, safe_log(expLmda.dot(vocab))).data)
     
-    # Revert expLmda to its original value as this is a ref to, not a copy of, the oroginal matrix
+    # Revert expLmda to its original value as this is a ref to, not a copy of, the original matrix
     expLmda *= row_sums[:, np.newaxis]
     
     return likely
