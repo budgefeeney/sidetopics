@@ -219,6 +219,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         try:
             invUTU = la.inv(UTU)                  # [ should we experiment with chol decomp? And why is it singular? ]
             Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))                  
+        except ValueError as e:
+            print ("Ruh-ro")
+            print ("Scheisse")
         except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters)
             if fastButInaccurate:                 
                 invUTU = la.pinvh(UTU) # Obviously instable, gets stuck much earlier than the correct form
@@ -242,15 +245,15 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # at which point we can use a built-in solve
         #
 #       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
-        np.log(expLmda, out=expLmda)
-        A = la.solve(tI_sXTX, X.T.dot(expLmda) + V.dot(Y.T).dot(U.T)).T
+        lmda = np.log(expLmda, out=expLmda)
+        A = la.solve(tI_sXTX, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
         np.exp(expLmda, out=expLmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma),
+        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
                X, W, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
@@ -261,7 +264,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
        
         # =============================================================
         # M-Step
-        #    Parameters for the softmax bound: lxi and s <-- ?
+        #    Parameters for the softmax bound: lxi and s
         #    The projection used for A: U and V
         #    The vocabulary : vocab
         #    The variances: tau, sigma
@@ -302,9 +305,9 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
             plot_bound(iters, elbos, likes)
             
-        if (iteration % 10 == 0) and (iteration > 0):
-            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
-            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
+#        if (iteration % 10 == 0) and (iteration > 0):
+#            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
+#            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
             
     
     # Right before we end, plot the evoluation of the bound and likelihood
