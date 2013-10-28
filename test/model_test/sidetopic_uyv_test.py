@@ -12,6 +12,7 @@ import unittest
 
 from model.sidetopic_uyv import newVbModelState, train, query, rowwise_softmax, log_likelihood
 from model_test.sidetopic_test import makeSixTopicVocab, matrix_normal
+from util.overflow_safe import safe_log
 
 import numpy as np
 import scipy.linalg as la
@@ -139,7 +140,7 @@ class StUyvTest(unittest.TestCase):
         print("End of Test")
     
         
-    def testInferenceOnModelDerivedData(self):
+    def _testInferenceOnModelDerivedData(self):
         print("Model derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -147,7 +148,7 @@ class StUyvTest(unittest.TestCase):
         D = X.shape[0]
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
-        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda)) # why safe?
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         priorReconsError = np.sum(np.square(W - W_inf)) / D
         
@@ -225,7 +226,7 @@ class StUyvTest(unittest.TestCase):
         
         
 
-    def testInferenceFromHandcraftedExampleWithKEqualingQ(self):
+    def _testInferenceFromHandcraftedExampleWithKEqualingQ(self):
         print ("Fully handcrafted example, K=Q")
         rd.seed(0xC0FFEE) # Global init for repeatable test
         
@@ -271,12 +272,12 @@ class StUyvTest(unittest.TestCase):
         modelState = newVbModelState(K, Q, F, P, T)
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, iterations=1)
-        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
+        tpcs_inf = rowwise_softmax(safe_log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         priorReconsError = np.sum(np.square(W - W_inf)) / D
         
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 100, iterations=130)
-        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
+        tpcs_inf = rowwise_softmax(safe_log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
         
         print ("Model Driven: Prior Reconstruction Error: %f" % (priorReconsError,))
