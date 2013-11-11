@@ -1,6 +1,7 @@
 '''
 Optimised functions to apply the vec-transpose operator, and create a
-vec-transpose matrix. 
+vec-transpose matrix. Also includes an implementation of the vec()
+function.
 
 The vec-transpose operator, given a matrix A and scale p, does a 
 fortran-order reshape of each column such that the resulting matrix
@@ -33,8 +34,17 @@ import scipy.sparse as ssp
 from numba import autojit
 from math import floor
 
-import pyximport; pyximport.install()
+import pyximport; 
+pyximport.install(setup_args={"include_dirs": np.get_include()}, reload_support=True)
 import util.vt_fast as compiled
+
+def vec(A):
+    '''
+    The vec operator for a matrix: returns a vector with all the columns of the
+    matrix stacked on atop the other. For fortran/column ordered matrices this
+    is essentially a no-op
+    '''
+    return np.reshape(A, (-1,1), order='F')
 
 def vec_transpose_csr(A, p):
     '''
@@ -105,18 +115,18 @@ def vec_transpose(A, p):
     stacked from top to bottom corresponding to columns read from left to right.
     '''
     if A.dtype == np.float64:
-        return compiled.vec_transpose_f8r (A, p)
+        return np.array (compiled.vec_transpose_f8r (A, p))
     elif A.dtype == np.float32:
-        return compiled.vec_transpose_f4r (A, p)
+        return np.array(compiled.vec_transpose_f4r (A, p))
     
     # Fall back to pure Python 
     (oldRows, oldCols) = A.shape
     newRows, newCols = oldCols * p, oldRows / p
-    out = np.ndarray((newRows, newCols), dtype=np.float64)
+    out = np.ndarray((newRows, newCols), dtype=A.dtype)
     
     for oldRow in range(oldRows):
         for oldCol in range(oldCols):
-            newRow = oldCol * p
+            newRow = oldCol * p + oldRow % p
             newCol = oldRow / p
             out[newRow, newCol] = A[oldRow, oldCol]
         

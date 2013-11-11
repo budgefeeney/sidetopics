@@ -157,7 +157,7 @@ def vec_transpose_f8r (double[:,:] inArray, int p):
         while oldRow < oldRows:
             oldCol = 0
             while oldCol < oldCols:
-                newRow = oldCol * p
+                newRow = oldCol * p + oldRow % p
                 newCol = oldRow / p
                 out[newRow, newCol] = inArray[oldRow, oldCol]
                 
@@ -188,7 +188,7 @@ def vec_transpose_f4r (float[:,:] inArray, int p):
     cdef int newRows = oldCols * p
     cdef int newCols = oldRows / p
     
-    cdef double[:,:] out = np.ndarray((newRows, newCols), dtype=np.float64)
+    cdef float[:,:] out = np.ndarray((newRows, newCols), dtype=np.float32)
     
     cdef int newRow
     cdef int newCol
@@ -198,7 +198,7 @@ def vec_transpose_f4r (float[:,:] inArray, int p):
         while oldRow < oldRows:
             oldCol = 0
             while oldCol < oldCols:
-                newRow = oldCol * p
+                newRow = oldCol * p + oldRow % p
                 newCol = oldRow / p
                 out[newRow, newCol] = inArray[oldRow, oldCol]
                 
