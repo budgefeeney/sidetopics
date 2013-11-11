@@ -28,14 +28,13 @@ Created on 9 Nov 2013
 '''
 
 import numpy as np
-import scipy as sp
 import scipy.sparse as ssp
 
 from numba import autojit
 from math import floor
 
 import pyximport; pyximport.install()
-import util.vt_fast
+import util.vt_fast as compiled
 
 def vec_transpose_csr(A, p):
     '''
@@ -49,12 +48,12 @@ def vec_transpose_csr(A, p):
     stacked from top to bottom corresponding to columns read from left to right.
     '''
     (oldRows, oldCols) = A.shape
-    if (A.dtype = np.float64):
-        return vt_fast.sparse_vec_transpose_f8r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
-    else if (A.dtype = np.float32):
-        return vt_fast.sparse_vec_transpose_f4r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
+    if A.dtype == np.float64:
+        return compiled.sparse_vec_transpose_f8r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
+    elif A.dtype == np.float32:
+        return compiled.sparse_vec_transpose_f4r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
     else: # Fall back on pure python (albeit with JIT compilation)
-        return vec_transpose_csr_jit(A.data, A.indices, A.indptr, A.shape, p)
+        return _vec_transpose_csr_jit(A.data, A.indices, A.indptr, A.shape, p)
     
 
 @autojit
@@ -81,8 +80,8 @@ def _vec_transpose_csr_jit(data, indices, indptr, shape, p):
     dataPtr = 0
     
     while dataPtr < length:
-         while indptr[oldRow + 1] <= dataPtr:
-             oldRow += 1
+        while indptr[oldRow + 1] <= dataPtr:
+            oldRow += 1
         oldCol = indices[dataPtr]
         
         rows[dataPtr] = oldCol * p + oldRow % p
@@ -103,12 +102,13 @@ def vec_transpose(A, p):
     column in that matrix into a matrix with p rows. It then returns a matrix of these sub-matrices
     stacked from top to bottom corresponding to columns read from left to right.
     '''
-    if (A.dtype = np.float64):
-        return vt_fast.vec_transpose_f8r (A, p)
-    else if (A.dtype = np.float32):
-        return vt_fast.vec_transpose_f4r (A, p)
+    if A.dtype == np.float64:
+        return compiled.vec_transpose_f8r (A, p)
+    elif A.dtype == np.float32:
+        return compiled.vec_transpose_f4r (A, p)
     
     # Fall back to pure Python 
+    (oldRows, oldCols) = A.shape
     newRows, newCols = oldCols * p, oldRows / p
     out = np.ndarray((newRows, newCols), dtype=np.float64)
     
@@ -120,7 +120,6 @@ def vec_transpose(A, p):
         
     return out
 
-from numba import autojit
 
 @autojit
 def sp_vec_trans_matrix(shape):
