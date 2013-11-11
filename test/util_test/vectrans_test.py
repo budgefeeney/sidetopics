@@ -92,10 +92,10 @@ class Test(unittest.TestCase):
         
         self.assertEquals (4, A2.shape[0])
         self.assertEquals (3, A2.shape[1])
-        self.assertEquals (np.float64, A2.dtype)
+        self.assertEquals (np.int32, A2.dtype)
         
-        self.assertFloatEqual(11, A2[0,0])
-        self.assertFloatEqual(31, A2[0,1])
+        self.assertEqual(11, A2[0,0])
+        self.assertEqual(31, A2[0,1])
         self.assertFloatEqual(51, A2[0,2])
         
         self.assertFloatEqual(21, A2[1,0])
@@ -117,7 +117,75 @@ class Test(unittest.TestCase):
         
         self.assertEqual(lhsStr, rhsStr)
         
+        
+    # Here we're testing the following sparse matrix
+    #
+    #    [1, 0]
+    #    [0, 0]
+    #    [2, 3]
+    #    [0, 4]
+    #    [0, 5]
+    #    [6, 0]
+    #
+    # which should become
+    #
+    #    [1, 2, 0]
+    #    [0, 0, 6]
+    #    [0, 3, 5]
+    #    [0, 4, 0]
+    
+        
     def testSparseVecTransF4(self):
+        T = ssp.csr_matrix(np.array([[1,0], [0, 0], [2,3], [0,4], [0, 5], [6, 0]]).astype(np.float32))
+        T2 = vec_transpose_csr(T, 2)
+        
+        self.assertEqual(len(T), len(T2))
+        self.assertEqual(np.float32, T2.dtype)
+        self.assertEquals (4, T2.shape[0])
+        self.assertEquals (3, T2.shape[1])
+        
+        self.assertFloatEqual(1, T2[0,0])
+        self.assertFloatEqual(2, T2[0,1])
+        self.assertFloatEqual(6, T2[1,2])
+        self.assertFloatEqual(3, T2[2,1])
+        self.assertFloatEqual(5, T2[2,2])
+        self.assertFloatEqual(4, T2[3,1])
+       
+    def testSparseVecTransF8(self):
+        T = ssp.csr_matrix(np.array([[1,0], [0, 0], [2,3], [0,4], [0, 5], [6, 0]]).astype(np.float64))
+        T2 = vec_transpose_csr(T, 2)
+        
+        self.assertEqual(len(T), len(T2))
+        self.assertEqual(np.float64, T2.dtype)
+        self.assertEquals (4, T2.shape[0])
+        self.assertEquals (3, T2.shape[1])
+        
+        self.assertFloatEqual(1, T2[0,0])
+        self.assertFloatEqual(2, T2[0,1])
+        self.assertFloatEqual(6, T2[1,2])
+        self.assertFloatEqual(3, T2[2,1])
+        self.assertFloatEqual(5, T2[2,2])
+        self.assertFloatEqual(4, T2[3,1])
+       
+    def testSparseVecTransInt(self):
+        T = ssp.csr_matrix(np.array([[1,0], [0, 0], [2,3], [0,4], [0, 5], [6, 0]]).astype(np.int32))
+        T2 = vec_transpose_csr(T, 2)
+        
+        self.assertEqual(len(T), len(T2))
+        self.assertEqual(np.int32, T2.dtype)
+        self.assertEquals (4, T2.shape[0])
+        self.assertEquals (3, T2.shape[1])
+        
+        self.assertFloatEqual(1, T2[0,0])
+        self.assertFloatEqual(2, T2[0,1])
+        self.assertFloatEqual(6, T2[1,2])
+        self.assertFloatEqual(3, T2[2,1])
+        self.assertFloatEqual(5, T2[2,2])
+        self.assertFloatEqual(4, T2[3,1])
+    
+        
+        
+        
         
         
 
