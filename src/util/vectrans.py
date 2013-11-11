@@ -52,6 +52,8 @@ def vec_transpose_csr(A, p):
         return compiled.sparse_vec_transpose_f8r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
     elif A.dtype == np.float32:
         return compiled.sparse_vec_transpose_f4r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
+    elif A.dtype == np.int32:
+        return compiled.sparse_vec_transpose_i4r (A.data, A.indices, A.indptr, oldRows, oldCols, p)
     else: # Fall back on pure python (albeit with JIT compilation)
         return _vec_transpose_csr_jit(A.data, A.indices, A.indptr, A.shape, p)
     

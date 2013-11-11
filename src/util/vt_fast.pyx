@@ -52,6 +52,44 @@ def sparse_vec_transpose_f8r(double[:] data, int[:] indices, int[:] indptr, int 
     return ssp.coo_matrix ((np.array(data), (np.array(rows), np.array(cols))), shape = shape).tocsr()
 
 
+
+def sparse_vec_transpose_i4r(int[:] data, int[:] indices, int[:] indptr, int oldRows, int oldCols, int p):
+    '''
+    Applies the vec-transpose operator to the given sparse matrix, which is stored in
+    C / row-wise format, with 32-bit doubles.
+    
+    Returns a new matrix after the vec-transpose operator has been applied.
+    
+    The vec-transpose operating on matrix A with scale p reshapes in fortran/column order each 
+    column in that matrix into a matrix with p rows. It then returns a matrix of these sub-matrices
+    stacked from top to bottom corresponding to columns read from left to right.
+    '''
+    cdef int length = len(data)
+    cdef int[:] rows = np.ndarray((length,), dtype=np.int32)
+    cdef int[:] cols = np.ndarray((length,), dtype=np.int32)
+    
+    cdef int newRows = oldCols * p
+    cdef int newCols = oldRows / p
+    
+    cdef int oldRow = 0
+    cdef int oldCol = 0
+    
+    cdef int dataPtr = 0
+    while dataPtr < length:
+        while indptr[oldRow + 1] <= dataPtr:
+            oldRow += 1
+        oldCol = indices[dataPtr]
+        
+        rows[dataPtr] = oldCol * p + oldRow % p
+        cols[dataPtr] = oldRow / p
+        
+        dataPtr += 1
+    
+    cdef tuple shape = (newRows, newCols)
+    return ssp.coo_matrix ((np.array(data), (np.array(rows), np.array(cols))), shape = shape).tocsr()
+
+
+
 def sparse_vec_transpose_f4r(float[:] data, int[:] indices, int[:] indptr, int oldRows, int oldCols, int p):
     '''
     Applies the vec-transpose operator to the given sparse matrix, which is stored in
