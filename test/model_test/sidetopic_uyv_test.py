@@ -73,7 +73,7 @@ class StUyvTest(unittest.TestCase):
         (aSdRow, aSdCol) = (5.0, tau**2)
         
         U = matrix_normal(np.zeros((K,Q)),   uSdRow * np.eye(Q), uSdCol * np.eye(K))
-        Y = matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdRow * np.eye(Q))
+        Y = matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q))
         V = matrix_normal(np.zeros((F,P)),   vSdRow * np.eye(P), vSdCol * np.eye(F))
         A = matrix_normal(U.dot(Y).dot(V.T), aSdRow * np.eye(F), aSdCol * np.eye(K))
         
