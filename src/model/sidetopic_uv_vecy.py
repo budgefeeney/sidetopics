@@ -30,6 +30,9 @@ from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
     VbSideTopicModelState,  VbSideTopicQueryState, \
     log_likelihood, plot_bound, query, negJakkola, deriveXi, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot
+
+from model.sidetopic_uyv import varBound as varBoundUyv
+from model.sidetopic_uyv import newVbModelState as newVbModelStateUyv
 from util.vectrans import vec, vec_transpose, vec_transpose_csr, sp_vec_trans_matrix
 
 from numba import autojit
@@ -87,6 +90,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     # Unpack the model state tuple for ease of use and maybe speed improvements
     (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
+    mu0 = 0.0001
+    
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
     
@@ -102,6 +107,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     D      = len(docLen)
     
     # No need to recompute this every time
+    if X.dtype != DTYPE:
+        X = X.astype (DTYPE)
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
@@ -109,6 +116,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     I_Q  = np.eye(Q,Q,     0, DTYPE)
     I_QP = np.eye(Q*P,Q*P, 0, DTYPE)
     I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
+    T_QP = sp_vec_trans_matrix(Y.shape)
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -152,7 +160,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         sigy = la.inv(I_QP + overTsqSsq * np.kron(VTV, UTU))
         _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
-        Y = overTsqSsq * sigy.dot(vec(U.T.dot(A).dot(V)))
+        Y = mu0 + np.reshape (overTsqSsq * sigy.dot(vec(U.T.dot(A).dot(V))), (Q,P), order='F')
         _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         # A 
@@ -189,15 +197,28 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # =============================================================
                
         # U
-        # 
-        U = A.dot(V).dot(Y.T).dot (la.inv( \
-                Y.T.dot(U.T).dot(U).dot(Y) + 
-        ))
+        #
+        try: 
+            U = A.dot(V).dot(Y.T).dot (la.inv( \
+                    Y.dot(V.T).dot(V).dot(Y.T) \
+                    + (vec_transpose_csr(T_QP, P).T.dot(np.kron(I_QP, VTV)).dot(vec_transpose(T_QP.dot(sigy), P))).T
+            ))
+        except np.linalg.linalg.LinAlgError as e:
+            print(str(e))
+            print ("Ruh-ro")
+        
+        # order of last line above reversed to handle numpy bug preventing dot product from dense to sparse
         _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         # V
-        # 
-        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
+        #
+        # Temporarily this requires that we re-order sigY until I've implemented a fortran order
+        # vec transpose in Cython
+        sigY = sigY.T
+        V = A.T.dot(U).dot(Y).dot (la.inv ( \
+            Y.T.dot(U.T).dot(U).dot(Y) \
+            + vec_transpose (sigy, Q).T.dot(np.kron(I_QP, UTU).dot(vec_transpose(I_QP, Q))) \
+        ))
         _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         # vocab
@@ -214,7 +235,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
             modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
-            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
+            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=VTV, UTU=UTU)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
                 
             elbos[iteration / logInterval] = elbo
@@ -239,7 +260,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 
-def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
+def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, VTV = None, UTU = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -263,99 +284,12 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
-    (expLmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
+    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
-    lmda = np.log(expLmda)
+    result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
     
-    # Get the number of samples from the shape. Ensure that the shapes are consistent
-    # with the model parameters.
-    (D, Tcheck) = W.shape
-    if Tcheck != T: raise ValueError ("The shape of the DxT document matrix W is invalid, T is %d but the matrix W has shape (%d, %d)" % (T, D, Tcheck))
-    
-    (Dcheck, Fcheck) = X.shape
-    if Dcheck != D: raise ValueError ("Inconsistent sizes between the matrices X and W, X has %d rows but W has %d" % (Dcheck, D))
-    if Fcheck != F: raise ValueError ("The shape of the DxF feature matrix X is invalid. F is %d but the matrix X has shape (%d, %d)" % (F, Dcheck, Fcheck)) 
-
-    # We'll need the original xi for this and also Z, the 3D tensor of which for each document D 
-    # and term T gives the strength of topic K. We'll also need the log of the vocab dist
-    xi = deriveXi (lmda, nu, s)
-    
-    # If not already provided, we'll also need the the product of XA
-    #
-    if XAT is None:
-        XAT = X.dot(A.T)
-    if XTX is None:
-        XTX = X.T.dot(X)
-   
-    # <ln p(Y)>
-    # 
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + np.trace(sigY) * np.trace(omY) + np.sum(Y * Y))
-    
-    # <ln P(A|Y)>
-    # TODO it looks like I should take the trace of omA \otimes I_K here.
-    # TODO Need to check re-arranging sigY and omY is sensible.
-    halfKF = 0.5 * K * F
-    halfTsq = 0.5 / (tau * tau)
-    lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
-            -halfTsq * (np.sum(omY * V.T.dot(V)) * np.sum(sigY * U.T.dot(U)) \
-                      + np.trace(XTX.dot(omA)) * K \
-                      + np.sum (np.square(A - U.dot(Y).dot(V.T))))
-    # <ln p(Theta|A,X)
-    # 
-    sig2  = sigma * sigma
-    tau2  = tau * tau
-    
-    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sig2) \
-                - 0.5 / sig2 * ( \
-                    np.sum(nu) + D*K * tau2 * np.sum(XTX * omA) + np.sum(np.square(lmda - XAT)))
-    
-    # <ln p(Z|Theta)
-    # 
-    docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
-
-    lnP_Z = 0.0
-    lnP_Z -= np.sum(docLenLmdaLxi * lmda)
-    lnP_Z -= np.sum(docLen[:, np.newaxis] * nu * nu * lxi)
-    lnP_Z += 2 * np.sum (s[:, np.newaxis] * docLenLmdaLxi)
-    lnP_Z -= 0.5 * np.sum (docLen[:, np.newaxis] * lmda)
-    lnP_Z += np.sum (lmda * expLmda * (scaledWordCounts.dot(vocab.T))) # n(d,k) = expLmda * (scaledWordCounts.dot(vocab.T))
-    lnP_Z -= np.sum(docLen[:,np.newaxis] * lxi * ((s**2)[:,np.newaxis] - xi**2))
-    lnP_Z += 0.5 * np.sum(docLen[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    lnP_Z -= np.sum(docLen[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
-    lnP_Z -= np.sum (docLen * s)
-        
-    # <ln p(W|Z, vocab)>
-    # 
-    lnP_w_dt = sparseScalarProductOfDot(scaledWordCounts, expLmda, vocab * safe_log(vocab))
-    lnP_W = np.sum(lnP_w_dt.data)
-    
-    # H[q(Y)]
-    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
-    
-    # H[q(A|Y)]
-    ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))
-    
-    # H[q(Theta|A)]
-    ent_Theta = 0.5 * (K * LOG_2PI_E + np.sum (np.log(nu * nu)))
-    
-    # H[q(Z|\Theta)
-    #
-    # So Z_dtk \propto expLmda_dt * vocab_tk. We let N here be the normalizer (which is 
-    # \sum_j expLmda_dt * vocab_tj, which implies N is DxT. We need to evaluate
-    # Z_dtk * log Z_dtk. We can pull out the normalizer of the first term, but it has
-    # to stay in the log Z_dtk expression, hence the third term in the sum. We can however
-    # take advantage of the ability to mix dot and element-wise products for the different
-    # components of Z_dtk in that three-term sum, which we denote as S
-    #   Finally we use np.sum to sum over d and t
-    #
-    N = expLmda.dot(vocab) + 1E-35 # DxT !!! TODO Figure out why this is zero sometimes (better init of vocab?)
-    S = expLmda.dot(vocab * safe_log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * safe_log(N)
-    np.reciprocal(N, out=N)
-    ent_Z = -np.sum (N * S)
-    
-    result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
+    # Eliminate the effect of the incorrect entropy calculation
+    result -= (modelState.P-1)/2.0 * np.log(la.det(modelState.sigY))
     
     return result
 
@@ -389,22 +323,9 @@ def newVbModelState(K, Q, F, P, T):
     sigma  - the variance in the estimation of the topic memberships. lambda ~ N(A'x, sigma^2I)
     '''
     
-    tau   = 0.1
-    sigma = 0.1
+    modelState = newVbModelStateUyv(K, Q, F, P, T)
+    sigY = np.identity(Q*P, DTYPE)
     
-    Y     = rd.random((Q,P)).astype(DTYPE)
-    omY   = np.identity(P, DTYPE)
-    sigY  = np.identity(Q, DTYPE)
-    
-    U     = rd.random((K,Q)).astype(DTYPE)
-    V     = rd.random((F,P)).astype(DTYPE)
-    
-    A     = U.dot(Y).dot(V.T)
-    varA  = np.ones((F,1), DTYPE)
-    
-    # Vocab is K word distributions so normalize
-    vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
-    
-    return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma)
+    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
 
 

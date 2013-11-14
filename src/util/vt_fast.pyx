@@ -139,8 +139,8 @@ def vec_transpose_f8r (double[:,:] inArray, int p):
     column in that matrix into a matrix with p rows. It then returns a matrix of these sub-matrices
     stacked from top to bottom corresponding to columns read from left to right.
     '''
-    if inArray.strides[1] != 8: # Basically, if it's not in row-order
-        return None
+#    if inArray.strides[1] != 8: # Basically, if it's not in row-order
+#        return None
     
     cdef int oldRows = inArray.shape[0]
     cdef int oldCols = inArray.shape[1]
@@ -180,8 +180,8 @@ def vec_transpose_f4r (float[:,:] inArray, int p):
     stacked from top to bottom corresponding to columns read from left to right.
     '''
     
-    if inArray.strides[1] != 4: # Basically, if it's not in row-order
-        return None
+#    if inArray.strides[1] != 4: # Basically, if it's not in row-order
+#        return None
     
     cdef int oldRows = inArray.shape[0]
     cdef int oldCols = inArray.shape[1]
