@@ -19,6 +19,8 @@ import numpy as np
 import scipy.linalg as la
 import numpy.random as rd
 import scipy.sparse as ssp
+import matplotlib.pyplot as plt
+
 from math import ceil
 
 class StUvVecYTest(unittest.TestCase):
@@ -109,6 +111,9 @@ class StUvVecYTest(unittest.TestCase):
     def testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
+        TRAIN_ITERS=1000
+        QUERY_ITERS=100
+        
         rd.seed(0xBADB055) # Global init for repeatable test
         modelState, _, _, _, X, W = self._sampleFromModel()
         D, T, K, Q, F, P = X.shape[0], modelState.T, modelState.K, modelState.Q, modelState.F, modelState.P
@@ -118,6 +123,9 @@ class StUvVecYTest(unittest.TestCase):
         foldSize  = ceil(D / 5)
         querySize = foldSize
         trainSize = D - querySize
+        
+        beforeLikelies = np.zeros((folds,))
+        afterLikelies  = np.zeros((folds,))
         
         for fold in range(folds):
             start = fold * foldSize
@@ -129,19 +137,46 @@ class StUvVecYTest(unittest.TestCase):
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
             
+            # Run a single training run and figure out what the held-out
+            # likelihood is
             modelState = newVbModelState(K, Q, F, P, T)
-            modelState, queryState = train(modelState, X_train, W_train, iterations=100, logInterval=1, plotInterval=100)
+            modelState, queryState = train(modelState, X_train, W_train, iterations=1, logInterval=1, plotInterval=TRAIN_ITERS)
+            
+            queryState = query(modelState, X_query, W_query, iterations=QUERY_ITERS, epsilon=0.001, logInterval = 1, plotInterval = QUERY_ITERS)
+            querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            beforeLikelies[fold] = querySetLikely
+            
+            # Now complete the training run and figure out what the held-out
+            # likelihood is
+            modelState, queryState = train(modelState, X_train, W_train, iterations=TRAIN_ITERS, logInterval=1, plotInterval=TRAIN_ITERS)
             trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
             
-            queryState = query(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 1, plotInterval = 100)
+            queryState = query(modelState, X_query, W_query, iterations=QUERY_ITERS, epsilon=0.001, logInterval = 1, plotInterval = QUERY_ITERS)
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            afterLikelies[fold] = querySetLikely
             
             print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
-           
+        
+        ind = np.arange(folds)
+        fig, ax = plt.subplots()
+        width = 0.35
+        rects1 = ax.bar(ind, beforeLikelies, width, color='r')
+        rects2 = ax.bar(ind + width, afterLikelies, width, color='g')
+        
+        ax.set_ylabel('Held-out Likelihood')
+        ax.set_title('Held-out likelihood')
+        ax.set_xticks(ind+width)
+        ax.set_xticklabels([ "Fold-" + str(f) for f in ind])
+        ax.set_xlabel("Fold")
+        
+        ax.legend( (rects1[0], rects2[0]), ('Before Training', 'After Training') )
+        
+        plt.show()
+        
         print("End of Test")
     
         
-    def testInferenceOnModelDerivedData(self):
+    def _testInferenceOnModelDerivedData(self):
         print("Model derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -166,7 +201,7 @@ class StUvVecYTest(unittest.TestCase):
         print("End of Test")       
         
 
-    def testInferenceFromHandcraftedExample(self):
+    def _testInferenceFromHandcraftedExample(self):
         print ("Partially hand-crafted example")
         rd.seed(0xC0FFEE) # Global init for repeatable test
         
@@ -227,7 +262,7 @@ class StUvVecYTest(unittest.TestCase):
         
         
 
-    def testInferenceFromHandcraftedExampleWithKEqualingQ(self):
+    def _testInferenceFromHandcraftedExampleWithKEqualingQ(self):
         print ("Fully handcrafted example, K=Q")
         rd.seed(0xC0FFEE) # Global init for repeatable test
         
