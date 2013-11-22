@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*- 
 
 '''
-The inputs and outputs of a SideTopicModel
+This implements the side-topic model where
 
-Created on 29 Jun 2013
+ * Topics are defined as a function of a side-information vector x and
+   a matrix A
+ * A is in turn defined as the product U Y V' with Y having a zero mean
+   normal distribution
 
 @author: bryanfeeney
 '''
@@ -409,7 +412,8 @@ def plot_bound (iters, bounds, likes):
     plot1.set_ylabel("Bound", color='b')
     
     plot1.set_xlabel("Iteration")
-    plot1.set_xticks(itersFilled)
+#    xticks = np.arange(MAX_X_TICKS_PER_PLOT) if numValues < MAX_X_TICKS_PER_PLOT else np.arange(0, itersFilled.max(), itersFilled.max() / MAX_X_TICKS_PER_PLOT)
+#    plot1.set_xticks(xticks)
     
     plot2 = plot1.twinx() # superimposed plot with the same x-axis (provides for two different y-axes)
     plot2.plot (itersFilled, likesFilled, 'g-')
@@ -437,7 +441,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
 #    
 #    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
 
-def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None):
+def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, UTU = None, VTV = None):
     '''
     For a current state of the model, and the query, for given inputs, outputs the variational
     lower-bound.
@@ -455,6 +459,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     vocab      - the KxV matrix of the vocabulary distribution
     XAT        - DxK dot product of XA', recalculated if not provided, where X is DxF and A' is FxK
     XTX        - dot product of X-transpose and X, recalculated if not provided.
+    UTU        - as above for U
+    VTV        - as above for V
     
     Returns
         The (positive) variational lower bound
@@ -485,6 +491,10 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
         XAT = X.dot(A.T)
     if XTX is None:
         XTX = X.T.dot(X)
+    if VTV is None:
+        VTV = V.T.dot(V)
+    if UTU is None:
+        UTU = U.T.dot(U)
    
     # <ln p(Y)>
     # 
@@ -495,8 +505,12 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # TODO Need to check re-arranging sigY and omY is sensible.
     halfKF = 0.5 * K * F
     halfTsq = 0.5 / (tau * tau)
+    
+    # Horrible, but varBound can be called by two implementations, one with Y as a matrix-variate
+    # where sigY is QxQ and one with Y as a multi-varate, where sigY is a QPxQP.
+    varFactor = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
     lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
-            -halfTsq * (np.sum(omY * V.T.dot(V)) * np.sum(sigY * U.T.dot(U)) \
+            -halfTsq * (np.sum(omY * V.T.dot(V)) * varFactor \
                       + np.trace(XTX.dot(omA)) * K \
                       + np.sum (np.square(A - U.dot(Y).dot(V.T))))
     # <ln p(Theta|A,X)
@@ -533,7 +547,15 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
     
     # H[q(A|Y)]
-    ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))
+    #
+    # A few things - omA is fixed so long as tau an sigma are, so there's no benefit in
+    # recalculating this every time.
+    #
+    # However in a recent test, la.det(omA) = 0
+    # this is very strange as omA is the inverse of (s*I + t*XTX)
+    #
+#    ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))\
+    ent_A = 0
     
     # H[q(Theta|A)]
     ent_Theta = 0.5 * (K * LOG_2PI_E + np.sum (np.log(nu * nu)))

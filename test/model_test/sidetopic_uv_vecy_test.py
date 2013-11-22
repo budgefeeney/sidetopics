@@ -10,7 +10,8 @@ from __future__ import division
 import unittest
 
 
-from model.sidetopic_uyv import newVbModelState, train, query, rowwise_softmax, log_likelihood
+from model.sidetopic_uv_vecy import newVbModelState, train, query, log_likelihood
+from model.sidetopic_uyv import rowwise_softmax
 from model_test.sidetopic_test import makeSixTopicVocab, matrix_normal
 from util.overflow_safe import safe_log
 
@@ -18,9 +19,11 @@ import numpy as np
 import scipy.linalg as la
 import numpy.random as rd
 import scipy.sparse as ssp
+import matplotlib.pyplot as plt
+
 from math import ceil
 
-class StUyvTest(unittest.TestCase):
+class StUvVecYTest(unittest.TestCase):
     '''
     Provides basic unit tests for the variational SideTopic inference engine using
     A=UYV with small inputs derived from known parameters.
@@ -108,6 +111,9 @@ class StUyvTest(unittest.TestCase):
     def testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
+        TRAIN_ITERS=1000
+        QUERY_ITERS=100
+        
         rd.seed(0xBADB055) # Global init for repeatable test
         modelState, _, _, _, X, W = self._sampleFromModel()
         D, T, K, Q, F, P = X.shape[0], modelState.T, modelState.K, modelState.Q, modelState.F, modelState.P
@@ -118,25 +124,55 @@ class StUyvTest(unittest.TestCase):
         querySize = foldSize
         trainSize = D - querySize
         
+        beforeLikelies = np.zeros((folds,))
+        afterLikelies  = np.zeros((folds,))
+        
         for fold in range(folds):
             start = fold * foldSize
             end   = start + trainSize
             
-            trainSet = np.arange(start,end) if start < end else np.hstack((np.arange(start, D), np.arange(0, end)))
-            querySet = np.arange(end, end + querySize) if end + querySize < D else np.arange(0, querySize)
+            trainSet = np.arange(start,end) % D
+            querySet = np.arange(end, end + querySize) % D
             
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
             
+            # Run a single training run and figure out what the held-out
+            # likelihood is
             modelState = newVbModelState(K, Q, F, P, T)
-            modelState, queryState = train(modelState, X_train, W_train, iterations=100, logInterval=10, plotInterval=100)
+            modelState, queryState = train(modelState, X_train, W_train, iterations=1, logInterval=1, plotInterval=TRAIN_ITERS)
+            
+            queryState = query(modelState, X_query, W_query, iterations=QUERY_ITERS, epsilon=0.001, logInterval = 1, plotInterval = QUERY_ITERS)
+            querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            beforeLikelies[fold] = querySetLikely
+            
+            # Now complete the training run and figure out what the held-out
+            # likelihood is
+            modelState, queryState = train(modelState, X_train, W_train, iterations=TRAIN_ITERS, logInterval=1, plotInterval=TRAIN_ITERS)
             trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
             
-            queryState = query(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 10, plotInterval = 100)
+            queryState = query(modelState, X_query, W_query, iterations=QUERY_ITERS, epsilon=0.001, logInterval = 1, plotInterval = QUERY_ITERS)
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            afterLikelies[fold] = querySetLikely
             
-            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f", (fold, trainSetLikely, querySetLikely))
-           
+            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
+        
+        ind = np.arange(folds)
+        fig, ax = plt.subplots()
+        width = 0.35
+        rects1 = ax.bar(ind, beforeLikelies, width, color='r')
+        rects2 = ax.bar(ind + width, afterLikelies, width, color='g')
+        
+        ax.set_ylabel('Held-out Likelihood')
+        ax.set_title('Held-out likelihood')
+        ax.set_xticks(ind+width)
+        ax.set_xticklabels([ "Fold-" + str(f) for f in ind])
+        ax.set_xlabel("Fold")
+        
+        ax.legend( (rects1[0], rects2[0]), ('Before Training', 'After Training') )
+        
+        plt.show()
+        
         print("End of Test")
     
         
@@ -210,7 +246,7 @@ class StUyvTest(unittest.TestCase):
         modelState = newVbModelState(K, Q, F, P, T)
         (trainedState, queryState) = train (modelState, X, W, logInterval=1, plotInterval = 10, iterations=10)
         
-        tpcs_inf = rowwise_softmax(queryState.lmda)
+        tpcs_inf = rowwise_softmax(np.log(queryState.expLmda))
         W_inf    = np.array(tpcs_inf.dot(trainedState.vocab) * queryState.docLen[:,np.newaxis], dtype=np.int32)
                 
         print("Handcrafted Test-Case")
