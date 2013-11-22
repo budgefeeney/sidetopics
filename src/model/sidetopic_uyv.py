@@ -223,7 +223,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
         try:
-            invUTU = la.inv(UTU)                  # [ should we experiment with chol decomp? And why is it singular? ]
+            invUTU = la.inv(UTU)
             Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))
         except ValueError as e:
             print(e)
@@ -380,6 +380,9 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         expLmda[:] = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
+        
+        if np.isnan(expLmda).any():
+            print ("Ruh-ro")
         
         _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
          
@@ -669,7 +672,7 @@ def newVbQueryState(W, K):
     return VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
     
 
-def newVbModelState(K, Q, F, P, T):
+def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 0.01, latTopicVar = 0.01):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that o§nce trained can be kept fixed for querying.
@@ -681,6 +684,11 @@ def newVbModelState(K, Q, F, P, T):
     F - the number of features
     P - the number of latent features in the projected space, P << F
     T - the number of terms in the vocabulary
+    topicVar - a scalar providing the isotropic covariance of the topic-space
+    featVar - a scalar providing the isotropic covariance of the feature-space
+    latFeatVar - a scalar providing the isotropic covariance of the latent feature-space
+    latTopicVar - a scalar providing the isotropic covariance of the latent topic-space
+    
     
     The returned object will contain K, Q, F, P and T and also
     
@@ -698,25 +706,22 @@ def newVbModelState(K, Q, F, P, T):
     sigma  - the variance in the estimation of the topic memberships. lambda ~ N(A'x, sigma^2I)
     '''
     
-    tau   = 0.1
-    sigma = 0.1
-    
     Y     = rd.random((Q,P)).astype(DTYPE)
-    omY   = np.identity(P, DTYPE)
-    sigY  = np.identity(Q, DTYPE)
+    omY   = latFeatVar * np.identity(P, DTYPE)
+    sigY  = latTopicVar * np.identity(Q, DTYPE)
     
-    sigT  = sigma * np.identity(K, DTYPE)
+    sigT  = topicVar * np.identity(K, DTYPE)
     
     U     = rd.random((K,Q)).astype(DTYPE)
     V     = rd.random((F,P)).astype(DTYPE)
     
     A     = U.dot(Y).dot(V.T)
-    varA  = np.ones((F,1), DTYPE)
+    varA  = featVar * np.identity(F, DTYPE)
     
     # Vocab is K word distributions so normalize
     vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
     
-    return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+    return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, topicVar, featVar, latTopicVar, latFeatVar)
 
 @autojit
 def csr_indices(ptr, ind):
