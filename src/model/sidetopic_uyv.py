@@ -360,10 +360,7 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         queryState = newVbQueryState(W, K)
     expLmda, nu, lxi, s, docLen = queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen
     
-    overTsq = 1. / tauSq
-    overSsq = 1. / sigmaSq
-    overAsq = 1. / alphaSq
-    overKsq = 1. / kappaSq
+    overTsq, overSsq, overAsq, overKsq = 1./tauSq, 1./sigmaSq, 1./alphaSq, 1./kappaSq
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
@@ -478,7 +475,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     (expLmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
     lmda = np.log(expLmda)
@@ -496,7 +493,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # and term T gives the strength of topic K. We'll also need the log of the vocab dist
     xi = deriveXi (lmda, nu, s)
     
-    # If not already provided, we'll also need the the product of XA
+    # If not already provided, we'll also need the following products
     #
     if XAT is None:
         XAT = X.dot(A.T)
@@ -506,32 +503,34 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
         VTV = V.T.dot(V)
     if UTU is None:
         UTU = U.T.dot(U)
+        
+    # also need one over the usual variances
+    overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
+    overTkSq = overTsq * overKsq
+    overAsSq = overAsq * overSsq
+    
    
     # <ln p(Y)>
     # 
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + np.trace(sigY) * np.trace(omY) + np.sum(Y * Y))
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * np.trace(sigY) * np.trace(omY) + overTkSq * np.sum(Y * Y))
     
     # <ln P(A|Y)>
     # TODO it looks like I should take the trace of omA \otimes I_K here.
     # TODO Need to check re-arranging sigY and omY is sensible.
     halfKF = 0.5 * K * F
-    halfTsq = 0.5 / (tau * tau)
     
     # Horrible, but varBound can be called by two implementations, one with Y as a matrix-variate
     # where sigY is QxQ and one with Y as a multi-varate, where sigY is a QPxQP.
     varFactor = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
-    lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
-            -halfTsq * (np.sum(omY * V.T.dot(V)) * varFactor \
+    lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -halfKF * log(sigmaSq) \
+            -0.5 * overAsSq * (np.sum(omY * V.T.dot(V)) * varFactor \
                       + np.trace(XTX.dot(varA)) * K \
                       + np.sum (np.square(A - U.dot(Y).dot(V.T))))
     # <ln p(Theta|A,X)
     # 
-    sig2  = sigma * sigma
-    tau2  = tau * tau
-    
-    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sig2) \
-                - 0.5 / sig2 * ( \
-                    np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum(np.square(lmda - XAT)))
+    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sigmaSq) \
+                - 0.5 / sigmaSq * ( \
+                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.sum(np.square(lmda - XAT)))
     
     # <ln p(Z|Theta)
     # 

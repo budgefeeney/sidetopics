@@ -278,9 +278,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
     result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
-    
-    # Eliminate the effect of the incorrect entropy calculation
-    result -= (modelState.P-1)/2.0 * np.log(la.det(modelState.sigY))
+
     
     return result
 
