@@ -122,8 +122,8 @@ class StUyvTest(unittest.TestCase):
             start = fold * foldSize
             end   = start + trainSize
             
-            trainSet = np.arange(start,end) if start < end else np.hstack((np.arange(start, D), np.arange(0, end)))
-            querySet = np.arange(end, end + querySize) if end + querySize < D else np.arange(0, querySize)
+            trainSet = np.arange(start,end) % D
+            querySet = np.arange(end, end + querySize) % D
             
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
@@ -135,7 +135,7 @@ class StUyvTest(unittest.TestCase):
             queryState = query(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 10, plotInterval = 100)
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
             
-            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f", (fold, trainSetLikely, querySetLikely))
+            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
            
         print("End of Test")
     

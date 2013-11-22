@@ -6,11 +6,12 @@ This implements the side-topic model where
 
  * Topics are defined as a function of a side-information vector x and
    a matrix A
- * A is in turn defined as the product U Y V' with Y having a zero mean
+ * A is in turn defined as the product U Y with Y having a zero mean
    normal distribution
- * The distribution of Y is a multivariate distribution (i.e it's the
-   distribution of vec(Y)). This means it has just one covariance matrix,
-   instead of separate row and column covariances. 
+ * The same covariance parameter is shared between the prior distributions
+   of Y, A and theta_d, where the latter is the topic distribution for
+   document d. Working through the math shows this is also the row-cov
+   for the variational posteriors of A and Y
 
 Created on 29 Jun 2013
 
@@ -30,6 +31,9 @@ from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
     VbSideTopicModelState,  VbSideTopicQueryState, \
     log_likelihood, plot_bound, query, negJakkola, deriveXi, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot
+
+from model.sidetopic_uyv import varBound as varBoundUyv
+from model.sidetopic_uyv import newVbModelState as newVbModelStateUyv
 from util.vectrans import vec, vec_transpose, vec_transpose_csr, sp_vec_trans_matrix
 
 from numba import autojit
@@ -85,23 +89,31 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    
+    alpha = tau
+    mu0 = 0.0001
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
     
     # Get ready to plot the evolution of the likelihood
+    # Get ready to plot the evolution of the likelihood
+    dataPoints = iterations / logInterval
+    multiStepSize = np.power (iterations, 1. / dataPoints)
+    logIter = 1
     if logInterval > 0:
-        elbos = np.zeros((iterations / logInterval,))
-        likes = np.zeros((iterations / logInterval,))
-        iters = np.zeros((iterations / logInterval,))
-    iters.fill(-1)
+        elbos = []
+        likes = []
+        iters = []
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
     D      = len(docLen)
     
     # No need to recompute this every time
+    if X.dtype != DTYPE:
+        X = X.astype (DTYPE)
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
@@ -109,6 +121,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     I_Q  = np.eye(Q,Q,     0, DTYPE)
     I_QP = np.eye(Q*P,Q*P, 0, DTYPE)
     I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
+    T_QP = sp_vec_trans_matrix(Y.shape)
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -116,21 +129,23 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     s    = np.zeros((D,), DTYPE)
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
-    # If we don't bother optimising either tau or sigma we can just do all this here once only 
+    # If we don't bother optimising either tau or sigma we can just do all this here once only
+    asq     = alpha * alpha
     tsq     = tau * tau;
     ssq     = sigma * sigma;
     overTsq = 1. / tsq
     overSsq = 1. / ssq
-    overTsqSsq = 1./(tsq * ssq)
+    overAsq = 1. / asq
     
     # TODO the inverse being almost always dense means that it might
     # be faster to convert to dense and use the normal solver, despite
     # the size constraints.
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
-    tI_sXTX = (overTsq * I_F + overSsq * XTX).todense(); 
-    omA = la.inv (tI_sXTX)
+    aI_XTX = (overAsq * I_F + XTX).todense(); 
+    varA = la.inv (aI_XTX)
     scaledWordCounts = W.copy()
    
+    lmda = np.log(expLmda, out=expLmda)
     for iteration in range(iterations):
         
         # =============================================================
@@ -149,29 +164,23 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
         
-        sigy = la.inv(I_QP + overTsqSsq * np.kron(VTV, UTU))
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        sigY = la.inv(overTsq * I_P + overAsq * UTU)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
-        Y = overTsqSsq * sigy.dot(vec(U.T.dot(A).dot(V)))
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        Y = mu0 + sigY.dot (U.T.dot(A))
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
-        # So it's normally A = (UYV' + L'X) omA with omA = inv(t*I_F + s*XTX)
-        #   so A inv(omA) = UYV' + L'X
-        #   so inv(omA)' A' = VY'U' + X'L
-        # at which point we can use a built-in solve
-        #
-#       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
-        lmda = np.log(expLmda, out=expLmda)
-        A = la.solve(tI_sXTX, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
-        np.exp(expLmda, out=expLmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        lmda = expLmda # at this point we assume that we've applied the log to expLmda
+        A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y)).T
+        np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(.)
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma), \
+        query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma), \
                X, W, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
@@ -182,48 +191,51 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
        
         # =============================================================
         # M-Step
-        #    Parameters for the softmax bound: lxi and s
         #    The projection used for A: U and V
         #    The vocabulary : vocab
-        #    The variances: tau, sigma
+        #    The topic correlation: sigT
         # =============================================================
                
         # U
-        # 
-        U = A.dot(V).dot(Y.T).dot (la.inv( \
-                Y.T.dot(U.T).dot(U).dot(Y) + \
-        ))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
-
-        # V
-        # 
-        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        #
+        U = la.solve(np.trace(sigT) * I_P + Y.dot(Y.T), Y.dot(A.T)).T
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        
+        # sigT
+        #
+        lmda = np.log(expLmda, out=expLmda)
+        
+        sigT  = 1./D * (Y.T.dot(Y) + \
+                       (A - U.dot(Y)).T.dot(A - U.dot(Y)) + \
+                       (lmda - X.dot(A)).T.dot(lmda - X.dot(A)))
+        sigT.flat[::K+1] += 1./D * nu.sum(axis=0, dtype=DTYPE) 
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
         if (logInterval > 0) and (iteration % logInterval == 0):
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
-            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
+            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=VTV, UTU=UTU)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
                 
-            elbos[iteration / logInterval] = elbo
-            iters[iteration / logInterval] = iteration
-            likes[iteration / logInterval] = likely
+            elbos.append (elbo)
+            iters.append (iteration)
+            likes.append (likely)
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
+            
+            logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)                                                                       
         
         if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
-            plot_bound(iters, elbos, likes)
+            plot_bound(np.array(iters), np.array(elbos), np.array(likes))
             
 #        if (iteration % 10 == 0) and (iteration > 0):
 #            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
@@ -235,8 +247,42 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     if plotInterval > 0:
         plot_bound(iters, elbos, likes)
     
-    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+    return VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
+
+
+def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, VTV = None, UTU = None):
+    '''
+    For a current state of the model, and the query, for given inputs, outputs the variational
+    lower-bound.
+    
+    Params
+    
+    modelState - the state of the model currently
+    queryState - the state of the query currently
+    X          - the DxF matrix of features we're querying on, where D is the number of documents
+    W          - the DxT matrix of words ("terms") we're querying on
+    Z          - if this has already been calculated, it can be passed in. If not, we
+                 recalculate it from the model and query states. Z is the DxKxT tensor which
+                 for each document D and term T gives the proportion of those terms assigned
+                 to topic K
+    vocab      - the KxV matrix of the vocabulary distribution
+    XAT        - DxK dot product of XA', recalculated if not provided, where X is DxF and A' is FxK
+    XTX        - dot product of X-transpose and X, recalculated if not provided.
+    
+    Returns
+        The (positive) variational lower bound
+    '''
+    
+    # Unpack the model and query state tuples for ease of use and maybe speed improvements
+    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    
+    result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
+    
+    # Eliminate the effect of the incorrect entropy calculation
+    result -= (modelState.P-1)/2.0 * np.log(la.det(modelState.sigY))
+    
+    return result
 
 
 def newVbModelState(K, Q, F, P, T):
@@ -268,24 +314,8 @@ def newVbModelState(K, Q, F, P, T):
     sigma  - the variance in the estimation of the topic memberships. lambda ~ N(A'x, sigma^2I)
     '''
     
-    tau   = 0.1
-    sigma = 0.1
+    modelState = newVbModelStateUyv(K, Q, F, P, T)
     
-    Y     = rd.random((Q,P)).astype(DTYPE)
-    omY   = np.identity(P, DTYPE)
-    sigY  = np.identity(Q, DTYPE)
-    
-    sigT  = sigma * np.identity(K)
-    
-    U     = rd.random((K,Q)).astype(DTYPE)
-    V     = rd.random((F,P)).astype(DTYPE)
-    
-    A     = U.dot(Y).dot(V.T)
-    varA  = np.ones((F,1), DTYPE)
-    
-    # Vocab is K word distributions so normalize
-    vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
-    
-    return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.U, None, modelState.vocab, modelState.tau, modelState.sigma)
 
 

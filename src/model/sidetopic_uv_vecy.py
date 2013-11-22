@@ -89,7 +89,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
     mu0 = 0.0001
     
@@ -285,7 +285,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
     result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
     

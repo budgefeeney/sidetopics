@@ -64,7 +64,7 @@ VbSideTopicQueryState = namedtuple ( \
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
-    'K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, sigT, vocab, tau, sigma'
+    'K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, topicVar, featVar, lowTopicVar, lowFeatVar'
 )
 
 # ==============================================================
@@ -156,17 +156,19 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, sigT, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
     
     # Get ready to plot the evolution of the likelihood
+    dataPoints = iterations / logInterval
+    multiStepSize = np.power (iterations, 1. / dataPoints)
+    logIter = 1
     if logInterval > 0:
-        elbos = np.zeros((iterations / logInterval,))
-        likes = np.zeros((iterations / logInterval,))
-        iters = np.zeros((iterations / logInterval,))
-    iters.fill(-1)
+        elbos = []
+        likes = []
+        iters = []
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -188,18 +190,19 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
     # If we don't bother optimising either tau or sigma we can just do all this here once only 
-    tsq     = tau * tau;
-    ssq     = sigma * sigma;
-    overTsq = 1. / tsq
-    overSsq = 1. / ssq
-    overTsqSsq = 1./(tsq * ssq)
+    overTsq = 1. / tauSq
+    overSsq = 1. / sigmaSq
+    overAsq = 1. / alphaSq
+    overKsq = 1. / kappaSq
+    
+    varRatio = (alphaSq * sigmaSq) / (tauSq * kappaSq)
     
     # TODO the inverse being almost always dense means that it might
     # be faster to convert to dense and use the normal solver, despite
     # the size constraints.
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
-    tI_sXTX = (overTsq * I_F + overSsq * XTX).todense(); 
-    omA = la.inv (tI_sXTX)
+    aI_XTX = (overAsq * I_F + XTX).todense(); 
+    omA = la.inv (aI_XTX)
     scaledWordCounts = W.copy()
    
     for iteration in range(iterations):
@@ -221,21 +224,24 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         UTU = U.T.dot(U)
         try:
             invUTU = la.inv(UTU)                  # [ should we experiment with chol decomp? And why is it singular? ]
-            Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))                  
+            Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))
+        except ValueError as e:
+            print(e)
+            print("Hmm")      
         except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters)
             if fastButInaccurate:                 
                 invUTU = la.pinvh(UTU) # Obviously instable, gets stuck much earlier than the correct form
-                Y = la.solve_sylvester (ssq * tsq * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))  
+                Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))  
             else:
-                Y = np.reshape (la.solve(ssq * tsq * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
+                Y = np.reshape (la.solve(varRatio * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
                 
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
-        sigY = 1./P * la.inv(np.trace(omY)  * I_Q + overTsqSsq * np.trace(omY.dot(VTV)) * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
-        omY  = 1./Q * la.inv(np.trace(sigY) * I_P + overTsqSsq * np.trace(sigY.dot(UTU)) * VTV) 
-        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
+        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
@@ -246,14 +252,14 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #
 #       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
         lmda = np.log(expLmda, out=expLmda)
-        A = la.solve(tI_sXTX, X.T.dot(lmda) + V.dot(Y.T).dot(U.T)).T
+        A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
         np.exp(expLmda, out=expLmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma), \
+        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                X, W, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
@@ -273,37 +279,39 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # U
         # 
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
 
         # V
         # 
         V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
-        if (logInterval > 0) and (iteration % logInterval == 0):
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+        if (logInterval > 0) and (iteration == round(logIter)):
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
             elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
                 
-            elbos[iteration / logInterval] = elbo
-            iters[iteration / logInterval] = iteration
-            likes[iteration / logInterval] = likely
+            elbos.append (elbo)
+            iters.append (iteration)
+            likes.append (likely)
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
+            
+            logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
         
         if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
-            plot_bound(iters, elbos, likes)
+            plot_bound(np.array(iters), np.array(elbos), np.array(likes))
             
 #        if (iteration % 10 == 0) and (iteration > 0):
 #            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
@@ -315,7 +323,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     if plotInterval > 0:
         plot_bound(iters, elbos, likes)
     
-    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma), \
+    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 
@@ -347,12 +355,15 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
       The original query state, with the mutated in-place matrices
     '''
     
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     if queryState is None:
         queryState = newVbQueryState(W, K)
     expLmda, nu, lxi, s, docLen = queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen
     
-    overSsq = 1. / (sigma * sigma)
+    overTsq = 1. / tauSq
+    overSsq = 1. / sigmaSq
+    overAsq = 1. / alphaSq
+    overKsq = 1. / kappaSq
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(np.float32)
@@ -373,22 +384,22 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
         
-        _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
          
         # nu_dk
         #
         nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
           
         # s_d
         #
         s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
         
         # xi_dk
         # 
         lxi[:] = negJakkolaOfDerivedXi(expLmda, nu, s)
-        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, sigT, vocab, tau, sigma, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
 
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
@@ -421,7 +432,7 @@ def plot_bound (iters, bounds, likes):
     
     plt.show()
     
-def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen):
+def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen):
     pass
 #    '''
 #    Calculates the variational lower bound and prints it to stdout,
@@ -467,7 +478,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     (expLmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
     
     lmda = np.log(expLmda)
@@ -511,7 +522,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     varFactor = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
     lnP_A = -halfKF * LOG_2PI - halfKF * log (tau * tau) \
             -halfTsq * (np.sum(omY * V.T.dot(V)) * varFactor \
-                      + np.trace(XTX.dot(omA)) * K \
+                      + np.trace(XTX.dot(varA)) * K \
                       + np.sum (np.square(A - U.dot(Y).dot(V.T))))
     # <ln p(Theta|A,X)
     # 
@@ -520,7 +531,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sig2) \
                 - 0.5 / sig2 * ( \
-                    np.sum(nu) + D*K * tau2 * np.sum(XTX * omA) + np.sum(np.square(lmda - XAT)))
+                    np.sum(nu) + D*K * tau2 * np.sum(XTX * varA) + np.sum(np.square(lmda - XAT)))
     
     # <ln p(Z|Theta)
     # 
