@@ -47,7 +47,7 @@ from numba import autojit
 # ==============================================================
 
 MAX_X_TICKS_PER_PLOT = 50
-DTYPE = np.float32
+DTYPE = np.float64
 
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
@@ -159,7 +159,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
-        W = W.astype(np.float32)
+        W = W.astype(DTYPE)
     
     # Get ready to plot the evolution of the likelihood
     dataPoints = iterations / logInterval
@@ -252,7 +252,11 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #
 #       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
         lmda = np.log(expLmda, out=expLmda)
-        A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
+        try:
+            A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
+        except ValueError as e:
+            print(str(e))
+            print ("Hmm")
         np.exp(expLmda, out=expLmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
        
@@ -264,7 +268,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
                XAT = XAT, \
-               iterations=10, \
+               iterations=1, \
                logInterval = 0, plotInterval = 0)
        
        
@@ -363,7 +367,7 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
     overTsq, overSsq, overAsq, overKsq = 1./tauSq, 1./sigmaSq, 1./alphaSq, 1./kappaSq
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
-        W = W.astype(np.float32)
+        W = W.astype(DTYPE)
     if scaledWordCounts is None:
         scaledWordCounts = W.copy()
     if XAT is None:
@@ -373,8 +377,7 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         # sc = W / lmda.dot(vocab)
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
-        expLmdaCopy = np.zeros_like(expLmda)
-        expLmdaCopy[:] = expLmda
+        expLmdaCopy = expLmda.copy()
         if np.isnan(scaledWordCounts.data).any():
             print ("ScaledWordCounts has NaNs")
         if np.isnan(expLmda).any():
@@ -489,7 +492,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
         
     if np.isinf(A).any():
         print("A has infs")
-    if np.isnan(varA).any():
+    if np.isinf(varA).any():
         print ("VarA has infs")
         
     if np.isinf(expLmda).any():
@@ -686,7 +689,7 @@ def log_likelihood(modelState, X, W, queryState):
         The marginal likelihood of the data
     '''
     if W.dtype.kind == 'i':      # for the sparseScalorProductOf() method to work
-        W = W.astype(np.float32)
+        W = W.astype(DTYPE)
     
     F, T, vocab = modelState.F, modelState.T, modelState.vocab
     assert X.shape[1] == F, "Model is trained to expect " + str(F) + " features but feature-matrix has " + str(X.shape[1]) + " features"
@@ -845,7 +848,8 @@ def sparseScalarProductOf(A,B, out=None):
     '''
     if out is None:
         out = A.copy()
-    out.data[:] = A.data
+    if not out is A:
+        out.data[:] = A.data
     out.data *= B[csr_indices(out.indptr, out.indices)]
     
     return out
@@ -862,7 +866,8 @@ def sparseScalarQuotientOfDot(A,B,C, out=None):
     '''
     if out is None:
         out = A.copy()
-    out.data[:] = A.data
+    if not out is A:
+        out.data[:] = A.data
     out.data /= B.dot(C)[csr_indices(out.indptr, out.indices)]
     
     return out

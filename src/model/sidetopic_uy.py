@@ -89,13 +89,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     
-    alpha = tau
+    overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
     mu0 = 0.0001
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
-        W = W.astype(np.float32)
+        W = W.astype(DTYPE)
     
     # Get ready to plot the evolution of the likelihood
     # Get ready to plot the evolution of the likelihood
@@ -118,10 +118,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     
     # Identity matrices that occur
     I_P  = np.eye(P,P,     0, DTYPE)
-    I_Q  = np.eye(Q,Q,     0, DTYPE)
-    I_QP = np.eye(Q*P,Q*P, 0, DTYPE)
     I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
-    T_QP = sp_vec_trans_matrix(Y.shape)
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -130,12 +127,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
     # If we don't bother optimising either tau or sigma we can just do all this here once only
-    asq     = alpha * alpha
-    tsq     = tau * tau;
-    ssq     = sigma * sigma;
-    overTsq = 1. / tsq
-    overSsq = 1. / ssq
-    overAsq = 1. / asq
+    
     
     # TODO the inverse being almost always dense means that it might
     # be faster to convert to dense and use the normal solver, despite
@@ -165,22 +157,22 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         UTU = U.T.dot(U)
         
         sigY = la.inv(overTsq * I_P + overAsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         Y = mu0 + sigY.dot (U.T.dot(A))
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
         lmda = expLmda # at this point we assume that we've applied the log to expLmda
         A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y)).T
         np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(.)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma), \
+        query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                X, W, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
@@ -191,7 +183,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
        
         # =============================================================
         # M-Step
-        #    The projection used for A: U and V
+        #    The projection used for A: U
         #    The vocabulary : vocab
         #    The topic correlation: sigT
         # =============================================================
@@ -199,14 +191,14 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # U
         #
         U = la.solve(np.trace(sigT) * I_P + Y.dot(Y.T), Y.dot(A.T)).T
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # sigT
         #
@@ -247,7 +239,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     if plotInterval > 0:
         plot_bound(iters, elbos, likes)
     
-    return VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
+    return VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 
@@ -273,13 +265,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     Returns
         The (positive) variational lower bound
     '''
-    
-    # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
-    
     result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
 
-    
     return result
 
 
@@ -314,6 +301,6 @@ def newVbModelState(K, Q, F, P, T):
     
     modelState = newVbModelStateUyv(K, Q, F, P, T)
     
-    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.U, None, modelState.vocab, modelState.tau, modelState.sigma)
+    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.U, None, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar)
 
 
