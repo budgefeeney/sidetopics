@@ -373,6 +373,18 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         # sc = W / lmda.dot(vocab)
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
+        expLmdaCopy = np.zeros_like(expLmda)
+        expLmdaCopy[:] = expLmda
+        if np.isnan(scaledWordCounts.data).any():
+            print ("ScaledWordCounts has NaNs")
+        if np.isnan(expLmda).any():
+            print ("ExpLmda has undetected NaNs")
+        
+        if np.isinf(scaledWordCounts.data).any():
+            print ("ScaledWordCounts has infs")
+        if np.isinf(expLmda).any():
+            print ("ExpLmda has undetected infs")
+        
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]  
         rhs  = docLen[:,np.newaxis] * rho + overSsq * XAT
@@ -380,9 +392,6 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         expLmda[:] = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
-        
-        if np.isnan(expLmda).any():
-            print ("Ruh-ro")
         
         _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
          
@@ -406,6 +415,15 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         
     return VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
     
+
+def _non_real_indices(A):
+    indices = []
+    for r in range(A.shape[0]):
+        for c in range(A.shape[1]):
+            if np.isinf(A[r,c]) or np.isnan(A[r,c]):
+                indices.append((r,c))
+    return indices
+
 def plot_bound (iters, bounds, likes):
     '''
     Plots the evolution of the variational bound and the log-likelihood. 
@@ -433,6 +451,62 @@ def plot_bound (iters, bounds, likes):
     plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen):
+    # NaN tests
+    if np.isnan(Y).any():
+        print ("Y has NaNs")
+    if np.isnan(omY).any():
+        print ("omY has NaNs")
+    if np.isnan(sigY).any():
+        print ("sigY has NaNs")
+        
+    if np.isnan(A).any():
+        print("A has NaNs")
+    if np.isnan(varA).any():
+        print ("VarA has NaNs")
+        
+    if np.isnan(expLmda).any():
+        print ("expLmda has NaNs")
+    if np.isnan(sigT).any():
+        print ("sigT has NaNs")
+    if np.isnan(nu).any():
+        print ("nu has NaNs")
+        
+    if np.isnan(U).any():
+        print ("U has NaNs")
+    if np.isnan(V).any():
+        print ("V has NaNs")
+        
+    if np.isnan(vocab).any():
+        print ("vocab has NaNs")
+        
+    # Infs tests
+    if np.isinf(Y).any():
+        print ("Y has infs")
+    if np.isinf(omY).any():
+        print ("omY has infs")
+    if np.isinf(sigY).any():
+        print ("sigY has infs")
+        
+    if np.isinf(A).any():
+        print("A has infs")
+    if np.isnan(varA).any():
+        print ("VarA has infs")
+        
+    if np.isinf(expLmda).any():
+        print ("expLmda has infs")
+    if np.isinf(sigT).any():
+        print ("sigT has infs")
+    if np.isinf(nu).any():
+        print ("nu has infs")
+        
+    if np.isinf(U).any():
+        print ("U has infs")
+    if np.isinf(V).any():
+        print ("V has infs")
+        
+    if np.isinf(vocab).any():
+        print ("vocab has infs")
+    
     pass
 #    '''
 #    Calculates the variational lower bound and prints it to stdout,
