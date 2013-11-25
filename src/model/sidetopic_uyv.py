@@ -222,6 +222,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # 
         VTV = V.T.dot(V)
         UTU = U.T.dot(U)
+        
+        sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        
+        omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
+        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        
         try:
             invUTU = la.inv(UTU)
             Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))
@@ -230,18 +237,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
             print("Hmm")      
         except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters)
             if fastButInaccurate:                 
-                invUTU = la.pinvh(UTU) # Obviously instable, gets stuck much earlier than the correct form
+                invUTU = la.pinvh(UTU) # Obviously unstable, inference stalls much earlier than the correct form
                 Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))  
             else:
                 Y = np.reshape (la.solve(varRatio * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
                 
         _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
-        sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
-        
-        omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
-        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
@@ -250,7 +252,6 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         #   so inv(omA)' A' = VY'U' + X'L
         # at which point we can use a built-in solve
         #
-#       A = (overTsq * U.dot(Y).dot(V.T) + X.T.dot(expLmda).T).dot(omA)
         lmda = np.log(expLmda, out=expLmda)
         try:
             A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
@@ -378,15 +379,6 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
         expLmdaCopy = expLmda.copy()
-        if np.isnan(scaledWordCounts.data).any():
-            print ("ScaledWordCounts has NaNs")
-        if np.isnan(expLmda).any():
-            print ("ExpLmda has undetected NaNs")
-        
-        if np.isinf(scaledWordCounts.data).any():
-            print ("ScaledWordCounts has infs")
-        if np.isinf(expLmda).any():
-            print ("ExpLmda has undetected infs")
         
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]  
@@ -454,6 +446,14 @@ def plot_bound (iters, bounds, likes):
     plt.show()
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen):
+    '''
+    This checks that none of the matrix parameters contain a NaN or an Inf
+    value, then calcuates the variational bound, and prints it to stdout with
+    the given update message.
+    
+    A tremendously inefficient method for debugging only.
+    '''
+    
     # NaN tests
     if np.isnan(Y).any():
         print ("Y has NaNs")
@@ -510,24 +510,15 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     if np.isinf(vocab).any():
         print ("vocab has infs")
     
-    pass
-#    '''
-#    Calculates the variational lower bound and prints it to stdout,
-#    prefixed with a table and the given updateMsg
-#    
-#    See varBound() for a full description of all parameters
-#    
-#    Obviously this is a very ugly inefficient method.
-#    '''
-#    lmda = np.log(expLmda)
-#    xi = deriveXi(lmda, nu, s)
-#    elbo = varBound ( \
-#                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, U, V, vocab, tau, sigma), \
-#                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
-#                      X, W)
-#    
-#    
-#    print ("\t Update %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    lmda = np.log(expLmda)
+    xi = deriveXi(lmda, nu, s)
+    elbo = varBound ( \
+                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
+                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+                      X, W)
+    
+    
+    print ("\t Update %5d: %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, UTU = None, VTV = None):
     '''
