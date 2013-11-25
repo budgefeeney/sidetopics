@@ -231,11 +231,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         
         try:
             invUTU = la.inv(UTU)
-            Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))
-        except ValueError as e:
-            print(e)
-            print("Hmm")      
-        except np.linalg.linalg.LinAlgError as e: # U seems to rapidly become singular (before 5 iters)
+            Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))   
+        except np.linalg.linalg.LinAlgError as e: # U'U seems to rapidly become singular (before 5 iters)
             if fastButInaccurate:                 
                 invUTU = la.pinvh(UTU) # Obviously unstable, inference stalls much earlier than the correct form
                 Y = la.solve_sylvester (varRatio * invUTU, VTV, invUTU.dot(U.T).dot(A).dot(V))  
@@ -301,7 +298,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
-        if (logInterval > 0) and (iteration == round(logIter)):
+        if (logInterval > 0) and (iteration == logIter):
             modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
@@ -453,62 +450,67 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     
     A tremendously inefficient method for debugging only.
     '''
+    def _nan (varName):
+        print (str(varName) + " has NaNs")
+    def _inf (varName):
+        print (str(varName) + " has infs")
+    
     
     # NaN tests
     if np.isnan(Y).any():
-        print ("Y has NaNs")
+        _nan("Y")
     if np.isnan(omY).any():
-        print ("omY has NaNs")
+        _nan("omY")
     if np.isnan(sigY).any():
-        print ("sigY has NaNs")
+        _nan("sigY")
         
     if np.isnan(A).any():
-        print("A has NaNs")
+        _nan("A")
     if np.isnan(varA).any():
-        print ("VarA has NaNs")
+        _nan("varA")
         
     if np.isnan(expLmda).any():
-        print ("expLmda has NaNs")
+        _nan("expLmda")
     if np.isnan(sigT).any():
-        print ("sigT has NaNs")
+        _nan("sigT")
     if np.isnan(nu).any():
-        print ("nu has NaNs")
+        _nan("nu")
         
     if np.isnan(U).any():
-        print ("U has NaNs")
+        _nan("U")
     if np.isnan(V).any():
-        print ("V has NaNs")
+        _nan("V")
         
     if np.isnan(vocab).any():
-        print ("vocab has NaNs")
+        _nan("vocab")
         
     # Infs tests
     if np.isinf(Y).any():
-        print ("Y has infs")
+        _inf("Y")
     if np.isinf(omY).any():
-        print ("omY has infs")
+        _inf("omY")
     if np.isinf(sigY).any():
-        print ("sigY has infs")
+        _inf("sigY")
         
     if np.isinf(A).any():
-        print("A has infs")
+        _inf("A")
     if np.isinf(varA).any():
-        print ("VarA has infs")
+        _inf("varA")
         
     if np.isinf(expLmda).any():
-        print ("expLmda has infs")
+        _inf("expLmda")
     if np.isinf(sigT).any():
-        print ("sigT has infs")
+        _inf("sigT")
     if np.isinf(nu).any():
-        print ("nu has infs")
+        _inf("nu")
         
     if np.isinf(U).any():
-        print ("U has infs")
+        _inf("U")
     if np.isinf(V).any():
-        print ("V has infs")
+        _inf("V")
         
     if np.isinf(vocab).any():
-        print ("vocab has infs")
+        _inf("vocab")
     
     lmda = np.log(expLmda)
     xi = deriveXi(lmda, nu, s)
@@ -740,7 +742,7 @@ def newVbQueryState(W, K):
     return VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
     
 
-def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 0.01, latTopicVar = 0.01):
+def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 1, latTopicVar = 1):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that o§nce trained can be kept fixed for querying.
