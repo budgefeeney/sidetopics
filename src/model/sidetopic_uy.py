@@ -126,15 +126,13 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     s    = np.zeros((D,), DTYPE)
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
-    # If we don't bother optimising either tau or sigma we can just do all this here once only
-    
-    
-    # TODO the inverse being almost always dense means that it might
-    # be faster to convert to dense and use the normal solver, despite
-    # the size constraints.
-#    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
+    # the variance of A is an unchanging function of X, assuming
+    # that alphaSq is also unchanging.
     aI_XTX = (overAsq * I_F + XTX).todense(); 
     varA = la.inv (aI_XTX)
+    
+    # Scaled word counts is W / expLmda.dot(vocab). It's going to be exactly
+    # as sparse as W, which is why we initialise it in this manner.
     scaledWordCounts = W.copy()
    
     lmda = np.log(expLmda, out=expLmda)
@@ -164,9 +162,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         
         # A 
         #
-        lmda = expLmda # at this point we assume that we've applied the log to expLmda
         A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y)).T
-        np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(.)
+        np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(lmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
