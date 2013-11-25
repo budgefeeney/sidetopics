@@ -459,9 +459,9 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     # NaN tests
     if np.isnan(Y).any():
         _nan("Y")
-    if np.isnan(omY).any():
+    if omY is not None and np.isnan(omY).any():
         _nan("omY")
-    if np.isnan(sigY).any():
+    if sigY is not None and np.isnan(sigY).any():
         _nan("sigY")
         
     if np.isnan(A).any():
@@ -476,9 +476,9 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     if np.isnan(nu).any():
         _nan("nu")
         
-    if np.isnan(U).any():
+    if U is not None and np.isnan(U).any():
         _nan("U")
-    if np.isnan(V).any():
+    if V is not None and np.isnan(V).any():
         _nan("V")
         
     if np.isnan(vocab).any():
@@ -487,9 +487,9 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     # Infs tests
     if np.isinf(Y).any():
         _inf("Y")
-    if np.isinf(omY).any():
+    if omY is not None and np.isinf(omY).any():
         _inf("omY")
-    if np.isinf(sigY).any():
+    if sigY is not None and np.isinf(sigY).any():
         _inf("sigY")
         
     if np.isinf(A).any():
@@ -499,14 +499,14 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
         
     if np.isinf(expLmda).any():
         _inf("expLmda")
-    if np.isinf(sigT).any():
+    if sigY is not None and np.isinf(sigT).any():
         _inf("sigT")
     if np.isinf(nu).any():
         _inf("nu")
         
-    if np.isinf(U).any():
+    if U is not None and np.isinf(U).any():
         _inf("U")
-    if np.isinf(V).any():
+    if V is not None and np.isinf(V).any():
         _inf("V")
         
     if np.isinf(vocab).any():
@@ -572,9 +572,9 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
         XAT = X.dot(A.T)
     if XTX is None:
         XTX = X.T.dot(X)
-    if VTV is None:
+    if V is not None and VTV is None:
         VTV = V.T.dot(V)
-    if UTU is None:
+    if U is not None and UTU is None:
         UTU = U.T.dot(U)
         
     # also need one over the usual variances
@@ -584,8 +584,10 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
    
     # <ln p(Y)>
-    # 
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * np.trace(sigY) * np.trace(omY) + overTkSq * np.sum(Y * Y))
+    #
+    trSigY = 0 if sigY is None else np.trace(sigY)
+    trOmY  = 0 if omY  is None else np.trace(omY)
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.sum(Y * Y))
     
     # <ln P(A|Y)>
     # TODO it looks like I should take the trace of omA \otimes I_K here.
@@ -599,6 +601,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
             -0.5 * overAsSq * (np.sum(omY * V.T.dot(V)) * varFactor \
                       + np.trace(XTX.dot(varA)) * K \
                       + np.sum (np.square(A - U.dot(Y).dot(V.T))))
+            
     # <ln p(Theta|A,X)
     # 
     lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sigmaSq) \
@@ -627,7 +630,9 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
-    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * log (la.det(omY)) + P * log (la.det(sigY)))
+    lnDetOmY  = 0 if omY  is None else log(la.det(omY))
+    lnDetSigY = 0 if sigY is None else log(la.det(sigY))
+    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY
     
     # H[q(A|Y)]
     #
@@ -787,6 +792,10 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
     
     A     = U.dot(Y).dot(V.T)
     varA  = featVar * np.identity(F, DTYPE)
+    
+    varRatio = (featVar * topicVar) / (latFeatVar * latTopicVar)
+    if varRatio > 1:
+        raise ValueError ("Model will not converge as (featVar * topicVar) / (latFeatVar * latTopicVar)) = " + str(varRatio) + "  when it needs to be no more than one.")
     
     # Vocab is K word distributions so normalize
     vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
