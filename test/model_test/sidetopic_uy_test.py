@@ -10,7 +10,8 @@ from __future__ import division
 import unittest
 
 
-from model.sidetopic_uyv import newVbModelState, train, query, rowwise_softmax, log_likelihood
+from model.sidetopic_uyv import rowwise_softmax
+from model.sidetopic_uy import newVbModelState, train, query, log_likelihood
 from model_test.sidetopic_test import makeSixTopicVocab, matrix_normal
 from util.overflow_safe import safe_log
 
@@ -71,9 +72,9 @@ class StUyvTest(unittest.TestCase):
         (ySdRow, ySdCol) = (5.0, 5.0)
         (aSdRow, aSdCol) = (5.0, tau**2)
         
-        U = matrix_normal(np.zeros((P,K)),   uSdRow * np.eye(Q), uSdCol * np.eye(K))
-        Y = matrix_normal(np.zeros((F,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q))
-        A = matrix_normal(U.dot(Y), aSdRow * np.eye(F), aSdCol * np.eye(K))
+        U = matrix_normal(np.zeros((F,P)),   uSdRow * np.eye(P), uSdCol * np.eye(F))
+        Y = matrix_normal(np.zeros((P,K)),   ySdRow * np.eye(K), ySdCol * np.eye(P))
+        A = matrix_normal(U.dot(Y).T, aSdRow * np.eye(F), aSdCol * np.eye(K))
         
         # Generate the input features. Assume the features are multinomial and sparse
         # (not quite a perfect match for the twitter example: twitter is binary, this 
@@ -134,7 +135,8 @@ class StUyvTest(unittest.TestCase):
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
             
             print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
-           
+            print("")
+            
         print("End of Test")
     
         

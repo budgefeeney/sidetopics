@@ -59,7 +59,7 @@ from numba import autojit
 
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False, skipAcademicParams=False):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -78,6 +78,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                    bound values calcuated at each log-interval
     fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
                         when solving for Y when the true inverse is unavailable.
+    skipAcademicParams - Some parameters are only used to calculate the bound, so we
+                   can ignore these updates.
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -145,20 +147,18 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # =============================================================
               
       
-        # Y, sigY, omY
+        # Y, sigY
         #
-        # If U'U is invertible, use inverse to convert Y to a Sylvester eqn
-        # which has a much, much faster solver. Recall update for Y is of the form
-        #   Y + AYB = C where A = U'U, B = V'V and C=U'AV
-        # 
-        VTV = V.T.dot(V)
         UTU = U.T.dot(U)
-        
-        sigY = la.inv(overTsq * I_P + overAsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
-        
-        Y = mu0 + sigY.dot (U.T.dot(A))
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        if skipAcademicParams:
+            Y = la.solve(I_P + UTU, A.T.dot(U)).T
+            _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        else:
+            sigY = la.inv(overTsq * I_P + overAsq * U.T.dot(U)) # Can skip this in practice
+            _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+            
+            Y = mu0 + sigY.dot(A.dot(U))
+            _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
         
         # A 
         #
@@ -210,10 +210,10 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
         if (logInterval > 0) and (iteration % logInterval == 0):
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
-            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=VTV, UTU=UTU)
+            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=None, UTU=UTU)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
                 
             elbos.append (elbo)
