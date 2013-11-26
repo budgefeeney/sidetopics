@@ -295,7 +295,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     return result
 
 
-def newVbModelState(K, Q, F, P, T):
+def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 1, latTopicVar = 1):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that o§nce trained can be kept fixed for querying.
@@ -307,6 +307,11 @@ def newVbModelState(K, Q, F, P, T):
     F - the number of features
     P - the number of latent features in the projected space, P << F
     T - the number of terms in the vocabulary
+    topicVar - a scalar providing the isotropic covariance of the topic-space
+    featVar - a scalar providing the isotropic covariance of the feature-space
+    latFeatVar - a scalar providing the isotropic covariance of the latent feature-space
+    latTopicVar - a scalar providing the isotropic covariance of the latent topic-space
+    
     
     The returned object will contain K, Q, F, P and T and also
     

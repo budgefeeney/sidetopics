@@ -18,25 +18,23 @@ Created on 29 Jun 2013
 @author: bryanfeeney
 '''
 
-from math import log
-from math import e
+from math import e, log
+from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
+    VbSideTopicModelState, VbSideTopicQueryState, log_likelihood, plot_bound, query, \
+    negJakkola, deriveXi, sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
+    newVbModelState as newVbModelStateUyv, varBound as varBoundUyv
+from numba import autojit
+from util.array_utils import normalizerows_ip
+from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
+from util.vectrans import vec, vec_transpose, vec_transpose_csr, \
+    sp_vec_trans_matrix
 import numpy as np
+import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
-import numpy.random as rd
 
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
-from util.array_utils import normalizerows_ip
-from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
-    VbSideTopicModelState,  VbSideTopicQueryState, \
-    log_likelihood, plot_bound, query, negJakkola, deriveXi, \
-    sparseScalarProductOfDot, sparseScalarQuotientOfDot
 
-from model.sidetopic_uyv import varBound as varBoundUyv
-from model.sidetopic_uyv import newVbModelState as newVbModelStateUyv
-from util.vectrans import vec, vec_transpose, vec_transpose_csr, sp_vec_trans_matrix
 
-from numba import autojit
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
@@ -271,7 +269,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     return result
 
 
-def newVbModelState(K, Q, F, P, T):
+def newVbModelState(K, Q F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 1, latTopicVar = 1):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that once trained can be kept fixed for querying.
@@ -279,10 +277,15 @@ def newVbModelState(K, Q, F, P, T):
     The parameters are
     
     K - the number of topics
-    Q - the number of latent topics, Q << K
+    Q - the number of latent topics, Q << K. Ignored in this case
     F - the number of features
     P - the number of latent features in the projected space, P << F
     T - the number of terms in the vocabulary
+    topicVar - a scalar providing the isotropic covariance of the topic-space
+    featVar - a scalar providing the isotropic covariance of the feature-space
+    latFeatVar - a scalar providing the isotropic covariance of the latent feature-space
+    latTopicVar - a scalar providing the isotropic covariance of the latent topic-space
+    
     
     The returned object will contain K, Q, F, P and T and also
     

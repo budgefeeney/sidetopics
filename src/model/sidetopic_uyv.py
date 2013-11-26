@@ -56,6 +56,10 @@ LOG_2PI_E = log(2 * pi * e)
 # TUPLES
 # ==============================================================
 
+VbSideTopicTrainPlan = namedtuple ( \
+    'VbSideTopicTrainPlan',
+    'logFrequency', 'plotFrequency', 'plotFile', 'iterations', 'epsilon', 'fastButInaccurate')                            
+
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
     'expLmda nu lxi s docLen'\
@@ -70,6 +74,30 @@ VbSideTopicModelState = namedtuple ( \
 # ==============================================================
 # CODE
 # ==============================================================
+
+def newInferencePlan(iterations=100, epsilon=0.1, logFrequency=0, plot=True, plotFile=None, fastButInaccurate=None):
+    '''
+    Creates an inference plan to be used by either train() or query(),
+    which specifies how long to run the inference for, how often to 
+    measure and log the bound, whether to create a plot of the bound,
+    which file to save it to (it's displayed on-screen otherwise) and
+    whether optimisations should be used that improve the speed of 
+    inference at the cost of accuracy/
+    
+    iterations - how long to iterate for
+    epsilon    - should the last measure of the bound and the current one differ
+                 by less than this amount we assume the model has converged and
+                 stop inference.
+    logFrequency - how many times should we inspect the variational bound. This is
+                   done on a power-scale, so for example for 256 iterations, if we set
+                   this to 8, we'll measure at iterations 1, 2, 4, 16, 32, 64, 128 and 255.
+    plot     - should we show a plot of the measured bound after running or not
+    plotFile - where to save the plot of the bound. If None the plot is shown
+               on screen.
+    fastButInaccurate - if true, optimisations that are theoretically unsound or
+                        which degrade results may be used.
+    '''
+    return VbSideTopicTrainPlan(logFrequency, plotFile, plotFile, iterations, epsilon)
 
 def negJakkola(vec):
     '''
@@ -126,7 +154,7 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
+def train(modelState, X, W, plan):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -137,14 +165,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     modelState - the model state with all the model parameters
     X          - the D x F matrix of side information vectors
     W          - the D x V matrix of word **count** vectors.
-    iterations - how long to iterate for
-    epsilon    - currently ignored, in future, allows us to stop early.
-    logInterval  - the interval between iterations where we calculate and display
-                   the log-likelihood bound
-    plotInterval - the interval between iterations we we display the log-likelihood
-                   bound values calcuated at each log-interval
-    fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
-                        when solving for Y when the true inverse is unavailable.
+    
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
