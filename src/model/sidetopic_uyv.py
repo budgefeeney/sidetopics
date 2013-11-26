@@ -375,7 +375,7 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
         # sc = W / lmda.dot(vocab)
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         
-        expLmdaCopy = expLmda.copy()
+#        expLmdaCopy = expLmda.copy()
         
         rho = 2 * s[:,np.newaxis] * lxi - 0.5 \
             + expLmda * (scaledWordCounts.dot(vocab.T)) / docLen[:,np.newaxis]  
@@ -596,11 +596,14 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # Horrible, but varBound can be called by two implementations, one with Y as a matrix-variate
     # where sigY is QxQ and one with Y as a multi-varate, where sigY is a QPxQP.
-    varFactor = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
+    A_from_Y = Y.dot(U.T) if V is None else U.dot(A).dot(V.T)
+    varFactorU = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
+    varFactorV = 1 if V is None \
+        else np.sum(omY * V.T.dot(V))
     lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -halfKF * log(sigmaSq) \
-            -0.5 * overAsSq * (np.sum(omY * V.T.dot(V)) * varFactor \
+            -0.5 * (overAsSq * varFactorV * varFactorU \
                       + np.trace(XTX.dot(varA)) * K \
-                      + np.sum (np.square(A - U.dot(Y).dot(V.T))))
+                      + np.sum (np.square(A - A_from_Y)))
             
     # <ln p(Theta|A,X)
     # 
@@ -632,7 +635,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # H[q(Y)]
     lnDetOmY  = 0 if omY  is None else log(la.det(omY))
     lnDetSigY = 0 if sigY is None else log(la.det(sigY))
-    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY
+    ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY)
     
     # H[q(A|Y)]
     #

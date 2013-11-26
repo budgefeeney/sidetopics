@@ -59,7 +59,7 @@ from numba import autojit
 
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False, skipAcademicParams=False):
+def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -78,8 +78,6 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                    bound values calcuated at each log-interval
     fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
                         when solving for Y when the true inverse is unavailable.
-    skipAcademicParams - Some parameters are only used to calculate the bound, so we
-                   can ignore these updates.
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -147,22 +145,23 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # =============================================================
               
       
-        # Y, sigY
+        # Y, sigY, omY
         #
+        # If U'U is invertible, use inverse to convert Y to a Sylvester eqn
+        # which has a much, much faster solver. Recall update for Y is of the form
+        #   Y + AYB = C where A = U'U, B = V'V and C=U'AV
+        # 
         UTU = U.T.dot(U)
-        if skipAcademicParams:
-            Y = la.solve(I_P + UTU, A.T.dot(U)).T
-            _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
-        else:
-            sigY = la.inv(overTsq * I_P + overAsq * U.T.dot(U)) # Can skip this in practice
-            _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
-            
-            Y = mu0 + sigY.dot(A.dot(U))
-            _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        
+        sigY = la.inv(overTsq * I_P + overAsq * UTU)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        
+        Y = A.dot(U).dot(sigY)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
         
         # A 
         #
-        A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y)).T
+        A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y.T)).T
         np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(lmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
        
@@ -174,7 +173,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
                XAT = XAT, \
-               iterations=10, \
+               iterations=1, \
                logInterval = 0, plotInterval = 0)
        
        
@@ -187,7 +186,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                
         # U
         #
-        U = la.solve(np.trace(sigT) * I_P + Y.dot(Y.T), Y.dot(A.T)).T
+        U = la.solve(np.trace(sigT) * I_P + Y.T.dot(Y), Y.T.dot(A)).T
         _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
 
         # vocab
@@ -200,21 +199,26 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # sigT
         #
         lmda = np.log(expLmda, out=expLmda)
+        A_from_U_Y = Y.dot(U.T)
+        topic_from_A_X = X.dot(A.T)
         
-        sigT  = 1./D * (Y.T.dot(Y) + \
-                       (A - U.dot(Y)).T.dot(A - U.dot(Y)) + \
-                       (lmda - X.dot(A)).T.dot(lmda - X.dot(A)))
+        sigT  = 1./D * (Y.dot(Y.T) + \
+                       (A - A_from_U_Y).dot((A - A_from_U_Y).T) + \
+                       (lmda - topic_from_A_X).T.dot(lmda - topic_from_A_X))
         sigT.flat[::K+1] += 1./D * nu.sum(axis=0, dtype=DTYPE) 
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
         if (logInterval > 0) and (iteration % logInterval == 0):
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
+            np.exp(expLmda, out=expLmda)
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, None, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
             elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=None, UTU=UTU)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
+                
+            np.log(expLmda, out=expLmda)
                 
             elbos.append (elbo)
             iters.append (iteration)
@@ -270,7 +274,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
 def newVbModelState(K, Q, F, P, T):
     '''
     Creates a new model state object for a topic model based on side-information. This state
-    contains all parameters that o§nce trained can be kept fixed for querying.
+    contains all parameters that once trained can be kept fixed for querying.
     
     The parameters are
     
@@ -295,9 +299,10 @@ def newVbModelState(K, Q, F, P, T):
     tau    - the row variance of A is tau^2 I_K
     sigma  - the variance in the estimation of the topic memberships. lambda ~ N(A'x, sigma^2I)
     '''
+    # Q = K in this model (i.e. there's no low-rank topic projection)
+    modelState = newVbModelStateUyv(K, K, F, P, T)
     
-    modelState = newVbModelStateUyv(K, Q, F, P, T)
-    
-    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.U, None, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar)
+    # Set omY = Non, new.U = old.V and new.V = None
+    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.V, None, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar)
 
 

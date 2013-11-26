@@ -21,7 +21,7 @@ import numpy.random as rd
 import scipy.sparse as ssp
 from math import ceil
 
-class StUyvTest(unittest.TestCase):
+class StUyTest(unittest.TestCase):
     '''
     Provides basic unit tests for the variational SideTopic inference engine using
     A=UYV with small inputs derived from known parameters.
