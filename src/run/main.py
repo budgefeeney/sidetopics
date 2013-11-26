@@ -6,6 +6,7 @@ Created on 26 Nov 2013
 import argparse as ap
 import pickle as pkl
 import numpy as np
+from math import ceil
 
 from model.sidetopic_uy import \
     train as train_uy, \
@@ -14,7 +15,8 @@ from model.sidetopic_uyv import \
     train as train_uyv, \
     newVbModelState as new_uyv, \
     query, \
-    newInferencePlan,
+    newInferencePlan, \
+    log_likelihood, \
     DTYPE
 from model.sidetopic_uv_vecy import \
     train as train_uv_vecy, \
@@ -112,6 +114,7 @@ if __name__ == '__main__':
     K     = args['K']
     P     = args['P']
     Q     = args['Q']
+    folds = 5
     
     name = args['model']
     fv, tv, lfv, ltv = args['feat_var'], args['topic_var'], args['lat_feat_var'], args['lat_topic_var']
@@ -119,6 +122,10 @@ if __name__ == '__main__':
     newModel, trainModel, queryModel, DTYPE = selectModel(args)
     trainPlan = newTrainPlan(args)
     queryPlan = newQueryPlan(args)
+    
+    foldSize  = ceil(D / 5)
+    querySize = foldSize
+    trainSize = D - querySize
     
     for fold in range(folds):
         start = fold * foldSize
