@@ -26,7 +26,7 @@ from model.sidetopic_uv_vecy import \
 def selectModel(args):
     '''
     Returns a tuple of three methods for instantiating a model, 
-    trianing it, and querying it, in that order. All methods take the
+    training it, and querying it, in that order. All methods take the
     same parameters (see sidetopics_uyv for an example). Expects the
     args to contain a 'model' value specifying the appropriate model, values
     are 'uyv', 'uy' and 'uv_vec_y'
@@ -41,20 +41,41 @@ def selectModel(args):
     else:
         raise ValueError ('Unknown model type ' + args['model'])
     
-def newTrainPlan(args):
+def newTrainPlans(args):
     '''
-    Creates a new inference plan for training from the command-line arguments
+    Creates a new inference plan for training from the command-line arguments.
+    Generates one plan for every cross-validated fold, as the fold names are
+    required to modify the filenames for each of the plots
     '''
-    return newInferencePlan(args['iters'], args['min_vb_change'], args['log_freq'], plot=args['out_plot'] is not None, args['out_plot'], fastButInaccurate=False)
-
+    return newPlans (args['iters'], 'train', args)
    
-def newQueryPlan(args):
+def newQueryPlans(args):
     '''
     Creates a new inference plan for querying from the command-line arguments
     '''
     queryIters = args['query_iters'] if args['query_iters'] is not None else args['iters']
-    return newInferencePlan(queryIters, args['min_vb_change'], args['log_freq'], plot=args['out_plot'] is not None, args['out_plot'], fastButInaccurate=False)
+    return newPlans (queryIters, 'query', args)
     
+def newPlans(iters, plotSuffix, args):
+    '''
+    Creates a new inference plan for training or querying from the command-line 
+    arguments and given parameters.
+    Generates one plan for every cross-validated fold, as the fold names are
+    required to modify the filenames for each of the plots
+    
+    iters - the number of training iterations to run
+    plotSuffix - either 'train' or 'query'
+    args - the rest of the command-line arguments
+    '''
+    if args['folds'] == 1:
+        return newInferencePlan(args['iters'], args['min_vb_change'], args['log_freq'], plot=args['out_plot'] is not None, args['out_plot'], fastButInaccurate=False)
+    else:
+        plotPrefix = args['out_plot'] if args['out_plot'] is not None else ''
+        plans = []
+        for fold in range(folds):
+            plotName = plotPrefix + '-' + plotSuffix + '-' + str(fold)
+            plans.append(newInferencePlan(iters, args['min_vb_change'], args['log_freq'], plot=args['out_plot'] is not None, plotName, fastButInaccurate=False))
+        return plans
     
 
 if __name__ == '__main__':
@@ -96,6 +117,8 @@ if __name__ == '__main__':
                     help="Scale of the prior isotropic variance over latent topics")
     parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, \
                     help="Scale of the prior isotropic variance over latent features")
+    parser.add_argument('--folds', dest='folds', type=int, default=1, \
+                    help="Number of cross validation folds.")
     
     #
     # Parse the arguments
@@ -114,38 +137,47 @@ if __name__ == '__main__':
     K     = args['K']
     P     = args['P']
     Q     = args['Q']
-    folds = 5
+    folds = args['folds']
     
     name = args['model']
     fv, tv, lfv, ltv = args['feat_var'], args['topic_var'], args['lat_feat_var'], args['lat_topic_var']
     
-    newModel, trainModel, queryModel, DTYPE = selectModel(args)
-    trainPlan = newTrainPlan(args)
-    queryPlan = newQueryPlan(args)
+    newModel, trainModel, queryModel = selectModel(args)
+    trainPlans = newTrainPlans(args)
+    queryPlans = newQueryPlans(args)
     
-    foldSize  = ceil(D / 5)
-    querySize = foldSize
-    trainSize = D - querySize
     
-    for fold in range(folds):
-        start = fold * foldSize
-        end   = start + trainSize
-        
-        trainSet = np.arange(start,end) % D
-        querySet = np.arange(end, end + querySize) % D
-        
-        X_train, W_train = X[trainSet,:], W[trainSet,:]
-        X_query, W_query = X[querySet,:], W[querySet,:]
-        
+    if folds == 1:
         modelState = newModel(K, Q, F, P, fv, tv, lfv, ltv)
-        modelState, queryState = trainModel(modelState, X_train, W_train, iterations=100, logInterval=10, plotInterval=100)
-        trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
-        
-        queryState = queryModel(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 10, plotInterval = 100)
-        querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
-        
-        print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
+        modelState, queryState = trainModel(modelState, X, W, iterations=100, logInterval=10, plotInterval=100)
+        trainSetLikely = log_likelihood(modelState, X, W, queryState)
+                    
+        print("Train-set Likelihood: %12f" % (trainSetLikely))
         print("")
+    else:
+        foldSize  = ceil(D / folds)
+        querySize = foldSize
+        trainSize = D - querySize
+    
+        for fold in range(folds):
+            start = fold * foldSize
+            end   = start + trainSize
+            
+            trainSet = np.arange(start,end) % D
+            querySet = np.arange(end, end + querySize) % D
+            
+            X_train, W_train = X[trainSet,:], W[trainSet,:]
+            X_query, W_query = X[querySet,:], W[querySet,:]
+            
+            modelState = newModel(K, Q, F, P, fv, tv, lfv, ltv)
+            modelState, queryState = trainModel(modelState, X_train, W_train, iterations=100, logInterval=10, plotInterval=100)
+            trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
+            
+            queryState = queryModel(modelState, X_query, W_query, iterations=50, epsilon=0.001, logInterval = 10, plotInterval = 100)
+            querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            
+            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
+            print("")
         
     print("End of Test")
     
