@@ -249,9 +249,14 @@ def train(modelState, X, W, plan):
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
-        
-        if plot and plotIncremental:
-            plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
+            
+            if elbo - lastVarBoundValue < epsilon:
+                break
+            else:
+                lastVarBoundValue = elbo
+            
+            if plot and plotIncremental:
+                plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
     
     # Right before we end, plot the evolution of the bound and likelihood

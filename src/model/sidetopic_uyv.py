@@ -22,6 +22,7 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib.pyplot as plt
+import sys
 
 from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip, rowwise_softmax
@@ -58,7 +59,7 @@ LOG_2PI_E = log(2 * pi * e)
 
 VbSideTopicTrainPlan = namedtuple ( \
     'VbSideTopicTrainPlan',
-    'iterations', 'epsilon', 'logFrequency', 'plot', 'plotFile', 'plotIncremental', 'fastButInaccurate')                            
+    'iterations epsilon logFrequency plot plotFile plotIncremental fastButInaccurate')                            
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
@@ -68,7 +69,7 @@ VbSideTopicQueryState = namedtuple ( \
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
-    'K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, topicVar, featVar, lowTopicVar, lowFeatVar'
+    'K Q F P T A varA Y omY sigY sigT U V vocab topicVar featVar lowTopicVar lowFeatVar'
 )
 
 # ==============================================================
@@ -180,6 +181,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
+    queryPlan = newInferencePlan(10, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -193,6 +195,7 @@ def train(modelState, X, W, plan):
         iters = []
     else:
         logIter = iterations + 1
+    lastVarBoundValue = sys.float_info.min
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -287,11 +290,10 @@ def train(modelState, X, W, plan):
         XAT = X.dot(A.T)
         query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                X, W, \
+               queryPlan, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
-               XAT = XAT, \
-               iterations=1, \
-               logInterval = 0, plotInterval = 0)
+               XAT = XAT)
        
        
         # =============================================================
@@ -335,9 +337,14 @@ def train(modelState, X, W, plan):
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
-        
-        if plot and plotIncremental:
-            plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
+            
+            if elbo - lastVarBoundValue < epsilon:
+                break
+            else:
+                lastVarBoundValue = elbo
+            
+            if plot and plotIncremental:
+                plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
     
     # Right before we end, plot the evoluation of the bound and likelihood
@@ -349,7 +356,7 @@ def train(modelState, X, W, plan):
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 
-def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None, iterations=10, epsilon=0.001, logInterval = 0, plotInterval = 0):
+def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT = None):
     '''
     Determines the most likely topic memberships for the given documents as
     described by their feature and word matrices X and W. All  elements of
@@ -361,23 +368,19 @@ def query(modelState, X, W, queryState = None, scaledWordCounts=None, XAT = None
     modelState   - the model used to assign topics to documents. This is kept fixed
     X            - the DxF matrix of feature-vectors associated with the documents
     W            - The DxT matrix of word-count vectors representing the documents
+    plan         - How to execute the query
     queryState   - the query-state object, with initial topic assignments. The members
                    of this are directly mutatated.
     scaledWordCounts - a DxT matrix with the same number of non-zero entries as W.
                        This is overwritten.
     XAT          - the product of X.dot(modelState.A.T)
-    iterations   - the number of iterations to execute
-    epsilon      - ignored
-    logInterval  - the interval between iterations where we calculate and display
-                   the log-likelihood bound
-    plotInterval - the interval between iterations we we display the log-likelihood
-                   bound values calculated at each log-interval
                    
     Returns
       The original query state, with the mutated in-place matrices
     '''
     
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
+    iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
     if queryState is None:
         queryState = newVbQueryState(W, K)
     expLmda, nu, lxi, s, docLen = queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen

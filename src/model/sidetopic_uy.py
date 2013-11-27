@@ -33,6 +33,8 @@ import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
 
+import sys
+
 
 
 
@@ -57,7 +59,7 @@ import scipy.sparse as ssp
 
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
+def train(modelState, X, W, plan):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -68,14 +70,8 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     modelState - the model state with all the model parameters
     X          - the D x F matrix of side information vectors
     W          - the D x V matrix of word **count** vectors.
-    iterations - how long to iterate for
-    epsilon    - currently ignored, in future, allows us to stop early.
-    logInterval  - the interval between iterations where we calculate and display
-                   the log-likelihood bound
-    plotInterval - the interval between iterations we we display the log-likelihood
-                   bound values calcuated at each log-interval
-    fastButInaccurate - if true, we may use a psedo-inverse instead of an inverse
-                        when solving for Y when the true inverse is unavailable.
+    plan       - how we should execute the inference procedure (iterations, logging
+                 etc). See newInferencePlan() in sidetopics_uyv
     
     This returns a tuple of new model-state and query-state. The latter object will
     contain X and W and also
@@ -102,17 +98,17 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         iters = []
     else:
         logIter = iterations + 1
+    lastVarBoundValue = sys.float_info.min
         
     # Prior covariances and mean
     overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
     mu0 = 0.0001
     
-    
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
     D      = len(docLen)
     
-    # No need to recompute this every time
+    # No need to recompute X'X every time
     if X.dtype != DTYPE:
         X = X.astype (DTYPE)
     XTX = X.T.dot(X)
@@ -174,7 +170,7 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
                XAT = XAT, \
-               iterations=1, \
+               iterations=10, \
                logInterval = 0, plotInterval = 0)
        
        
@@ -227,9 +223,14 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
-        
-        if plot and plotIncremental:
-            plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
+            
+            if elbo - lastVarBoundValue < epsilon:
+                break
+            else:
+                lastVarBoundValue = elbo
+            
+            if plot and plotIncremental:
+                plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
     
     # Right before we end, plot the evolution of the bound and likelihood
@@ -268,7 +269,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     return result
 
 
-def newVbModelState(K, Q F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 1, latTopicVar = 1):
+def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar = 1, latTopicVar = 1):
     '''
     Creates a new model state object for a topic model based on side-information. This state
     contains all parameters that once trained can be kept fixed for querying.

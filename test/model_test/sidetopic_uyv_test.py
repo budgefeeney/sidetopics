@@ -20,6 +20,77 @@ import numpy.random as rd
 import scipy.sparse as ssp
 from math import ceil
 
+def sampleFromModel(D=200, T=100, K=10, Q=6, F=12, P=8, avgWordsPerDoc = 500):
+    '''
+    Create a test dataset according to the model
+    
+    Params:
+        T - Vocabulary size, the number of "terms". Must be a square number
+        Q - Latent Topics:
+        K - Observed topics
+        P - Latent features
+        F - Observed features
+        D - Sample documents (each with associated features)
+        avgWordsPerDoc - average number of words per document generated (Poisson)
+    
+    Returns:
+        modelState - a model state object configured for training
+        tpcs       - the matrix of per-document topic distribution
+        vocab      - the matrix of per-topic word distributions
+        docLens    - the vector of document lengths
+        X          - the DxF side information matrix
+        W          - The DxW word matrix
+    '''
+    
+    # Generate vocab
+    beta = 0.1
+    betaVec = np.ndarray((T,))
+    betaVec.fill(beta)
+    vocab = np.zeros((K,T))
+    for k in range(K):
+        vocab[k,:] = rd.dirichlet(betaVec)
+    
+    # Generate U, then V, then A
+    tau = 0.1
+    tsq = tau * tau
+    (vSdRow, vSdCol) = (5.0, 5.0)
+    (uSdRow, uSdCol) = (5.0, tau**2) # For the K-dimensions we use tsq
+    (ySdRow, ySdCol) = (5.0, 5.0)
+    (aSdRow, aSdCol) = (5.0, tau**2)
+    
+    U = matrix_normal(np.zeros((K,Q)),   uSdRow * np.eye(Q), uSdCol * np.eye(K))
+    Y = matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q))
+    V = matrix_normal(np.zeros((F,P)),   vSdRow * np.eye(P), vSdCol * np.eye(F))
+    A = matrix_normal(U.dot(Y).dot(V.T), aSdRow * np.eye(F), aSdCol * np.eye(K))
+    
+    # Generate the input features. Assume the features are multinomial and sparse
+    # (not quite a perfect match for the twitter example: twitter is binary, this 
+    # may not be)
+    featuresDist  = [1. / P] * P
+    maxNonZeroFeatures = 3
+    
+    X_low = np.zeros((D,P), dtype=np.float32)
+    for d in range(D):
+        X_low[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
+    X = np.round(X_low.dot(V.T))
+    X = ssp.csr_matrix(X)
+    
+    # Use the features and the matrix A to generate the topics and documents
+    tpcs = rowwise_softmax (X.dot(A.T))
+    
+    docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
+    W = tpcs.dot(vocab)
+    W *= docLens[:, np.newaxis]
+    W = np.array(W, dtype=np.int32) # truncate word counts to integers
+    W = ssp.csr_matrix(W)
+    
+    # Initialise the model
+    modelState = newVbModelState(K, Q, F, P, T)
+    
+    # Return the initialised model, the true parameter values, and the
+    # generated observations
+    return modelState, tpcs, vocab, docLens, X, W
+
 class StUyvTest(unittest.TestCase):
     '''
     Provides basic unit tests for the variational SideTopic inference engine using
@@ -33,83 +104,12 @@ class StUyvTest(unittest.TestCase):
     def tearDown(self):
         pass
 
-
-    def _sampleFromModel(self, D=200, T=100, K=10, Q=6, F=12, P=8, avgWordsPerDoc = 500):
-        '''
-        Create a test dataset according to the model
-        
-        Params:
-            T - Vocabulary size, the number of "terms". Must be a square number
-            Q - Latent Topics:
-            K - Observed topics
-            P - Latent features
-            F - Observed features
-            D - Sample documents (each with associated features)
-            avgWordsPerDoc - average number of words per document generated (Poisson)
-        
-        Returns:
-            modelState - a model state object configured for training
-            tpcs       - the matrix of per-document topic distribution
-            vocab      - the matrix of per-topic word distributions
-            docLens    - the vector of document lengths
-            X          - the DxF side information matrix
-            W          - The DxW word matrix
-        '''
-        
-        # Generate vocab
-        beta = 0.1
-        betaVec = np.ndarray((T,))
-        betaVec.fill(beta)
-        vocab = np.zeros((K,T))
-        for k in range(K):
-            vocab[k,:] = rd.dirichlet(betaVec)
-        
-        # Generate U, then V, then A
-        tau = 0.1
-        tsq = tau * tau
-        (vSdRow, vSdCol) = (5.0, 5.0)
-        (uSdRow, uSdCol) = (5.0, tau**2) # For the K-dimensions we use tsq
-        (ySdRow, ySdCol) = (5.0, 5.0)
-        (aSdRow, aSdCol) = (5.0, tau**2)
-        
-        U = matrix_normal(np.zeros((K,Q)),   uSdRow * np.eye(Q), uSdCol * np.eye(K))
-        Y = matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q))
-        V = matrix_normal(np.zeros((F,P)),   vSdRow * np.eye(P), vSdCol * np.eye(F))
-        A = matrix_normal(U.dot(Y).dot(V.T), aSdRow * np.eye(F), aSdCol * np.eye(K))
-        
-        # Generate the input features. Assume the features are multinomial and sparse
-        # (not quite a perfect match for the twitter example: twitter is binary, this 
-        # may not be)
-        featuresDist  = [1. / P] * P
-        maxNonZeroFeatures = 3
-        
-        X_low = np.zeros((D,P), dtype=np.float32)
-        for d in range(D):
-            X_low[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
-        X = np.round(X_low.dot(V.T))
-        X = ssp.csr_matrix(X)
-        
-        # Use the features and the matrix A to generate the topics and documents
-        tpcs = rowwise_softmax (X.dot(A.T))
-        
-        docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
-        W = tpcs.dot(vocab)
-        W *= docLens[:, np.newaxis]
-        W = np.array(W, dtype=np.int32) # truncate word counts to integers
-        W = ssp.csr_matrix(W)
-        
-        # Initialise the model
-        modelState = newVbModelState(K, Q, F, P, T)
-        
-        # Return the initialised model, the true parameter values, and the
-        # generated observations
-        return modelState, tpcs, vocab, docLens, X, W
         
     def testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
-        modelState, _, _, _, X, W = self._sampleFromModel()
+        modelState, _, _, _, X, W = sampleFromModel()
         D, T, K, Q, F, P = X.shape[0], modelState.T, modelState.K, modelState.Q, modelState.F, modelState.P
         
         # Create the cross-validation folds
