@@ -59,7 +59,7 @@ from numba import autojit
 
 
 
-def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, plotInterval = 0, fastButInaccurate=False):
+def train(modelState, X, W, plan):
     '''
     Creates a new query state object for a topic model based on side-information. 
     This contains all those estimated parameters that are specific to the actual
@@ -89,19 +89,23 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma) = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
+    iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
     
     mu0 = 0.0001
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
-        W = W.astype(np.float32)
+        W = W.astype(DTYPE)
     
-    # Get ready to plot the evolution of the likelihood
-    if logInterval > 0:
-        elbos = np.zeros((iterations / logInterval,))
-        likes = np.zeros((iterations / logInterval,))
-        iters = np.zeros((iterations / logInterval,))
-    iters.fill(-1)
+    # Get ready to plot the evolution of the likelihood, with multiplicative updates (e.g. 1, 2, 4, 8, 16, 32, ...)
+    if logCount > 0:
+        multiStepSize = np.power (iterations, 1. / logCount)
+        logIter = 1
+        elbos = []
+        likes = []
+        iters = []
+    else:
+        logIter = iterations + 1
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -232,30 +236,29 @@ def train(modelState, X, W, iterations=10000, epsilon=0.001, logInterval = 0, pl
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
-        if (logInterval > 0) and (iteration % logInterval == 0):
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma)
+        if iteration == logIter:
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
-            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX, VTV=VTV, UTU=UTU)
+            elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
             likely = log_likelihood(modelState, X, W, queryState) #recons_error(modelState, X, W, queryState)
                 
-            elbos[iteration / logInterval] = elbo
-            iters[iteration / logInterval] = iteration
-            likes[iteration / logInterval] = likely
+            elbos.append (elbo)
+            iters.append (iteration)
+            likes.append (likely)
             print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
-        
-        if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
-            plot_bound(iters, elbos, likes)
             
-#        if (iteration % 10 == 0) and (iteration > 0):
-#            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
-#            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
+            logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
+        
+        if plot and plotIncremental:
+            plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
     
-    # Right before we end, plot the evoluation of the bound and likelihood
+    # Right before we end, plot the evolution of the bound and likelihood
     # if we've been asked to do so.
-    if plotInterval > 0:
-        plot_bound(iters, elbos, likes)
+    if plot:
+        plot_bound(plotFile, iters, elbos, likes)
+
     
     return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, U, V, vocab, tau, sigma), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)

@@ -58,7 +58,7 @@ LOG_2PI_E = log(2 * pi * e)
 
 VbSideTopicTrainPlan = namedtuple ( \
     'VbSideTopicTrainPlan',
-    'logFrequency', 'plotFrequency', 'plotFile', 'iterations', 'epsilon', 'fastButInaccurate')                            
+    'iterations', 'epsilon', 'logFrequency', 'plot', 'plotFile', 'plotIncremental', 'fastButInaccurate')                            
 
 VbSideTopicQueryState = namedtuple ( \
     'VbSideTopicState', \
@@ -75,7 +75,7 @@ VbSideTopicModelState = namedtuple ( \
 # CODE
 # ==============================================================
 
-def newInferencePlan(iterations=100, epsilon=0.1, logFrequency=0, plot=True, plotFile=None, fastButInaccurate=None):
+def newInferencePlan(iterations=100, epsilon=0.1, logFrequency=0, plot=True, plotFile=None, plotIncremental=False, fastButInaccurate=None):
     '''
     Creates an inference plan to be used by either train() or query(),
     which specifies how long to run the inference for, how often to 
@@ -91,13 +91,14 @@ def newInferencePlan(iterations=100, epsilon=0.1, logFrequency=0, plot=True, plo
     logFrequency - how many times should we inspect the variational bound. This is
                    done on a power-scale, so for example for 256 iterations, if we set
                    this to 8, we'll measure at iterations 1, 2, 4, 16, 32, 64, 128 and 255.
+    plotIncremental - create a plot every time we measure the bound
     plot     - should we show a plot of the measured bound after running or not
     plotFile - where to save the plot of the bound. If None the plot is shown
                on screen.
     fastButInaccurate - if true, optimisations that are theoretically unsound or
                         which degrade results may be used.
     '''
-    return VbSideTopicTrainPlan(logFrequency, plotFile, plotFile, iterations, epsilon)
+    return VbSideTopicTrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
 
 def negJakkola(vec):
     '''
@@ -178,18 +179,20 @@ def train(modelState, X, W, plan):
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
+    iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
     
-    # Get ready to plot the evolution of the likelihood
-    dataPoints = iterations / logInterval
-    multiStepSize = np.power (iterations, 1. / dataPoints)
-    logIter = 1
-    if logInterval > 0:
+    # Get ready to plot the evolution of the likelihood, with multiplicative updates (e.g. 1, 2, 4, 8, 16, 32, ...)
+    if logCount > 0:
+        multiStepSize = np.power (iterations, 1. / logCount)
+        logIter = 1
         elbos = []
         likes = []
         iters = []
+    else:
+        logIter = iterations + 1
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -319,7 +322,7 @@ def train(modelState, X, W, plan):
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
-        if (logInterval > 0) and (iteration == logIter):
+        if iteration == logIter:
             modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
@@ -333,18 +336,14 @@ def train(modelState, X, W, plan):
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
         
-        if (plotInterval > 0) and (iteration % plotInterval == 0) and (iteration > 0):
-            plot_bound(np.array(iters), np.array(elbos), np.array(likes))
-            
-#        if (iteration % 10 == 0) and (iteration > 0):
-#            print ("\n\nOmega_Y[0,:] = " + str(omY[0,:]))
-#            print ("Sigma_Y[0,:] = " + str(sigY[0,:]))
+        if plot and plotIncremental:
+            plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
     
     # Right before we end, plot the evoluation of the bound and likelihood
     # if we've been asked to do so.
-    if plotInterval > 0:
-        plot_bound(iters, elbos, likes)
+    if plot:
+        plot_bound(plotFile, iters, elbos, likes)
     
     return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
@@ -437,7 +436,7 @@ def _non_real_indices(A):
                 indices.append((r,c))
     return indices
 
-def plot_bound (iters, bounds, likes):
+def plot_bound (plotFile, iters, bounds, likes):
     '''
     Plots the evolution of the variational bound and the log-likelihood. 
     The input is a pair of  matched arrays: for a given point i, iters[i]
@@ -461,7 +460,10 @@ def plot_bound (iters, bounds, likes):
     plot2.plot (itersFilled, likesFilled, 'g-')
     plot2.set_ylabel("Log Likelihood", color='g')
     
-    plt.show()
+    if plotFile is None:
+        plt.show()
+    else:
+        plt.savefig(plotFile + '.png')
     
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen):
     '''
