@@ -106,6 +106,7 @@ def train(modelState, X, W, plan):
         iters = []
     else:
         logIter = iterations + 1
+    lastVarBoundValue = -sys.float_info.max
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work

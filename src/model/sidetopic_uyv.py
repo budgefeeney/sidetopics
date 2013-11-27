@@ -21,6 +21,8 @@ import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
 
@@ -195,7 +197,7 @@ def train(modelState, X, W, plan):
         iters = []
     else:
         logIter = iterations + 1
-    lastVarBoundValue = sys.float_info.min
+    lastVarBoundValue = -sys.float_info.max
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -445,14 +447,10 @@ def plot_bound (plotFile, iters, bounds, likes):
     The input is a pair of  matched arrays: for a given point i, iters[i]
     was the iteration at which the bound bounds[i] was calculated
     '''
-    itersFilled = [i for i in iters if i >= 0]
-    numValues   = len(itersFilled)
-    boundsFilled = bounds if numValues == len(iters) else bounds[:numValues]
-    likesFilled  = likes  if numValues == len(iters) else likes[:numValues]
     
     _, plot1  = plt.subplots()
     
-    plot1.plot (itersFilled, boundsFilled, 'b-')
+    plot1.plot (iters, bounds, 'b-')
     plot1.set_ylabel("Bound", color='b')
     
     plot1.set_xlabel("Iteration")
@@ -460,7 +458,7 @@ def plot_bound (plotFile, iters, bounds, likes):
 #    plot1.set_xticks(xticks)
     
     plot2 = plot1.twinx() # superimposed plot with the same x-axis (provides for two different y-axes)
-    plot2.plot (itersFilled, likesFilled, 'g-')
+    plot2.plot (iters, likes, 'g-')
     plot2.set_ylabel("Log Likelihood", color='g')
     
     if plotFile is None:
@@ -622,7 +620,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # Horrible, but varBound can be called by two implementations, one with Y as a matrix-variate
     # where sigY is QxQ and one with Y as a multi-varate, where sigY is a QPxQP.
-    A_from_Y = Y.dot(U.T) if V is None else U.dot(A).dot(V.T)
+    A_from_Y = Y.dot(U.T) if V is None else U.dot(Y).dot(V.T)
     varFactorU = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
     varFactorV = 1 if V is None \
         else np.sum(omY * V.T.dot(V))

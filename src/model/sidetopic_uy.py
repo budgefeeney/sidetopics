@@ -98,7 +98,7 @@ def train(modelState, X, W, plan):
         iters = []
     else:
         logIter = iterations + 1
-    lastVarBoundValue = sys.float_info.min
+    lastVarBoundValue = -sys.float_info.max
         
     # Prior covariances and mean
     overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
