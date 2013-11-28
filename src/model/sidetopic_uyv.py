@@ -56,6 +56,8 @@ DTYPE = np.float64
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
+DEBUG=False
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -234,6 +236,10 @@ def train(modelState, X, W, plan):
     aI_XTX = (overAsq * I_F + XTX).todense(); 
     omA = la.inv (aI_XTX)
     scaledWordCounts = W.copy()
+    
+    # Set up a method to check at every update if we're going in the right
+    # direction
+    verify_and_log = _quickPrintElbo if DEBUG else _doNothing 
    
     for iteration in range(iterations):
         
@@ -254,10 +260,10 @@ def train(modelState, X, W, plan):
         UTU = U.T.dot(U)
         
         sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
-        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         try:
             invUTU = la.inv(UTU)
@@ -269,7 +275,7 @@ def train(modelState, X, W, plan):
             else:
                 Y = np.reshape (la.solve(varRatio * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
                 
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         
         # A 
@@ -286,7 +292,7 @@ def train(modelState, X, W, plan):
             print(str(e))
             print ("Hmm")
         np.exp(expLmda, out=expLmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
@@ -310,19 +316,19 @@ def train(modelState, X, W, plan):
         # U
         # 
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # V
         # 
         V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
@@ -398,6 +404,10 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
     if XAT is None:
         XAT = X.dot(A.T)
     
+    # Set up a method to check at every update if we're going in the right
+    # direction
+    verify_and_log = _quickPrintElbo if DEBUG else _doNothing 
+    
     for iteration in range(iterations):
         # sc = W / lmda.dot(vocab)
         scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
@@ -412,22 +422,22 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
         
-        _quickPrintElbo ("E-Step: q(Theta) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Theta) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
          
         # nu_dk
         #
         nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        _quickPrintElbo ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
           
         # s_d
         #
         s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         # xi_dk
         # 
         lxi[:] = negJakkolaOfDerivedXi(expLmda, nu, s)
-        _quickPrintElbo ("E-Step: A(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: A(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
 
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
@@ -468,6 +478,12 @@ def plot_bound (plotFile, iters, bounds, likes):
     else:
         plt.savefig(plotFile + '.png')
     
+def _doNothing (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, lmda, expLmda, nu, lxi, s, docLen):
+    '''
+    An alternative to _quickPrintElbo() that does nothing.
+    '''
+    pass
+
 def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, lmda, expLmda, nu, lxi, s, docLen):
     '''
     This checks that none of the matrix parameters contain a NaN or an Inf
