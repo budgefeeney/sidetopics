@@ -15,6 +15,7 @@ This implements the side-topic model where
 from math import log
 from math import pi
 from math import e
+
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
@@ -183,7 +184,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
-    queryPlan = newInferencePlan(10, epsilon, logFrequency = 0, plot=False)
+    queryPlan = newInferencePlan(1, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -253,10 +254,10 @@ def train(modelState, X, W, plan):
         UTU = U.T.dot(U)
         
         sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
-        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         try:
             invUTU = la.inv(UTU)
@@ -268,7 +269,7 @@ def train(modelState, X, W, plan):
             else:
                 Y = np.reshape (la.solve(varRatio * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
                 
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         
         # A 
@@ -285,7 +286,7 @@ def train(modelState, X, W, plan):
             print(str(e))
             print ("Hmm")
         np.exp(expLmda, out=expLmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
@@ -309,19 +310,19 @@ def train(modelState, X, W, plan):
         # U
         # 
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # V
         # 
         V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
@@ -340,11 +341,12 @@ def train(modelState, X, W, plan):
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
             
-            if elbo - lastVarBoundValue < epsilon:
+            if elbo < lastVarBoundValue:
+                sys.stderr.write('ELBO going in the wrong direction\n')
+            elif abs(elbo - lastVarBoundValue) < epsilon:
                 break
-            else:
-                lastVarBoundValue = elbo
             
+            lastVarBoundValue = elbo
             if plot and plotIncremental:
                 plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
             
@@ -410,22 +412,22 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
         # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
         
-        _quickPrintElbo ("E-Step: q(\u03F4) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Theta) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
          
         # nu_dk
         #
         nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        _quickPrintElbo ("E-Step: q(\u03F4) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
           
         # s_d
         #
         s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
-        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         # xi_dk
         # 
         lxi[:] = negJakkolaOfDerivedXi(expLmda, nu, s)
-        _quickPrintElbo ("E-Step: \u039B(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: A(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
 
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
@@ -466,7 +468,7 @@ def plot_bound (plotFile, iters, bounds, likes):
     else:
         plt.savefig(plotFile + '.png')
     
-def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen):
+def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, lmda, expLmda, nu, lxi, s, docLen):
     '''
     This checks that none of the matrix parameters contain a NaN or an Inf
     value, then calcuates the variational bound, and prints it to stdout with
@@ -479,6 +481,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     def _inf (varName):
         print (str(varName) + " has infs")
     
+    assert not (lmda is not None and expLmda is not None), "We can't have both lmda and expLmda not be none, as we assume we only ever have one."
     
     # NaN tests
     if np.isnan(Y).any():
@@ -493,8 +496,10 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     if np.isnan(varA).any():
         _nan("varA")
         
-    if np.isnan(expLmda).any():
+    if expLmda is not None and np.isnan(expLmda).any():
         _nan("expLmda")
+    if lmda is not None and np.isnan(lmda).any():
+        _nan("lmda")
     if np.isnan(sigT).any():
         _nan("sigT")
     if np.isnan(nu).any():
@@ -521,8 +526,10 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     if np.isinf(varA).any():
         _inf("varA")
         
-    if np.isinf(expLmda).any():
+    if expLmda is not None and np.isinf(expLmda).any():
         _inf("expLmda")
+    if lmda is not None and np.isinf(lmda).any():
+        _inf("lmda")
     if sigY is not None and np.isinf(sigT).any():
         _inf("sigT")
     if np.isinf(nu).any():
@@ -536,15 +543,21 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     if np.isinf(vocab).any():
         _inf("vocab")
     
-    lmda = np.log(expLmda)
-    xi = deriveXi(lmda, nu, s)
+    wasPassedExpLmda = expLmda is not None
+    if expLmda is None:
+        expLmda = np.exp(lmda, out=lmda)
+    
     elbo = varBound ( \
                       VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                       VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                       X, W)
     
+    lmda = np.log(expLmda, out=expLmda)
+    xi = deriveXi(lmda, nu, s) if lmda is not None else deriveXi(np.log(expLmda), nu, s)
     
     print ("\t Update %5d: %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    if wasPassedExpLmda:
+        np.exp(expLmda, out=expLmda)
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, UTU = None, VTV = None):
     '''
@@ -606,12 +619,15 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     overTkSq = overTsq * overKsq
     overAsSq = overAsq * overSsq
     
+    # Bit of a hack, in some models K != Q, and in some models
+    isigT_Q = np.eye(Q) if sigT is None or K != Q else la.inv(sigT)
+    isigT_K = np.eye(K) if sigT is None else la.inv(sigT)
    
     # <ln p(Y)>
     #
-    trSigY = 0 if sigY is None else np.trace(sigY)
-    trOmY  = 0 if omY  is None else np.trace(omY)
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.sum(Y * Y))
+    trSigY = 1 if sigY is None else np.trace(sigY)
+    trOmY  = 1 if omY  is None else np.trace(omY)
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.trace(isigT_Q.dot(Y).dot(Y.T)))
     
     # <ln P(A|Y)>
     # TODO it looks like I should take the trace of omA \otimes I_K here.
@@ -621,19 +637,24 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # Horrible, but varBound can be called by two implementations, one with Y as a matrix-variate
     # where sigY is QxQ and one with Y as a multi-varate, where sigY is a QPxQP.
     A_from_Y = Y.dot(U.T) if V is None else U.dot(Y).dot(V.T)
+    A_diff = A - A_from_Y
     varFactorU = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
     varFactorV = 1 if V is None \
         else np.sum(omY * V.T.dot(V))
     lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -halfKF * log(sigmaSq) \
             -0.5 * (overAsSq * varFactorV * varFactorU \
                       + np.trace(XTX.dot(varA)) * K \
-                      + np.sum (np.square(A - A_from_Y)))
+                      + np.trace(isigT_K.dot(A_diff).dot(A_diff.T)))
             
     # <ln p(Theta|A,X)
     # 
+    lmdaDiff = lmda - XAT
     lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sigmaSq) \
-                - 0.5 / sigmaSq * ( \
-                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.sum(np.square(lmda - XAT)))
+                -0.5 / sigmaSq * ( \
+                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.trace(lmdaDiff.dot(isigT_K).dot(lmdaDiff.T)))
+    # Why is order of sigT reversed? It's cause we've not been consistent. A is KxF but lmda is DxK, and
+    # note that the distribution of lmda tranpose has the same covariances, just in different positions
+    # (i.e. row is col and vice-versa)
     
     # <ln p(Z|Theta)
     # 

@@ -151,16 +151,16 @@ def train(modelState, X, W, plan):
         UTU = U.T.dot(U)
         
         sigY = la.inv(overTsq * I_P + overAsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         Y = A.dot(U).dot(sigY)
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, np.exp(expLmda), nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         # A 
         #
         A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y.T)).T
         np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(lmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
@@ -184,14 +184,14 @@ def train(modelState, X, W, plan):
         # U
         #
         U = la.solve(np.trace(sigT) * I_P + Y.T.dot(Y), Y.T.dot(A)).T
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, nu, lxi, s, docLen)
+        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # sigT
         #
