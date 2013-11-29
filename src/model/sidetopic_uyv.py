@@ -23,7 +23,7 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib as mpl
-mpl.use('Agg')
+#mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
 
@@ -56,7 +56,7 @@ DTYPE = np.float64
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 # ==============================================================
 # TUPLES
@@ -74,7 +74,7 @@ VbSideTopicQueryState = namedtuple ( \
 
 VbSideTopicModelState = namedtuple ( \
     'VbSideTopicState', \
-    'K Q F P T A varA Y omY sigY U V vocab priorTopVar priorFeatVar priorLatTopVar priorLatFeatVar'
+    'K Q F P T A varA Y omY sigY sigT U V vocab topicVar featVar lowTopicVar lowFeatVar'
 )
 
 # ==============================================================
@@ -184,7 +184,7 @@ def train(modelState, X, W, plan):
     nu     - the variance of topics we've inferred (independent)
     '''
     # Unpack the model state tuple for ease of use and maybe speed improvements
-    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.priorTopVar, modelState.priorFeatVar, modelState.priorLatTopVar, modelState.priorLatFeatVar
+    K, Q, F, P, T, A, _, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
     queryPlan = newInferencePlan(1, epsilon, logFrequency = 0, plot=False)
     
@@ -210,10 +210,9 @@ def train(modelState, X, W, plan):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_P  = ssp.eye(P,P,     0, DTYPE)
-    I_Q  = ssp.eye(Q,Q,     0, DTYPE)
-    I_QP = ssp.eye(Q*P,Q*P, 0, DTYPE)
-    I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
+    I_P  = ssp.eye(P, dtype=DTYPE)
+    I_Q  = ssp.eye(Q, dtype=DTYPE)
+    I_QP = ssp.eye(Q*P,Q*P, dtype=DTYPE)
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -222,18 +221,18 @@ def train(modelState, X, W, plan):
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
     # If we don't bother optimising either tau or sigma we can just do all this here once only 
-    iPrTVar  = inv(priorTopVar)
-    iPrFVar  = inv(priorFeatVar)
-    iPrLTVar = inv(priorLatTopVar)
-    iPrLFVar = inv(priorLatFeatVar) 
+    overSsq = 1. / sigmaSq
+    overAsq = 1. / alphaSq
+    overKsq = 1. / kappaSq
+    overTsq = 1. / tauSq
     
-    varRatio = (priorFeatVar * priorTopVar) / (priorLatFeatVar * priorLatTopVar)
+    varRatio = (alphaSq * sigmaSq) / (tauSq * kappaSq)
     
     # TODO the inverse being almost always dense means that it might
     # be faster to convert to dense and use the normal solver, despite
     # the size constraints.
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
-    aI_XTX = (overAsq * I_F + XTX).todense(); 
+    aI_XTX = (overAsq * ssp.eye(F, dtype=DTYPE) + XTX).todense()
     omA = la.inv (aI_XTX)
     scaledWordCounts = W.copy()
     
@@ -260,10 +259,10 @@ def train(modelState, X, W, plan):
         UTU = U.T.dot(U)
         
         sigY = la.inv(overTsq * overKsq * I_Q + overAsq * overSsq * UTU)
-        verify_and_log ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         omY  = la.inv(overTsq * overKsq * I_P + overAsq * overSsq * VTV) 
-        verify_and_log ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [omY]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         try:
             invUTU = la.inv(UTU)
@@ -275,7 +274,7 @@ def train(modelState, X, W, plan):
             else:
                 Y = np.reshape (la.solve(varRatio * I_QP + np.kron(VTV, UTU), vec(U.T.dot(A).dot(V))), (Q,P), 'F')
                 
-        verify_and_log ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         
         # A 
@@ -286,18 +285,15 @@ def train(modelState, X, W, plan):
         # at which point we can use a built-in solve
         #
         lmda = np.log(expLmda, out=expLmda)
-        try:
-            A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
-        except ValueError as e:
-            print(str(e))
-            print ("Hmm")
+        A = omA.dot(X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
+#         A = la.solve(aI_XTX, X.T.dot(lmda) + overAsq * V.dot(Y.T).dot(U.T)).T
         np.exp(expLmda, out=expLmda)
-        verify_and_log ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar), \
+        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                X, W, \
                queryPlan, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
@@ -312,29 +308,29 @@ def train(modelState, X, W, plan):
         #    The vocabulary : vocab
         #    The variances: tau, sigma
         # =============================================================
-               
-        # U
-        # 
-        U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
-        verify_and_log ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
-
-        # V
-        # 
-        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
-        verify_and_log ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
-
+        
         # vocab
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
-        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
+        # U
+        # 
+        U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
+        verify_and_log ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+
+        # V
+        # 
+        V = A.T.dot(U).dot(Y).dot (la.inv(Y.T.dot(U.T).dot(U).dot(Y) + np.trace(sigY.dot(U.T).dot(U)) * omY))
+        verify_and_log ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
         # =============================================================
         if iteration == logIter:
-            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar)
+            modelState = VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq)
             queryState = VbSideTopicQueryState(expLmda, nu, lxi, s, docLen)
             
             elbo   = varBound (modelState, queryState, X, W, None, XAT, XTX)
@@ -362,7 +358,13 @@ def train(modelState, X, W, plan):
     if plot:
         plot_bound(plotFile, iters, elbos, likes)
     
-    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, priorTopVar, priorFeatVar, priorLatTopVar, priorLatFeatVar), \
+    # The fact that we're using a multiplicative update means that if a word never occurs
+    # in the training set, regardless of the prior, its probability will be zero when we
+    # return. Clearly this will cause issues (NaNs in fact) if that word were subsequently
+    # to appear in the query set. To avoid this, we apply this hack.
+    vocab[vocab < sys.float_info.min] = sys.float_info.min
+    
+    return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
 
@@ -424,21 +426,21 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         
         verify_and_log ("E-Step: q(Theta) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
          
-        # nu_dk
-        #
-        nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
-          
-        # s_d
-        #
-        s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
-        verify_and_log ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
-        
         # xi_dk
         # 
         lxi[:] = negJakkolaOfDerivedXi(expLmda, nu, s)
         verify_and_log ("E-Step: A(xi_dk)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
 
+        # s_d
+        #
+        s[:] = (K/4. - 0.5 + (lxi * expLmda).sum(axis = 1)) / lxi.sum(axis=1)
+        verify_and_log ("E-Step: s_d", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        
+        # nu_dk
+        #
+        nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
+        verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+          
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
         
@@ -481,6 +483,7 @@ def plot_bound (plotFile, iters, bounds, likes):
     plot2.plot (iters, likes, 'g-')
     plot2.set_ylabel("Log Likelihood", color='g')
     
+    plt.show()
     if plotFile is None:
         plt.show()
     else:
@@ -500,6 +503,10 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     
     A tremendously inefficient method for debugging only.
     '''
+    def _has_nans(X):
+        return np.isnan(X.data).any()
+    def _has_infs(X):
+        return np.isinf(X.data).any()
     def _nan (varName):
         print (str(varName) + " has NaNs")
     def _inf (varName):
@@ -508,63 +515,63 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     assert not (lmda is not None and expLmda is not None), "We can't have both lmda and expLmda not be none, as we assume we only ever have one."
     
     # NaN tests
-    if np.isnan(Y).any():
+    if _has_nans(Y):
         _nan("Y")
-    if omY is not None and np.isnan(omY).any():
+    if omY is not None and _has_nans(omY):
         _nan("omY")
-    if sigY is not None and np.isnan(sigY).any():
+    if sigY is not None and _has_nans(sigY):
         _nan("sigY")
         
-    if np.isnan(A).any():
+    if _has_nans(A):
         _nan("A")
-    if np.isnan(varA).any():
+    if _has_nans(varA):
         _nan("varA")
         
-    if expLmda is not None and np.isnan(expLmda).any():
+    if expLmda is not None and _has_nans(expLmda):
         _nan("expLmda")
-    if lmda is not None and np.isnan(lmda).any():
+    if lmda is not None and _has_nans(lmda):
         _nan("lmda")
-    if np.isnan(sigT).any():
+    if sigT is not None and _has_nans(sigT):
         _nan("sigT")
-    if np.isnan(nu).any():
+    if _has_nans(nu):
         _nan("nu")
         
-    if U is not None and np.isnan(U).any():
+    if U is not None and _has_nans(U):
         _nan("U")
-    if V is not None and np.isnan(V).any():
+    if V is not None and _has_nans(V):
         _nan("V")
         
-    if np.isnan(vocab).any():
+    if _has_nans(vocab):
         _nan("vocab")
         
     # Infs tests
-    if np.isinf(Y).any():
+    if _has_infs(Y):
         _inf("Y")
-    if omY is not None and np.isinf(omY).any():
+    if omY is not None and _has_infs(omY):
         _inf("omY")
-    if sigY is not None and np.isinf(sigY).any():
+    if sigY is not None and _has_infs(sigY):
         _inf("sigY")
         
-    if np.isinf(A).any():
+    if _has_infs(A):
         _inf("A")
-    if np.isinf(varA).any():
+    if _has_infs(varA):
         _inf("varA")
         
-    if expLmda is not None and np.isinf(expLmda).any():
+    if expLmda is not None and _has_infs(expLmda):
         _inf("expLmda")
-    if lmda is not None and np.isinf(lmda).any():
+    if lmda is not None and _has_infs(lmda):
         _inf("lmda")
-    if sigY is not None and np.isinf(sigT).any():
+    if sigT is not None and _has_infs(sigT):
         _inf("sigT")
-    if np.isinf(nu).any():
+    if _has_infs(nu):
         _inf("nu")
         
-    if U is not None and np.isinf(U).any():
+    if U is not None and _has_infs(U):
         _inf("U")
-    if V is not None and np.isinf(V).any():
+    if V is not None and _has_infs(V):
         _inf("V")
         
-    if np.isinf(vocab).any():
+    if _has_infs(vocab):
         _inf("vocab")
     
     wasPassedExpLmda = expLmda is not None
@@ -582,6 +589,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     print ("\t Update %5d: %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
     if wasPassedExpLmda:
         np.exp(expLmda, out=expLmda)
+
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, UTU = None, VTV = None):
     '''
@@ -642,16 +650,12 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
     overTkSq = overTsq * overKsq
     overAsSq = overAsq * overSsq
-    
-    # Bit of a hack, in some models K != Q, and in some models
-    isigT_Q = ssp.eye(Q) if sigT is None or K != Q else la.inv(sigT)
-    isigT_K = ssp.eye(K) if sigT is None else la.inv(sigT)
    
     # <ln p(Y)>
     #
     trSigY = 1 if sigY is None else np.trace(sigY)
     trOmY  = 1 if omY  is None else np.trace(omY)
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.trace(isigT_Q.dot(Y).dot(Y.T)))
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.trace(Y.dot(Y.T)))
     
     # <ln P(A|Y)>
     # TODO it looks like I should take the trace of omA \otimes I_K here.
@@ -668,14 +672,14 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -halfKF * log(sigmaSq) \
             -0.5 * (overAsSq * varFactorV * varFactorU \
                       + np.trace(XTX.dot(varA)) * K \
-                      + np.trace(isigT_K.dot(A_diff).dot(A_diff.T)))
+                      + np.sum(np.square(A_diff)))
             
     # <ln p(Theta|A,X)
     # 
     lmdaDiff = lmda - XAT
     lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sigmaSq) \
                 -0.5 / sigmaSq * ( \
-                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.trace(lmdaDiff.dot(isigT_K).dot(lmdaDiff.T)))
+                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.sum(np.square(lmdaDiff)))
     # Why is order of sigT reversed? It's cause we've not been consistent. A is KxF but lmda is DxK, and
     # note that the distribution of lmda tranpose has the same covariances, just in different positions
     # (i.e. row is col and vice-versa)
@@ -810,7 +814,6 @@ def newVbQueryState(W, K):
     D = W.shape[0]
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
     
-    
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
     nu   = np.ones((D, K), DTYPE)
     s    = np.zeros((D,), DTYPE)
@@ -857,10 +860,7 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
     omY   = latFeatVar * np.identity(P, DTYPE)
     sigY  = latTopicVar * np.identity(Q, DTYPE)
     
-    omA   = 
-    sigA  = 
-    
-    sigT  = topicVar * np.identity(K, DTYPE)
+    sigT  = ssp.eye(K, dtype=DTYPE)
     
     U     = rd.random((K,Q)).astype(DTYPE)
     V     = rd.random((F,P)).astype(DTYPE)
@@ -873,7 +873,7 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
         raise ValueError ("Model will not converge as (featVar * topicVar) / (latFeatVar * latTopicVar)) = " + str(varRatio) + "  when it needs to be no more than one.")
     
     # Vocab is K word distributions so normalize
-    vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE))
+    vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE)) + sys.float_info.epsilon
     
     return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, topicVar, featVar, latTopicVar, latFeatVar)
 
@@ -939,12 +939,13 @@ def sparseScalarQuotientOfDot(A,B,C, out=None):
     
     Note the type of the return-value is the same as the type of
     the sparse matrix A. If this has an integral type, this will
-    only provide integer-based multiplication.
+    only provide integer-based division.
     '''
     if out is None:
         out = A.copy()
     if not out is A:
         out.data[:] = A.data
+    
     out.data /= B.dot(C)[csr_indices(out.indptr, out.indices)]
     
     return out
