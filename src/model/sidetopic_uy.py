@@ -305,7 +305,10 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
     # Q = K in this model (i.e. there's no low-rank topic projection)
     modelState = newVbModelStateUyv(K, K, F, P, T)
     
+    sigT = topicVar * ssp.eye(K, DTYPE)
+    topicVar = 1
+    
     # Set omY = Non, new.U = old.V and new.V = None
-    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, modelState.sigT, modelState.V, None, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar)
+    return VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, None, modelState.sigY, sigT, modelState.V, None, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar)
 
 
