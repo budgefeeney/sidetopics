@@ -51,7 +51,7 @@ class Test(unittest.TestCase):
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
-                + ' --log-freq '       + '10'   \
+                + ' --log-freq '       + '30'   \
                 + ' --iters '          + '100'  \
                 + ' --query-iters '    + '50'   \
                 + ' --min-vb-change '  + '5'    \
