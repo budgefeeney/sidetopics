@@ -118,9 +118,9 @@ def train(modelState, X, W, plan):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_P  = np.eye(P,P,     0, DTYPE)
-    I_Q  = np.eye(Q,Q,     0, DTYPE)
-    I_QP = np.eye(Q*P,Q*P, 0, DTYPE)
+    I_P  = ssp.eye(P,P,     0, DTYPE)
+    I_Q  = ssp.eye(Q,Q,     0, DTYPE)
+    I_QP = ssp.eye(Q*P,Q*P, 0, DTYPE)
     I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     T_QP = sp_vec_trans_matrix(Y.shape)
     
@@ -294,7 +294,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     '''
     
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, np.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
+    modelState = VbSideTopicModelState(modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, ssp.eye(modelState.P), modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.tau, modelState.sigma)
     
     result = varBoundUyv(modelState, queryState, X, W, lnVocab, XAT, XTX, scaledWordCounts, VTV=VTV, UTU=UTU)
     

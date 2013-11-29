@@ -114,7 +114,7 @@ def train(modelState, X, W, plan):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_P  = np.eye(P,P,     0, DTYPE)
+    I_P  = ssp.eye(P,P,     0, DTYPE)
     I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     
     # Assign initial values to the query parameters
