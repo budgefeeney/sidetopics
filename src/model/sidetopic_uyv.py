@@ -57,7 +57,7 @@ DTYPE = np.float32
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 # ==============================================================
 # TUPLES
@@ -440,7 +440,7 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         # nu_dk
         #
         nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        #verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
           
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
