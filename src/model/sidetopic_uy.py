@@ -224,7 +224,7 @@ def train(modelState, X, W, plan):
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
             
-            if elbo - lastVarBoundValue < epsilon:
+            if abs(elbo - lastVarBoundValue) < epsilon:
                 break
             else:
                 lastVarBoundValue = elbo
