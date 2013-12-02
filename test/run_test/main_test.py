@@ -42,7 +42,7 @@ class Test(unittest.TestCase):
             pkl.dump(X, f)
         
         cmdline = '' \
-                + ' --model '          + 'uyv'  \
+                + ' --model '          + 'uy'  \
                 + ' --num-topics '     + str(K) \
                 + ' --num-lat-topics ' + str(Q) \
                 + ' --num-lat-feats '  + str(P) \
@@ -54,12 +54,14 @@ class Test(unittest.TestCase):
                 + ' --log-freq '       + '30'   \
                 + ' --iters '          + '100'  \
                 + ' --query-iters '    + '50'   \
-                + ' --min-vb-change '  + '5'    \
+                + ' --min-vb-change '  + '0.001'    \
                 + ' --topic-var '      + '0.01' \
                 + ' --feat-var '       + '0.01' \
                 + ' --lat-topic-var '  + '1'    \
                 + ' --lat-feat-var '   + '1'    \
                 + ' --folds '          + '5'
+        
+        
         
         run(cmdline.strip().split(' '))
         print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))
