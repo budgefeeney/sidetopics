@@ -31,7 +31,7 @@ from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip, rowwise_softmax
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    entropyOfDot
+    entropyOfDot, sparseScalarProductOfLnDot
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
@@ -57,7 +57,7 @@ DTYPE = np.float32
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 # ==============================================================
 # TUPLES
@@ -706,8 +706,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
-    lnDetOmY  = 0 if omY  is None else log(la.det(omY))
-    lnDetSigY = 0 if sigY is None else log(la.det(sigY))
+    lnDetOmY  = 0 if omY  is None else log(max(1E-300, la.det(omY)))
+    lnDetSigY = 0 if sigY is None else log(max(1E-300, la.det(sigY)))
     ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY)
     
     # H[q(A|Y)]
@@ -770,7 +770,7 @@ def log_likelihood(modelState, X, W, queryState):
     row_sums = expLmda.sum(axis=1)
     expLmda /= row_sums[:, np.newaxis] # converts it to a true distribution
     
-    likely = np.sum (sparseScalarProductOf(W, safe_log(expLmda.dot(vocab))).data)
+    likely = np.sum (sparseScalarProductOfLnDot(W, expLmda, vocab).data)
     
     # Revert expLmda to its original value as this is a ref to, not a copy of, the original matrix
     expLmda *= row_sums[:, np.newaxis]
