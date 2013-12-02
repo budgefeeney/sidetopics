@@ -22,7 +22,7 @@ from math import e, log
 from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
     VbSideTopicModelState, VbSideTopicQueryState, log_likelihood, plot_bound, query, \
     negJakkola, deriveXi, sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    newVbModelState as newVbModelStateUyv, varBound as varBoundUyv
+    newVbModelState as newVbModelStateUyv, varBound as varBoundUyv, newInferencePlan
 from numba import autojit
 from util.array_utils import normalizerows_ip
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
@@ -61,9 +61,8 @@ import sys
 
 def train(modelState, X, W, plan):
     '''
-    Creates a new query state object for a topic model based on side-information. 
-    This contains all those estimated parameters that are specific to the actual
-    date being queried - this must be used in conjunction with a model state.
+    Updates a model state object for a topic model based on side-information, and
+    create a query state object with topic assignments for each do in the train set.
     
     The parameters are
     
@@ -85,6 +84,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
+    queryPlan = newInferencePlan(10, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -102,7 +102,6 @@ def train(modelState, X, W, plan):
         
     # Prior covariances and mean
     overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
-    mu0 = 0.0001
     
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
@@ -144,12 +143,7 @@ def train(modelState, X, W, plan):
       
         # Y, sigY, omY
         #
-        # If U'U is invertible, use inverse to convert Y to a Sylvester eqn
-        # which has a much, much faster solver. Recall update for Y is of the form
-        #   Y + AYB = C where A = U'U, B = V'V and C=U'AV
-        # 
         UTU = U.T.dot(U)
-        
         sigY = la.inv(overTsq * I_P + overAsq * UTU)
         _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
@@ -158,7 +152,7 @@ def train(modelState, X, W, plan):
         
         # A 
         #
-        A = la.solve(aI_XTX, X.T.dot(lmda) + U.dot(Y.T)).T
+        A = varA.dot(X.T.dot(lmda) + U.dot(Y.T)).T
         np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(lmda)
         _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
@@ -167,11 +161,10 @@ def train(modelState, X, W, plan):
         XAT = X.dot(A.T)
         query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
                X, W, \
+               queryPlan, \
                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
                scaledWordCounts=scaledWordCounts, \
-               XAT = XAT, \
-               iterations=10, \
-               logInterval = 0, plotInterval = 0)
+               XAT = XAT)
        
        
         # =============================================================
@@ -191,6 +184,11 @@ def train(modelState, X, W, plan):
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)
+          
+        # A hack to work around the fact that we've got no prior, and thus no
+        # pseudo counts, so some values will collapse to zero
+        vocab[vocab < sys.float_info.min] = sys.float_info.min
+        
         _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # sigT
@@ -248,12 +246,13 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     #
         
     # Unpack the model and query state tuples for ease of use and maybe speed improvements
-    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
+    K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, _, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     (expLmda, nu, lxi, s, docLen) = (queryState.expLmda, queryState.nu, queryState.lxi, queryState.s, queryState.docLen)
-    sigma = 1
     
-    lmda = np.log(expLmda)
-    isigT = la.inv(sigT)
+    lmda      = np.log(expLmda)
+    isigT     = la.inv(sigT)
+    lnDetSigT = la.det(sigT)
+    sigmaSq   = 1 # A bit of a hack till hyperparameter handling is standardised
     
     # Get the number of samples from the shape. Ensure that the shapes are consistent
     # with the model parameters.
@@ -287,8 +286,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Y)>
     #
     trSigY = 1 if sigY is None else np.trace(sigY)
-    trOmY  = 1 if omY  is None else np.trace(omY)
-    lnP_Y = -0.5 * (Q*P * LOG_2PI + overTkSq * trSigY * trOmY + overTkSq * np.trace(isigT.dot(Y).dot(Y.T)))
+    trOmY  = K # Basically it's the trace of the identity matrix as the posterior and prior cancel out
+    lnP_Y = -0.5 * (Q*P * LOG_2PI + P * lnDetSigT + overTkSq * trSigY * trOmY + overTkSq * np.trace(isigT.dot(Y).dot(Y.T)))
     
     # <ln P(A|Y)>
     # TODO it looks like I should take the trace of omA \otimes I_K here.
@@ -302,19 +301,19 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     varFactorU = np.trace(sigY.dot(np.kron(VTV, UTU))) if sigY.shape[0] == Q*P else np.sum(sigY*UTU)
     varFactorV = 1 if V is None \
         else np.sum(omY * V.T.dot(V))
-    lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -halfKF * log(sigmaSq) \
+    lnP_A = -halfKF * LOG_2PI - halfKF * log (alphaSq) -F/2.0 * lnDetSigT \
             -0.5 * (overAsSq * varFactorV * varFactorU \
                       + np.trace(XTX.dot(varA)) * K \
-                      + np.sum(np.square(A_diff)))
+                      + np.sum(isigT.dot(A_diff) * A_diff))
             
     # <ln p(Theta|A,X)
     # 
     lmdaDiff = lmda - XAT
-    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * K * log (sigmaSq) \
+    lnP_Theta = -0.5 * D * LOG_2PI -0.5 * D * lnDetSigT \
                 -0.5 / sigmaSq * ( \
-                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.sum(np.square(lmdaDiff)))
-    # Why is order of sigT reversed? It's cause we've not been consistent. A is KxF but lmda is DxK, and
-    # note that the distribution of lmda tranpose has the same covariances, just in different positions
+                    np.sum(nu) + D*K * np.sum(XTX * varA) + np.sum(lmdaDiff.dot(isigT) * lmdaDiff))
+    # Why is order of sigT reversed? It's 'cause we've not been consistent. A is KxF but lmda is DxK, and
+    # note that the distribution of lmda transpose has the same covariances, just in different positions
     # (i.e. row is col and vice-versa)
     
     # <ln p(Z|Theta)
@@ -345,7 +344,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # H[q(A|Y)]
     #
-    # A few things - omA is fixed so long as tau an sigma are, so there's no benefit in
+    # A few things - omA is fixed so long as tau and sigma are, so there's no benefit in
     # recalculating this every time.
     #
     # However in a recent test, la.det(omA) = 0
@@ -367,11 +366,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # components of Z_dtk in that three-term sum, which we denote as S
     #   Finally we use np.sum to sum over d and t
     #
-    N = expLmda.dot(vocab) + 1E-35 # DxT !!! TODO Figure out why this is zero sometimes (better init of vocab?)
-    S = expLmda.dot(vocab * safe_log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * safe_log(N)
-    np.reciprocal(N, out=N)
-    ent_Z = -np.sum (N * S)
-    
+    ent_Z = 0 #entropyOfDot(expLmda, vocab)
+
     result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
     
     return result
@@ -413,7 +409,7 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
     # Q = K in this model (i.e. there's no low-rank topic projection)
     modelState = newVbModelStateUyv(K, K, F, P, T)
     
-    sigT = topicVar * ssp.eye(K, DTYPE)
+    sigT = topicVar * np.eye(K, dtype=DTYPE)
     topicVar = 1
     
     # Set omY = Non, new.U = old.V and new.V = None
