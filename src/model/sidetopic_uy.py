@@ -19,7 +19,8 @@ Created on 29 Jun 2013
 '''
 
 from math import e, log
-from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
+from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E,\
+    _quickPrintElbo, _doNothing, DEBUG, \
     VbSideTopicModelState, VbSideTopicQueryState, log_likelihood, plot_bound, query, \
     negJakkola, deriveXi, sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
     newVbModelState as newVbModelStateUyv, varBound as varBoundUyv, newInferencePlan
@@ -99,7 +100,8 @@ def train(modelState, X, W, plan):
     else:
         logIter = iterations + 1
     lastVarBoundValue = -sys.float_info.max
-        
+    verify_and_log = _quickPrintElbo if DEBUG else _doNothing
+    
     # Prior covariances and mean
     overSsq, overAsq, overKsq, overTsq = 1./sigmaSq, 1./alphaSq, 1./kappaSq, 1./tauSq
     
@@ -145,16 +147,16 @@ def train(modelState, X, W, plan):
         #
         UTU = U.T.dot(U)
         sigY = la.inv(overTsq * I_P + overAsq * UTU)
-        _quickPrintElbo ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [sigY]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         Y = A.dot(U).dot(sigY)
-        _quickPrintElbo ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Y) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
         
         # A 
         #
         A = varA.dot(X.T.dot(lmda) + U.dot(Y.T)).T
         np.exp(expLmda, out=expLmda) # from here on in we assume we're working with exp(lmda)
-        _quickPrintElbo ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(A)", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
        
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
@@ -177,7 +179,7 @@ def train(modelState, X, W, plan):
         # U
         #
         U = la.solve(np.trace(sigT) * I_P + Y.T.dot(Y), Y.T.dot(A)).T
-        _quickPrintElbo ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: U", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
         # vocab
         #
@@ -189,7 +191,7 @@ def train(modelState, X, W, plan):
         # pseudo counts, so some values will collapse to zero
         vocab[vocab < sys.float_info.min] = sys.float_info.min
         
-        _quickPrintElbo ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # sigT
         #
