@@ -20,7 +20,7 @@ Created on 29 Jun 2013
 
 from math import e, log
 from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E,\
-    _quickPrintElbo, _doNothing, DEBUG, \
+    _doNothing, DEBUG, \
     VbSideTopicModelState, VbSideTopicQueryState, log_likelihood, plot_bound, query, \
     negJakkola, deriveXi, sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
     newVbModelState as newVbModelStateUyv, varBound as varBoundUyv, newInferencePlan
@@ -115,8 +115,8 @@ def train(modelState, X, W, plan):
     XTX = X.T.dot(X)
     
     # Identity matrices that occur
-    I_P  = ssp.eye(P,P,     0, DTYPE)
-    I_F  = ssp.eye(F,F,    0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
+    I_P  = ssp.eye(P,P, 0, DTYPE)
+    I_F  = ssp.eye(F,F, 0, DTYPE, "csc") # X is CSR, XTX is consequently CSC, sparse inverse requires CSC
     
     # Assign initial values to the query parameters
     expLmda = np.exp(rd.random((D, K)).astype(DTYPE))
@@ -191,7 +191,7 @@ def train(modelState, X, W, plan):
         # pseudo counts, so some values will collapse to zero
         vocab[vocab < sys.float_info.min] = sys.float_info.min
         
-        verify_and_log ("M-Step: \u03A6", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # sigT
         #
@@ -203,6 +203,9 @@ def train(modelState, X, W, plan):
                        (A - A_from_U_Y).dot((A - A_from_U_Y).T) + \
                        (lmda - topic_from_A_X).T.dot(lmda - topic_from_A_X))
         sigT.flat[::K+1] += 1./D * nu.sum(axis=0, dtype=DTYPE) 
+        
+        verify_and_log ("M-Step: sigT", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        
         
         # =============================================================
         # Handle logging of variational bound, likelihood, etc.
@@ -241,6 +244,109 @@ def train(modelState, X, W, plan):
     return VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
 
+
+def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, lmda, expLmda, nu, lxi, s, docLen):
+    '''
+    This checks that none of the matrix parameters contain a NaN or an Inf
+    value, then calcuates the variational bound, and prints it to stdout with
+    the given update message.
+    
+    A tremendously inefficient method for debugging only.
+    '''
+    
+    
+    def _has_nans(X):
+        return np.isnan(X.data).any()
+    def _has_infs(X):
+        return np.isinf(X.data).any()
+    def _nan (varName):
+        print (str(varName) + " has NaNs")
+    def _inf (varName):
+        print (str(varName) + " has infs")
+    
+    assert not (lmda is not None and expLmda is not None), "We can't have both lmda and expLmda not be none, as we assume we only ever have one."
+    
+    # NaN tests
+    if _has_nans(Y):
+        _nan("Y")
+    if omY is not None and _has_nans(omY):
+        _nan("omY")
+    if sigY is not None and _has_nans(sigY):
+        _nan("sigY")
+        
+    if _has_nans(A):
+        _nan("A")
+    if _has_nans(varA):
+        _nan("varA")
+        
+    if expLmda is not None and _has_nans(expLmda):
+        _nan("expLmda")
+    if lmda is not None and _has_nans(lmda):
+        _nan("lmda")
+    if sigT is not None and _has_nans(sigT):
+        _nan("sigT")
+    if _has_nans(nu):
+        _nan("nu")
+        
+    if U is not None and _has_nans(U):
+        _nan("U")
+    if V is not None and _has_nans(V):
+        _nan("V")
+        
+    if _has_nans(vocab):
+        _nan("vocab")
+        
+    # Infs tests
+    if _has_infs(Y):
+        _inf("Y")
+    if omY is not None and _has_infs(omY):
+        _inf("omY")
+    if sigY is not None and _has_infs(sigY):
+        _inf("sigY")
+        
+    if _has_infs(A):
+        _inf("A")
+    if _has_infs(varA):
+        _inf("varA")
+        
+    if expLmda is not None and _has_infs(expLmda):
+        _inf("expLmda")
+    if lmda is not None and _has_infs(lmda):
+        _inf("lmda")
+    if sigT is not None and _has_infs(sigT):
+        _inf("sigT")
+    if _has_infs(nu):
+        _inf("nu")
+        
+    if U is not None and _has_infs(U):
+        _inf("U")
+    if V is not None and _has_infs(V):
+        _inf("V")
+        
+    if _has_infs(vocab):
+        _inf("vocab")
+    
+    wasPassedExpLmda = expLmda is not None
+    if expLmda is None:
+        expLmda = np.exp(lmda, out=lmda)
+    
+    elbo = varBound ( \
+                      VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
+                      VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+                      X, W)
+    
+    lmda = np.log(expLmda, out=expLmda)
+    xi = deriveXi(lmda, nu, s) if lmda is not None else deriveXi(np.log(expLmda), nu, s)
+    
+    diff = _quickPrintElbo.last - elbo
+    diffStr = "   " if diff <= 0 else "(!)"
+    
+    print ("\t Update %5d: %-30s  ELBO : %12.3f %s  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, diffStr, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    if wasPassedExpLmda:
+        np.exp(expLmda, out=expLmda)
+    _quickPrintElbo.last = elbo
+
+_quickPrintElbo.last = -sys.float_info.max
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, VTV = None, UTU = None):
     #
