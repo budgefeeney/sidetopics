@@ -52,7 +52,7 @@ class Test(unittest.TestCase):
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
                 + ' --log-freq '       + '30'   \
-                + ' --iters '          + '100'  \
+                + ' --iters '          + '200'  \
                 + ' --query-iters '    + '50'   \
                 + ' --min-vb-change '  + '0.001'    \
                 + ' --topic-var '      + '0.01' \
