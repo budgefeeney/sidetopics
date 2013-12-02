@@ -57,7 +57,7 @@ DTYPE = np.float32
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 # ==============================================================
 # TUPLES
@@ -503,6 +503,8 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     
     A tremendously inefficient method for debugging only.
     '''
+    
+    
     def _has_nans(X):
         return np.isnan(X.data).any()
     def _has_infs(X):
@@ -586,10 +588,15 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     lmda = np.log(expLmda, out=expLmda)
     xi = deriveXi(lmda, nu, s) if lmda is not None else deriveXi(np.log(expLmda), nu, s)
     
-    print ("\t Update %5d: %-30s  ELBO : %12.3f  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
+    diff = _quickPrintElbo.last - elbo
+    diffStr = "   " if diff <= 0 else "(!)"
+    
+    print ("\t Update %5d: %-30s  ELBO : %12.3f %s  lmda.mean=%f \tlmda.max=%f \tlmda.min=%f \tnu.mean=%f \txi.mean=%f \ts.mean=%f" % (iteration, updateMsg, elbo, diffStr, lmda.mean(), lmda.max(), lmda.min(), nu.mean(), xi.mean(), s.mean()))
     if wasPassedExpLmda:
         np.exp(expLmda, out=expLmda)
+    _quickPrintElbo.last = elbo
 
+_quickPrintElbo.last = -sys.float_info.max
 
 def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None, scaledWordCounts = None, UTU = None, VTV = None):
     '''
