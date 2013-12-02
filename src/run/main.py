@@ -18,7 +18,8 @@ from model.sidetopic_uyv import \
     query, \
     newInferencePlan, \
     log_likelihood, \
-    DTYPE
+    DTYPE, \
+    VbSideTopicQueryState, VbSideTopicModelState
 from model.sidetopic_uv_vecy import \
     train as train_uv_vecy, \
     newVbModelState as new_uv_vecy
@@ -78,6 +79,48 @@ def newPlans(iters, plotSuffix, args):
             plans.append(newInferencePlan(iters, args.min_vb_change, args.log_freq, plot=args.out_plot is not None, plotFile=plotName, fastButInaccurate=False))
         return plans
     
+def dumpModel (file, modelState, trainTopics, queryTopics):
+    '''
+    Uses pickle to store the VbSideTopicModelState object summarising the model,
+    and the VbSideTopicQueryState bojects summarising the topic assignments for
+    the training set and the query set
+    '''
+    
+    megaTuple = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, \
+                 modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY,\
+                 modelState.sigT, modelState.U, modelState.V, modelState.vocab, \
+                 modelState.topicVar, modelState.featVar, modelState.lowTopicVar, \
+                 modelState.lowFeatVar, trainTopics.expLmda, trainTopics.nu, trainTopics.lxi,\
+                 trainTopics.s, trainTopics.docLen, queryTopics.expLmda, queryTopics.nu, \
+                 queryTopics.lxi, queryTopics.s, queryTopics.docLen)
+    
+    pkl.dump(megaTuple, file)
+
+def loadModel (file):
+    '''
+    Loads in the model state and train and query topic assignments created
+    by dumpModel()
+    '''
+    (modelStateK, modelStateQ, modelStateF, modelStateP, modelStateT, \
+     modelStateA, modelStatevarA, modelStateY, modelStateomY, modelStatesigY,\
+     modelStatesigT, modelStateU, modelStateV, modelStatevocab, \
+     modelStatetopicVar, modelStatefeatVar, modelStatelowTopicVar, \
+     modelStatelowFeatVar, trainTopicsexpLmda, trainTopicsnu, trainTopicslxi,\
+     trainTopicss, trainTopicsdocLen, queryTopicsexpLmda, queryTopicsnu, \
+     queryTopicslxi, queryTopicss, queryTopicsdocLen) = pkl.load(file)
+     
+    return \
+         VbSideTopicModelState (modelStateK, modelStateQ, modelStateF, \
+              modelStateP, modelStateT, modelStateA, modelStatevarA, \
+              modelStateY, modelStateomY, modelStatesigY, modelStatesigT,\
+              modelStateU, modelStateV, modelStatevocab, modelStatetopicVar,\
+              modelStatefeatVar, modelStatelowTopicVar, modelStatelowFeatVar), \
+         VbSideTopicQueryState (trainTopicsexpLmda, trainTopicsnu, \
+                 trainTopicslxi, trainTopicss, trainTopicsdocLen), \
+         VbSideTopicQueryState (queryTopicsexpLmda, queryTopicsnu, \
+                 queryTopicslxi, queryTopicss, queryTopicsdocLen)
+
+
 def run(args):
     #
     # Enumerate all possible arguments
@@ -130,9 +173,11 @@ def run(args):
     # Instantiate and execute the model
     #
     with open(args.words, 'rb') as f:
-        W = pkl.load(f).astype(DTYPE)
+        W = pkl.load(f)
+        W = W.astype(DTYPE)
     with open(args.feats, 'rb') as f:
-        X = pkl.load(f).astype(DTYPE)
+        X = pkl.load(f)
+        X = X.astype(DTYPE)
     (D,F) = X.shape
     (_,T) = W.shape
     K     = args.K
@@ -145,7 +190,8 @@ def run(args):
     newModel, trainModel, queryModel = selectModel(args)
     trainPlans = newTrainPlans(args)
     queryPlans = newQueryPlans(args)
-    
+
+        
     
     if folds == 1:
         modelState = newModel(K, Q, F, P, fv, tv, lfv, ltv)
@@ -170,16 +216,19 @@ def run(args):
             X_query, W_query = X[querySet,:], W[querySet,:]
             
             modelState = newModel(K, Q, F, P, T, fv, tv, lfv, ltv)
-            modelState, queryState = trainModel(modelState, X_train, W_train, trainPlans[fold])
-            trainSetLikely = log_likelihood(modelState, X_train, W_train, queryState)
+            modelState, trainTopics = trainModel(modelState, X_train, W_train, trainPlans[fold])
+            trainSetLikely = log_likelihood(modelState, X_train, W_train, trainTopics)
             
-            queryState = queryModel(modelState, X_query, W_query, queryPlans[fold])
-            querySetLikely = log_likelihood(modelState, X_query, W_query, queryState)
+            queryTopics = queryModel(modelState, X_query, W_query, queryPlans[fold])
+            querySetLikely = log_likelihood(modelState, X_query, W_query, queryTopics)
+            
+            if args.out_model is not None:
+                with open(args.out_model + "-" + str(fold) + ".pkl", 'wb') as f:
+                    dumpModel (f, modelState, trainTopics, queryTopics)
             
             print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
             print("")
-        
-    print("End of Test")
+
     
     
 

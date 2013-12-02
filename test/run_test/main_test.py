@@ -46,8 +46,8 @@ class Test(unittest.TestCase):
                 + ' --num-topics '     + str(K) \
                 + ' --num-lat-topics ' + str(Q) \
                 + ' --num-lat-feats '  + str(P) \
-                + ' --words '          + wordsFile \
-                + ' --feats '          + featsFile \
+                + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
+                + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
@@ -62,6 +62,7 @@ class Test(unittest.TestCase):
                 + ' --folds '          + '5'
         
         run(cmdline.strip().split(' '))
+        print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))
         
 
 if __name__ == "__main__":
