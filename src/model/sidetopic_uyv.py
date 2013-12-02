@@ -23,14 +23,15 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib as mpl
-#mpl.use('Agg')
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
 
-from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
+from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip, rowwise_softmax
-
-from numba import autojit
+from util.sparse_elementwise import sparseScalarProductOf, \
+    sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
+    entropyOfDot
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
@@ -51,12 +52,12 @@ from numba import autojit
 # ==============================================================
 
 MAX_X_TICKS_PER_PLOT = 50
-DTYPE = np.float64
+DTYPE = np.float32
 
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 # ==============================================================
 # TUPLES
@@ -186,7 +187,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, _, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
-    queryPlan = newInferencePlan(1, epsilon, logFrequency = 0, plot=False)
+    queryPlan = newInferencePlan(10, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -313,9 +314,15 @@ def train(modelState, X, W, plan):
         #
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
-        normalizerows_ip(vocab)
-        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+        normalizerows_ip(vocab)      
+          
+        # A hack to work around the fact that we've got no prior, and thus no
+        # pseudo counts, so some values will collapse to zero
+        vocab[vocab < sys.float_info.min] = sys.float_info.min
         
+        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+
+    
         # U
         # 
         U = A.dot(V).dot(Y.T).dot (la.inv(Y.dot(V.T).dot(V).dot(Y.T) + np.trace(omY.dot(V.T).dot(V)) * sigY))
@@ -357,12 +364,6 @@ def train(modelState, X, W, plan):
     # if we've been asked to do so.
     if plot:
         plot_bound(plotFile, iters, elbos, likes)
-    
-    # The fact that we're using a multiplicative update means that if a word never occurs
-    # in the training set, regardless of the prior, its probability will be zero when we
-    # return. Clearly this will cause issues (NaNs in fact) if that word were subsequently
-    # to appear in the query set. To avoid this, we apply this hack.
-    vocab[vocab < sys.float_info.min] = sys.float_info.min
     
     return VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
            VbSideTopicQueryState (expLmda, nu, lxi, s, docLen)
@@ -483,7 +484,6 @@ def plot_bound (plotFile, iters, bounds, likes):
     plot2.plot (iters, likes, 'g-')
     plot2.set_ylabel("Log Likelihood", color='g')
     
-    plt.show()
     if plotFile is None:
         plt.show()
     else:
@@ -687,7 +687,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # <ln p(Z|Theta)
     # 
     docLenLmdaLxi = docLen[:, np.newaxis] * lmda * lxi
-    scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
+    scaledWordCounts = sparseScalarQuotientOfDot(W, expLmda, vocab)
 
     lnP_Z = 0.0
     lnP_Z -= np.sum(docLenLmdaLxi * lmda)
@@ -727,17 +727,14 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # H[q(Z|\Theta)
     #
     # So Z_dtk \propto expLmda_dt * vocab_tk. We let N here be the normalizer (which is 
-    # \sum_j expLmda_dt * vocab_tj, which implies N is DxT. We need to evaluate
+    # \sum_j expLmda_dj * vocab_tj, which implies N is DxT. We need to evaluate
     # Z_dtk * log Z_dtk. We can pull out the normalizer of the first term, but it has
     # to stay in the log Z_dtk expression, hence the third term in the sum. We can however
     # take advantage of the ability to mix dot and element-wise products for the different
     # components of Z_dtk in that three-term sum, which we denote as S
     #   Finally we use np.sum to sum over d and t
     #
-    N = expLmda.dot(vocab) + 1E-35 # DxT !!! TODO Figure out why this is zero sometimes (better init of vocab?)
-    S = expLmda.dot(vocab * safe_log(vocab)) + (expLmda * np.log(expLmda)).dot(vocab) - N * safe_log(N)
-    np.reciprocal(N, out=N)
-    ent_Z = -np.sum (N * S)
+    ent_Z = 0 #entropyOfDot(expLmda, vocab)
     
     result = lnP_Y + lnP_A + lnP_Theta + lnP_Z + lnP_W + ent_Y + ent_A + ent_Theta + ent_Z
     
@@ -876,79 +873,6 @@ def newVbModelState(K, Q, F, P, T, featVar = 0.01, topicVar = 0.01, latFeatVar =
     vocab = normalizerows_ip (rd.random((K, T)).astype(DTYPE)) + sys.float_info.epsilon
     
     return VbSideTopicModelState(K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, topicVar, featVar, latTopicVar, latFeatVar)
-
-@autojit
-def csr_indices(ptr, ind):
-    '''
-    Returns the indices of a CSR matrix, given its indptr and indices arrays.
-    '''
-    rowCount = len(ptr) - 1 
-    
-    rows = [0] * len(ind)
-    totalElemCount = 0
-
-    for r in range(rowCount):
-        elemCount = ptr[r+1] - ptr[r]
-        if elemCount > 0:
-            rows[totalElemCount : totalElemCount + elemCount] = [r] * elemCount
-        totalElemCount += elemCount
-
-    return [rows, ind.tolist()]
-
-
-def sparseScalarProductOfDot(A,B,C, out=None):
-    '''
-    Calculates A * B.dot(C) where A is a sparse matrix
-    
-    Retains sparsity in the result, unlike the built-in operator
-    
-    Note the type of the return-value is the same as the type of
-    the sparse matrix A. If this has an integral type, this will
-    only provide integer-based multiplication.
-    '''
-    if out is None:
-        out = A.copy()
-    out.data[:] = A.data
-    out.data *= B.dot(C)[csr_indices(out.indptr, out.indices)]
-    
-    return out
-
-def sparseScalarProductOf(A,B, out=None):
-    '''
-    Calculates A * B where A is a sparse matrix
-    
-    Retains sparsity in the result, unlike the built-in operator
-    
-    Note the type of the return-value is the same as the type of
-    the sparse matrix A. If this has an integral type, this will
-    only provide integer-based multiplication.
-    '''
-    if out is None:
-        out = A.copy()
-    if not out is A:
-        out.data[:] = A.data
-    out.data *= B[csr_indices(out.indptr, out.indices)]
-    
-    return out
-
-def sparseScalarQuotientOfDot(A,B,C, out=None):
-    '''
-    Calculates A / B.dot(C) where A is a sparse matrix
-    
-    Retains sparsity in the result, unlike the built-in operator
-    
-    Note the type of the return-value is the same as the type of
-    the sparse matrix A. If this has an integral type, this will
-    only provide integer-based division.
-    '''
-    if out is None:
-        out = A.copy()
-    if not out is A:
-        out.data[:] = A.data
-    
-    out.data /= B.dot(C)[csr_indices(out.indptr, out.indices)]
-    
-    return out
 
 
 def vec(A):
