@@ -146,7 +146,7 @@ def safe_log (x, out = None):
     ln_0 = np.log(almostZero)
     
     if out is None:
-        out = np.ndarray(x.shape)
+        out = np.ndarray(x.shape, dtype=x.dtype)
     
     if out is not x:
         out.fill (ln_0)
