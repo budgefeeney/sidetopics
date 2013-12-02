@@ -46,21 +46,23 @@ class Test(unittest.TestCase):
                 + ' --num-topics '     + str(K) \
                 + ' --num-lat-topics ' + str(Q) \
                 + ' --num-lat-feats '  + str(P) \
-                + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
-                + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
+                + ' --feats '          + featsFile \
+                + ' --words '          + wordsFile \
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
-                + ' --log-freq '       + '30'   \
-                + ' --iters '          + '200'  \
+                + ' --log-freq '       + '200'   \
+                + ' --iters '          + '1000'  \
                 + ' --query-iters '    + '50'   \
-                + ' --min-vb-change '  + '0.001'    \
+                + ' --min-vb-change '  + '0.00001'    \
                 + ' --topic-var '      + '0.01' \
                 + ' --feat-var '       + '0.01' \
                 + ' --lat-topic-var '  + '1'    \
                 + ' --lat-feat-var '   + '1'    \
                 + ' --folds '          + '5'
         
+#                 + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
+#                 + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
         
         
         run(cmdline.strip().split(' '))
