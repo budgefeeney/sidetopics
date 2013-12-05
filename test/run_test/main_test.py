@@ -41,18 +41,20 @@ class Test(unittest.TestCase):
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
+        
+        K, Q, P = 40, 10, 50
         cmdline = '' \
                 + ' --model '          + 'uy'  \
                 + ' --num-topics '     + str(K) \
                 + ' --num-lat-topics ' + str(Q) \
                 + ' --num-lat-feats '  + str(P) \
-                + ' --feats '          + featsFile \
-                + ' --words '          + wordsFile \
+                + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
+                + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
                 + ' --log-freq '       + '200'   \
-                + ' --iters '          + '1000'  \
+                + ' --iters '          + '500'  \
                 + ' --query-iters '    + '50'   \
                 + ' --min-vb-change '  + '0.00001'    \
                 + ' --topic-var '      + '0.01' \
@@ -61,9 +63,9 @@ class Test(unittest.TestCase):
                 + ' --lat-feat-var '   + '1'    \
                 + ' --folds '          + '5'
         
-#                 + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
-#                 + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
         
+#                 + ' --feats '          + featsFile \
+#                 + ' --words '          + wordsFile \
         
         run(cmdline.strip().split(' '))
         print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))

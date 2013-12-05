@@ -57,7 +57,7 @@ DTYPE = np.float32
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 # ==============================================================
 # TUPLES

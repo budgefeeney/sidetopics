@@ -85,7 +85,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
-    queryPlan = newInferencePlan(10, epsilon, logFrequency = 0, plot=False)
+    queryPlan = newInferencePlan(100, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
