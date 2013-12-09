@@ -218,15 +218,17 @@ def run(args):
             modelState = newModel(K, Q, F, P, T, fv, tv, lfv, ltv)
             modelState, trainTopics = trainModel(modelState, X_train, W_train, trainPlans[fold])
             trainSetLikely = log_likelihood(modelState, X_train, W_train, trainTopics)
+            trainSetPerp   = np.exp (-trainSetLikely / np.sum(trainTopics.docLen))
             
-            queryTopics = queryModel(modelState, X_query, W_query, queryPlans[fold])
+            queryTopics    = queryModel(modelState, X_query, W_query, queryPlans[fold])
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryTopics)
+            querySetPerp   = np.exp (-querySetLikely / np.sum(queryTopics.docLen))
             
             if args.out_model is not None:
                 with open(args.out_model + "-" + str(fold) + ".pkl", 'wb') as f:
                     dumpModel (f, modelState, trainTopics, queryTopics)
             
-            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainSetLikely, querySetLikely))
+            print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
             print("")
 
     

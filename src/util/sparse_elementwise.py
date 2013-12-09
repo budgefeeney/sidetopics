@@ -116,10 +116,32 @@ def sparseScalarProductOfDot (A, B, C, out=None):
         _sparseScalarQuotientOfDot_py(A,B,C, out)
     return out
 
-def sparseScalarProductOfLnDot (A, B, C, out=None):
+def _sparseScalarProductOfDot_py(A,B,C, out=None):
+    '''
+    Calculates A * B.dot(C) where A is a sparse matrix
+    
+    Retains sparsity in the result, unlike the built-in operator
+    
+    Note the type of the return-value is the same as the type of
+    the sparse matrix A. If this has an integral type, this will
+    only provide integer-based multiplication.
+    '''
+    if out is None:
+        out = A.copy()
+    if out is not A:
+        out.data[:] = A.data
+    
+    out.data *= B.dot(C)[csr_indices(out.indptr, out.indices)]
+    
+    return out
+
+
+def sparseScalarProductOfSafeLnDot (A, B, C, out=None):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in
     mind the sparsity of A, calculating values only where required.
+    Moreover if any product of the dot is zero, it's replaced with
+    the minimum non-zero value allowed by the datatype, to avoid NaNs
      
     Params
     A         - a sparse CSR matrix
@@ -134,14 +156,15 @@ def sparseScalarProductOfLnDot (A, B, C, out=None):
     if out is None:
         out = A.copy()
     if A.dtype == np.float64:
-        compiled.sparseScalarProductOfLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarProductOfSafeLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
     elif A.dtype == np.float32:
-        compiled.sparseScalarProductOfLnDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarProductOfSafeLnDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
     else:
-        _sparseScalarProductOfLnDot_py(A,B,C, out)
+        _sparseScalarProductOfSafeLnDot_py(A,B,C, out)
     return out
 
-def _sparseScalarProductOfDot_py(A,B,C, out=None):
+
+def _sparseScalarProductOfSafeLnDot_py(A,B,C, out=None):
     '''
     Calculates A * B.dot(C) where A is a sparse matrix
     
@@ -154,26 +177,13 @@ def _sparseScalarProductOfDot_py(A,B,C, out=None):
     if out is None:
         out = A.copy()
     out.data[:] = A.data
-    out.data *= B.dot(C)[csr_indices(out.indptr, out.indices)]
+    
+    rhs = B.dot(C)
+    rhs[rhs < sys.float_info.min] = sys.float_info.min
+    out.data *= np.log(rhs)[csr_indices(out.indptr, out.indices)]
     
     return out
 
-def _sparseScalarProductOfLnDot_py(A,B,C, out=None):
-    '''
-    Calculates A * B.dot(C) where A is a sparse matrix
-    
-    Retains sparsity in the result, unlike the built-in operator
-    
-    Note the type of the return-value is the same as the type of
-    the sparse matrix A. If this has an integral type, this will
-    only provide integer-based multiplication.
-    '''
-    if out is None:
-        out = A.copy()
-    out.data[:] = A.data
-    out.data *= np.log(B.dot(C))[csr_indices(out.indptr, out.indices)]
-    
-    return out
 
 def sparseScalarProductOf(A,B, out=None):
     '''
@@ -192,6 +202,7 @@ def sparseScalarProductOf(A,B, out=None):
     out.data *= B[csr_indices(out.indptr, out.indices)]
     
     return out
+
 
 def _sparseScalarQuotientOfDot_py(A,B,C, out=None):
     '''

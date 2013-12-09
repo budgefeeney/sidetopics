@@ -44,28 +44,26 @@ class Test(unittest.TestCase):
         
         K, Q, P = 40, 10, 50
         cmdline = '' \
-                + ' --model '          + 'uy'  \
-                + ' --num-topics '     + str(K) \
-                + ' --num-lat-topics ' + str(Q) \
-                + ' --num-lat-feats '  + str(P) \
-                + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
-                + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl' \
+                + ' --model '          + 'uy'      \
+                + ' --num-topics '     + str(K)    \
+                + ' --num-lat-topics ' + str(Q)    \
+                + ' --num-lat-feats '  + str(P)    \
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
-                + ' --log-freq '       + '200'   \
-                + ' --iters '          + '500'  \
-                + ' --query-iters '    + '50'   \
-                + ' --min-vb-change '  + '0.00001'    \
-                + ' --topic-var '      + '0.01' \
-                + ' --feat-var '       + '0.01' \
-                + ' --lat-topic-var '  + '1'    \
-                + ' --lat-feat-var '   + '1'    \
-                + ' --folds '          + '5'
-        
-        
-#                 + ' --feats '          + featsFile \
-#                 + ' --words '          + wordsFile \
+                + ' --log-freq '       + '20'     \
+                + ' --iters '          + '100'     \
+                + ' --query-iters '    + '20'      \
+                + ' --min-vb-change '  + '0.00001' \
+                + ' --topic-var '      + '0.01'    \
+                + ' --feat-var '       + '0.01'    \
+                + ' --lat-topic-var '  + '1'       \
+                + ' --lat-feat-var '   + '1'       \
+                + ' --folds '          + '5'       \
+                + ' --feats '          + featsFile \
+                + ' --words '          + wordsFile
+#                 + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
+#                 + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl'
         
         run(cmdline.strip().split(' '))
         print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))

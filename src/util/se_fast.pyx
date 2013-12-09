@@ -7,7 +7,8 @@ Created on 1 Dec 2013
 cimport cython
 import numpy as np
 cimport numpy as np
-from libc.math cimport log 
+from libc.math cimport log
+from libc.float cimport FLT_MIN, DBL_MIN
 
 
 @cython.boundscheck(False)
@@ -259,10 +260,12 @@ def sparseScalarProductOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarProductOfLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
+def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in 
     mind the sparsity of A, calculate values only when required.
+    Moreover if any product of the dot is zero, it's replaced with
+    the minimum non-zero value allowed by the datatype, to avoid NaNs
      
     Params
     A_data    - the values buffer of the sparse CSR matrix A
@@ -278,13 +281,17 @@ def sparseScalarProductOfLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_p
     cdef int rowCount = len(A_ptr) - 1 
     cdef int elemCount = 0, e = 0
     cdef int row = 0, col = 0, i = 0
+    cdef double dotProd = 0.0
+    cdef double logOfMin = log (DBL_MIN)
+    
     with nogil:
         while row < rowCount:
             elemCount = A_ptr[row+1] - A_ptr[row]
             e = 0
             while e < elemCount:
-                col = A_indices[i]
-                out_data[i] = A_data[i] * log(dotProduct_f8(row,col,B,C))
+                col         = A_indices[i]
+                dotProd     = dotProduct_f8(row,col,B,C)
+                out_data[i] = A_data[i] * log(dotProd) if dotProd > DBL_MIN else logOfMin
                 i += 1
                 e += 1
             row += 1
@@ -294,10 +301,12 @@ def sparseScalarProductOfLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_p
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarProductOfLnDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data):
+def sparseScalarProductOfSafeLnDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in 
     mind the sparsity of A, calculate values only when required.
+    Moreover if any product of the dot is zero, it's replaced with
+    the minimum non-zero value allowed by the datatype, to avoid NaNs
      
     Params
     A_data    - the values buffer of the sparse CSR matrix A
@@ -313,13 +322,17 @@ def sparseScalarProductOfLnDot_f4(float[:] A_data, int[:] A_indices, int[:] A_pt
     cdef int rowCount = len(A_ptr) - 1 
     cdef int elemCount = 0, e = 0
     cdef int row = 0, col = 0, i = 0
+    cdef float dotProd = 0.0
+    cdef float logOfMin = log (FLT_MIN)
+    
     with nogil:
         while row < rowCount:
             elemCount = A_ptr[row+1] - A_ptr[row]
             e = 0
             while e < elemCount:
-                col = A_indices[i]
-                out_data[i] = A_data[i] * log(dotProduct_f4(row,col,B,C))
+                col         = A_indices[i]
+                dotProd     = dotProduct_f4(row,col,B,C)
+                out_data[i] = A_data[i] * log(dotProd) if dotProd > FLT_MIN else logOfMin
                 i += 1
                 e += 1
             row += 1
@@ -333,7 +346,7 @@ cdef double dotProduct_f8 (int r, int c, double[:,:] B, double[:,:] C) nogil:
     '''
     The dot product of the r-th row of B and the c-th column of C.
     Done directly with a for-loop, no BLAS, SSE or anything. Still
-    pretty fast though
+    pretty fast though - just as quick as a numpy dot
     '''
 
     cdef double result = 0
@@ -354,7 +367,7 @@ cdef double dotProduct_f4 (int r, int c, float[:,:] B, float[:,:] C) nogil:
     '''
     The dot product of the r-th row of B and the c-th column of C.
     Done directly with a for-loop, no BLAS, SSE or anything. Still
-    pretty fast though
+    pretty fast though - just as quick as a numpy dot
     '''
     cdef float result = 0
     cdef int innerDim = B.shape[1]

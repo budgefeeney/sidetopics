@@ -31,7 +31,7 @@ from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip, rowwise_softmax
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    entropyOfDot, sparseScalarProductOfLnDot
+    entropyOfDot, sparseScalarProductOfSafeLnDot
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples
@@ -777,7 +777,7 @@ def log_likelihood(modelState, X, W, queryState):
     row_sums = expLmda.sum(axis=1)
     expLmda /= row_sums[:, np.newaxis] # converts it to a true distribution
     
-    likely = np.sum (sparseScalarProductOfLnDot(W, expLmda, vocab).data)
+    likely = np.sum (sparseScalarProductOfSafeLnDot(W, expLmda, vocab).data)
     
     # Revert expLmda to its original value as this is a ref to, not a copy of, the original matrix
     expLmda *= row_sums[:, np.newaxis]
