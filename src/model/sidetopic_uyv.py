@@ -109,7 +109,7 @@ def newInferencePlan(iterations=100, epsilon=0.1, logFrequency=0, plot=True, plo
 
 def negJakkola(vec):
     '''
-    The negated version of the Jakkola expression which was used in Bourchard's NIPS
+    The negated version of the Jakkola expression which was used in Bouchard's NIPS
     2007 softmax bound
     
     CTM Source reads: y = .5./x.*(1./(1+exp(-x)) -.5);
@@ -206,6 +206,7 @@ def train(modelState, X, W, plan):
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
     D      = len(docLen)
+    print ("Training %d topic model with %d x %d word-matrix W, %d x %d feature matrix X, and latent feature and topics spaces of size %d and %d respectively" % (K, D, T, D, F, P, Q))
     
     # No need to recompute this every time
     XTX = X.T.dot(X)
@@ -233,6 +234,7 @@ def train(modelState, X, W, plan):
     # be faster to convert to dense and use the normal solver, despite
     # the size constraints.
 #    varA = 1./K * sla.inv (overTsq * I_F + overSsq * XTX)
+    print ("Inverting gram matrix")
     aI_XTX = (overAsq * ssp.eye(F, dtype=DTYPE) + XTX).todense()
     omA = la.inv (aI_XTX)
     scaledWordCounts = W.copy()
@@ -241,6 +243,7 @@ def train(modelState, X, W, plan):
     # direction
     verify_and_log = _quickPrintElbo if DEBUG else _doNothing 
    
+    print ("Launching inference")
     for iteration in range(iterations):
         
         # =============================================================
@@ -346,7 +349,7 @@ def train(modelState, X, W, plan):
             elbos.append (elbo)
             iters.append (iteration)
             likes.append (likely)
-            print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
+            print ("\nIteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
             
@@ -358,6 +361,9 @@ def train(modelState, X, W, plan):
             lastVarBoundValue = elbo
             if plot and plotIncremental:
                 plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
+        else:
+            print('.', end='')
+            sys.stdout.flush()
             
     
     # Right before we end, plot the evoluation of the bound and likelihood

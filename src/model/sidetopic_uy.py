@@ -108,6 +108,7 @@ def train(modelState, X, W, plan):
     # We'll need the total word count per doc, and total count of docs
     docLen = np.squeeze(np.asarray (W.sum(axis=1))) # Force to a one-dimensional array for np.newaxis trick to work
     D      = len(docLen)
+    print ("Training %d topic model with %d x %d word-matrix W, %d x %d feature matrix X, and latent feature and topics spaces of size %d and %d respectively" % (K, D, T, D, F, P, Q))
     
     # No need to recompute X'X every time
     if X.dtype != DTYPE:
@@ -126,6 +127,7 @@ def train(modelState, X, W, plan):
     
     # the variance of A is an unchanging function of X, assuming
     # that alphaSq is also unchanging.
+    print ("Inverting gram matrix")
     aI_XTX = (overAsq * I_F + XTX).todense(); 
     varA = la.inv (aI_XTX)
     
@@ -134,6 +136,8 @@ def train(modelState, X, W, plan):
     scaledWordCounts = W.copy()
    
     lmda = np.log(expLmda, out=expLmda)
+    
+    print ("Launching inference")
     for iteration in range(iterations):
         
         # =============================================================
@@ -223,7 +227,7 @@ def train(modelState, X, W, plan):
             elbos.append (elbo)
             iters.append (iteration)
             likes.append (likely)
-            print ("Iteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
+            print ("\nIteration %5d  ELBO %15f   Log-Likelihood %15f" % (iteration, elbo, likely))
             
             logIter = min (np.ceil(logIter * multiStepSize), iterations - 1)
             
@@ -234,6 +238,9 @@ def train(modelState, X, W, plan):
             
             if plot and plotIncremental:
                 plot_bound(plotFile + "-iter-" + str(iteration), np.array(iters), np.array(elbos), np.array(likes))
+        else:
+            print('.', end='')
+            sys.stdout.flush()
             
     
     # Right before we end, plot the evolution of the bound and likelihood
