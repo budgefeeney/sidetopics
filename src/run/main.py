@@ -235,5 +235,5 @@ def run(args):
     
 
 if __name__ == '__main__':
-    run(args=sys.argv)
+    run(args=sys.argv[1:])
     
