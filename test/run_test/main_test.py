@@ -51,9 +51,9 @@ class Test(unittest.TestCase):
                 + ' --eval '           + 'likely'  \
                 + ' --out-model '      + modelFile \
                 + ' --out-plot '       + plotFile  \
-                + ' --log-freq '       + '20'     \
-                + ' --iters '          + '100'     \
-                + ' --query-iters '    + '20'      \
+                + ' --log-freq '       + '100'     \
+                + ' --iters '          + '500'     \
+                + ' --query-iters '    + '50'      \
                 + ' --min-vb-change '  + '0.00001' \
                 + ' --topic-var '      + '0.01'    \
                 + ' --feat-var '       + '0.01'    \
@@ -62,8 +62,8 @@ class Test(unittest.TestCase):
                 + ' --folds '          + '5'       \
                 + ' --feats '          + featsFile \
                 + ' --words '          + wordsFile
-#                 + ' --feats '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/side-short.pkl' \
-#                 + ' --words '          + '/Users/bryanfeeney/Dropbox/SideTopicDatasets/words-short.pkl'
+#                 + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallDB2/side.pkl' \
+#                 + ' --words '          + '/Users/bryanfeeney/Desktop/SmallDB2/words.pkl'
         
         run(cmdline.strip().split(' '))
         print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))
