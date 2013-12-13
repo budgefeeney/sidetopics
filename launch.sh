@@ -45,8 +45,8 @@ cmdline="$cmdline --folds 5"
 cmdline="$cmdline --feats $featFile"
 cmdline="$cmdline --words $wordFile"
 
-export PYTHONPATH=$PYTHONPATH:$codeDir
-echo "$PYTHON_EXEC $codeDir/run/main.py $cmdline"
-$PYTHON_EXEC $codeDir/run/main.py $cmdline
+export PYTHONPATH=$PYTHONPATH:$codeDir/src
+echo "$PYTHON_EXEC $codeDir/src/run/main.py $cmdline"
+$PYTHON_EXEC $codeDir/src/run/main.py $cmdline
 
 
