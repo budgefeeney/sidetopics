@@ -27,7 +27,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
 
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
+from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip, rowwise_softmax
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
@@ -429,7 +429,6 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         
         expLmda[:] = rhs / (docLen[:,np.newaxis] * 2 * lxi + overSsq)
         # Note we haven't applied np.exp() yet, we're holding off till we've evaluated the next few terms
-        # This efficiency saving only actually applies once we've disabled all the _quickPrintElbo calls
         
         verify_and_log ("E-Step: q(Theta) [Mean]", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
          
@@ -446,7 +445,7 @@ def query(modelState, X, W, plan, queryState = None, scaledWordCounts=None, XAT 
         # nu_dk
         #
         nu[:] = 1./ np.sqrt(2. * docLen[:, np.newaxis] * lxi + overSsq)
-        #verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
+        verify_and_log ("E-Step: q(Theta) [Var] ", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, expLmda, None, nu, lxi, s, docLen)
           
         # Now finally we finish off the estimate of exp(lmda)
         np.exp(expLmda, out=expLmda)
@@ -594,7 +593,7 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
                       X, W)
     
     lmda = np.log(expLmda, out=expLmda)
-    xi = deriveXi(lmda, nu, s) if lmda is not None else deriveXi(np.log(expLmda), nu, s)
+    xi = deriveXi(lmda, nu, s)
     
     diff = _quickPrintElbo.last - elbo
     diffStr = "   " if diff <= 0 else "(!)"
@@ -721,8 +720,8 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     lnP_W = np.sum(lnP_w_dt.data)
     
     # H[q(Y)]
-    lnDetOmY  = 0 if omY  is None else log(max(1E-300, la.det(omY)))
-    lnDetSigY = 0 if sigY is None else log(max(1E-300, la.det(sigY)))
+    lnDetOmY  = 0 if omY  is None else safe_log_det(omY)
+    lnDetSigY = 0 if sigY is None else safe_log_det(sigY)
     ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY)
     
     # H[q(A|Y)]
@@ -733,8 +732,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     # However in a recent test, la.det(omA) = 0
     # this is very strange as omA is the inverse of (s*I + t*XTX)
     #
-#    ent_A = 0.5 * (F * K * LOG_2PI_E + K * log (la.det(omA)) + F * K * log (tau2))\
-    ent_A = 0
+    ent_A = 0.5 * (F * K * LOG_2PI_E + K * safe_log_det(varA) + F * K * log (tauSq))\
     
     # H[q(Theta|A)]
     ent_Theta = 0.5 * (K * LOG_2PI_E + np.sum (np.log(nu * nu)))

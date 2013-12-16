@@ -11,6 +11,23 @@ Created on 11 Jul 2013
 '''
 
 import numpy as np
+import scipy.linalg as la
+import sys
+from math import log
+
+def safe_log_det(X):
+    '''
+    Returns the log of the determinant of a matrix
+    
+    If the determinant is zero, sees if extending the precision will help.
+
+    If it's still zero, return the log of dtype.minValue
+    '''
+    detX = la.det(X)
+    if X.dtype == np.float32 and detX < sys.float_info.min:
+        detX = la.det(X.astype(np.float64))
+    
+    return log(max (sys.float_info.min, detX))
 
 # TODO This works, but how and why does it work?
 def safe_log_one_plus_exp_of (x):
