@@ -57,7 +57,7 @@ DTYPE = np.float32
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 # ==============================================================
 # TUPLES
@@ -516,9 +516,11 @@ def _quickPrintElbo (updateMsg, iteration, X, W, K, Q, F, P, T, A, varA, Y, omY,
     def _has_infs(X):
         return np.isinf(X.data).any()
     def _nan (varName):
-        print (str(varName) + " has NaNs")
+        print (str(varName) + " has NaNs", end="")
+        print ("")
     def _inf (varName):
-        print (str(varName) + " has infs")
+        print (str(varName) + " has infs", end="")
+        print ("")
     
     assert not (lmda is not None and expLmda is not None), "We can't have both lmda and expLmda not be none, as we assume we only ever have one."
     
