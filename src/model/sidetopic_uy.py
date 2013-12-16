@@ -454,7 +454,7 @@ def varBound (modelState, queryState, X, W, lnVocab = None, XAT=None, XTX = None
     
     # H[q(Y)]
     lnDetOmY  = 0 if omY  is None else log(la.det(omY))
-    lnDetSigY = 0 if sigY is None else log(la.det(sigY))
+    lnDetSigY = 0 if sigY is None else log(max(la.det(sigY), sys.float_info.min)) # TODO FIX THIS
     ent_Y = 0.5 * (P * K * LOG_2PI_E + Q * lnDetOmY + P * lnDetSigY)
     
     # H[q(A|Y)]
