@@ -58,10 +58,10 @@ def sampleFromModel(D=200, T=100, K=10, Q=6, F=12, P=8, avgWordsPerDoc = 500):
     (ySdRow, ySdCol) = (5.0, 5.0)
     (aSdRow, aSdCol) = (5.0, tau**2)
     
-    U = matrix_normal(np.zeros((K,Q)),   uSdRow * np.eye(Q), uSdCol * np.eye(K))
-    Y = matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q))
-    V = matrix_normal(np.zeros((F,P)),   vSdRow * np.eye(P), vSdCol * np.eye(F))
-    A = matrix_normal(U.dot(Y).dot(V.T), aSdRow * np.eye(F), aSdCol * np.eye(K))
+    U = np.abs(matrix_normal(np.zeros((K,Q)),   uSdRow * np.eye(Q), uSdCol * np.eye(K)))
+    Y = np.abs(matrix_normal(np.zeros((Q,P)),   ySdRow * np.eye(P), ySdCol * np.eye(Q)))
+    V = np.abs(matrix_normal(np.zeros((F,P)),   vSdRow * np.eye(P), vSdCol * np.eye(F)))
+    A = np.abs(matrix_normal(U.dot(Y).dot(V.T), aSdRow * np.eye(F), aSdCol * np.eye(K)))
     
     # Generate the input features. Assume the features are multinomial and sparse
     # (not quite a perfect match for the twitter example: twitter is binary, this 
