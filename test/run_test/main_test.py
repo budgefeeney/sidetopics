@@ -44,7 +44,7 @@ class Test(unittest.TestCase):
         
         K, Q, P = 40, 10, 50
         cmdline = '' \
-                + ' --model '          + 'uy'      \
+                + ' --model '          + 'uyv'      \
                 + ' --num-topics '     + str(K)    \
                 + ' --num-lat-topics ' + str(Q)    \
                 + ' --num-lat-feats '  + str(P)    \

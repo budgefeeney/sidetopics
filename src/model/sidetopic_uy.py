@@ -85,7 +85,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
-    queryPlan = newInferencePlan(20, epsilon, logFrequency = 0, plot=False)
+    queryPlan = newInferencePlan(1, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -134,7 +134,6 @@ def train(modelState, X, W, plan):
     # Scaled word counts is W / expLmda.dot(vocab). It's going to be exactly
     # as sparse as W, which is why we initialise it in this manner.
     scaledWordCounts = W.copy()
-   
     lmda = np.log(expLmda, out=expLmda)
     
     print ("Launching inference")
@@ -165,12 +164,12 @@ def train(modelState, X, W, plan):
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
-               X, W, \
-               queryPlan, \
-               VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
-               scaledWordCounts=scaledWordCounts, \
-               XAT = XAT)
+#         query (VbSideTopicModelState (K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
+#                X, W, \
+#                queryPlan, \
+#                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+#                scaledWordCounts=scaledWordCounts, \
+#                XAT = XAT)
        
        
         # =============================================================
@@ -187,15 +186,15 @@ def train(modelState, X, W, plan):
 
         # vocab
         #
-        factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
-        vocab *= factor
-        normalizerows_ip(vocab)
+#         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
+#         vocab *= factor
+#         normalizerows_ip(vocab)
           
         # A hack to work around the fact that we've got no prior, and thus no
         # pseudo counts, so some values will collapse to zero
-        vocab[vocab < sys.float_info.min] = sys.float_info.min
+#         vocab[vocab < sys.float_info.min] = sys.float_info.min
         
-        verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
+#         verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
         
         # sigT
         #
@@ -203,9 +202,9 @@ def train(modelState, X, W, plan):
         A_from_U_Y = Y.dot(U.T)
         topic_from_A_X = X.dot(A.T)
         
-        sigT  = 1./D * (Y.dot(Y.T) + \
-                       (A - A_from_U_Y).dot((A - A_from_U_Y).T) + \
-                       (lmda - topic_from_A_X).T.dot(lmda - topic_from_A_X))
+        sigT  = 1. / P * (Y.dot(Y.T)) + \
+                1. / F * (A - A_from_U_Y).dot((A - A_from_U_Y).T) + \
+                1. / D * (lmda - topic_from_A_X).T.dot(lmda - topic_from_A_X)
         sigT.flat[::K+1] += 1./D * nu.sum(axis=0, dtype=DTYPE) 
         
         verify_and_log ("M-Step: sigT", iteration, X, W, K, Q, F, P, T, A, varA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)

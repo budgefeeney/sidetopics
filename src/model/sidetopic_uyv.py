@@ -52,7 +52,7 @@ from util.sparse_elementwise import sparseScalarProductOf, \
 # ==============================================================
 
 MAX_X_TICKS_PER_PLOT = 50
-DTYPE = np.float32
+DTYPE = np.float64
 
 LOG_2PI   = log(2 * pi)
 LOG_2PI_E = log(2 * pi * e)
@@ -187,7 +187,7 @@ def train(modelState, X, W, plan):
     # Unpack the model state tuple for ease of use and maybe speed improvements
     K, Q, F, P, T, A, _, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq = modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY, modelState.sigT, modelState.U, modelState.V, modelState.vocab, modelState.topicVar, modelState.featVar, modelState.lowTopicVar, modelState.lowFeatVar
     iterations, epsilon, logCount, plot, plotFile, plotIncremental, fastButInaccurate = plan.iterations, plan.epsilon, plan.logFrequency, plan.plot, plan.plotFile, plan.plotIncremental, plan.fastButInaccurate
-    queryPlan = newInferencePlan(20, epsilon, logFrequency = 0, plot=False)
+    queryPlan = newInferencePlan(1, epsilon, logFrequency = 0, plot=False)
     
     if W.dtype.kind == 'i':      # for the sparseScalorQuotientOfDot() method to work
         W = W.astype(DTYPE)
@@ -297,12 +297,12 @@ def train(modelState, X, W, plan):
         # lmda_dk, nu_dk, s_d, and xi_dk
         #
         XAT = X.dot(A.T)
-        query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
-               X, W, \
-               queryPlan, \
-               VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
-               scaledWordCounts=scaledWordCounts, \
-               XAT = XAT)
+#         query (VbSideTopicModelState (K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq), \
+#                X, W, \
+#                queryPlan, \
+#                VbSideTopicQueryState(expLmda, nu, lxi, s, docLen), \
+#                scaledWordCounts=scaledWordCounts, \
+#                XAT = XAT)
        
        
         # =============================================================
@@ -315,13 +315,14 @@ def train(modelState, X, W, plan):
         
         # vocab
         #
+        sparseScalarQuotientOfDot(W, expLmda, vocab, out=scaledWordCounts)
         factor = (scaledWordCounts.T.dot(expLmda)).T # Gets materialized as a dense matrix...
         vocab *= factor
         normalizerows_ip(vocab)      
           
         # A hack to work around the fact that we've got no prior, and thus no
         # pseudo counts, so some values will collapse to zero
-        vocab[vocab < sys.float_info.min] = sys.float_info.min
+#         vocab[vocab < sys.float_info.min] = sys.float_info.min
         
         verify_and_log ("M-Step: vocab", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, sigmaSq, alphaSq, kappaSq, tauSq, None, expLmda, nu, lxi, s, docLen)
 
