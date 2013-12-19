@@ -133,7 +133,7 @@ def sparseScalarQuotientOfDot_f8(double[:] A_data, int[:] A_indices, int[:] A_pt
     out_data  - the values buffer into which the result will be placed.
     
     Returns
-    out_data, though note that this is the same parameter passed in and overwitten.
+    out_data, though note that this is the same parameter passed in and overwritten.
     '''
     cdef int rowCount = len(A_ptr) - 1 
     cdef int elemCount = 0, e = 0
@@ -156,7 +156,7 @@ def sparseScalarQuotientOfDot_f8(double[:] A_data, int[:] A_indices, int[:] A_pt
 @cython.cdivision(True)
 def sparseScalarQuotientOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data):
     '''
-    Returns A / np.dot(B, C), however it does so keeping in  mind 
+    Returns A / np.dot(B, C), however it does so keeping in mind 
     the sparsity of A, calculating values only where required.
      
     Params
@@ -168,7 +168,7 @@ def sparseScalarQuotientOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr
     out_data  - the values buffer into which the result will be placed.
     
     Returns
-    out_data, though note that this is the same parameter passed in and overwitten.
+    out_data, though note that this is the same parameter passed in and overwritten.
     '''
     cdef int rowCount = len(A_ptr) - 1 
     cdef int elemCount = 0, e = 0

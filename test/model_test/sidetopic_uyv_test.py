@@ -20,6 +20,7 @@ import numpy.random as rd
 import scipy.sparse as ssp
 from math import ceil
 
+
 def sampleFromModel(D=200, T=100, K=10, Q=6, F=12, P=8, avgWordsPerDoc = 500):
     '''
     Create a test dataset according to the model
