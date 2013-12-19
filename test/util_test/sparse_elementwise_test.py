@@ -12,7 +12,7 @@ import scipy.sparse as ssp
 import scipy.linalg as la
 import scipy.sparse.linalg as sla
 
-from util.sparse_elementwise import sparseScalarProductOfLnDot
+from util.sparse_elementwise import sparseScalarProductOfDot, sparseScalarProductOfSafeLnDot, sparseScalarQuotientOfDot
 
 class Test(unittest.TestCase):
 
@@ -25,19 +25,27 @@ class Test(unittest.TestCase):
         pass
 
 
-    def testName(self):
+    def testscaleProductOfQuotient(self):
         rd.seed(0xC0FFEE)
         
-        D = 1000
-        T = 2000
-        K = 10
+        D = 100
+        T = 200
+        K = 16
         
-        W = ssp.csr_matrix(np.floor(rd.random((D,T)) * 1.2))
+        W_d = np.floor(rd.random((D,T)) * 1.4)
+        
+        W_s = ssp.csr_matrix(W_d)
         topics = rd.random((D,K))
         vocab  = rd.random((K,T))
         
-        expected = W.multiply(np.log(np.dot(topics, vocab)))
-        received = sparseScalarProductOfLnDot(W, topics, vocab)
+        expected = W_d / topics.dot(vocab)
+        received = sparseScalarQuotientOfDot(W_s, topics, vocab)
+        
+        diff = np.asarray(expected - received.todense())
+        trNorm = np.sum(diff * diff)
+        print (str(trNorm))
+        
+        print (str(diff))
         
         
         
