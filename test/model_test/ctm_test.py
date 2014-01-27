@@ -103,7 +103,7 @@ class Test(unittest.TestCase):
         #
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=65, plot=True, logFrequency=1)
         
         self.assertTrue (0.99 < np.sum(model.topicMean) < 1.01)
         
@@ -138,12 +138,14 @@ class Test(unittest.TestCase):
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
         
-        K = 30
+        K = 50
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
         model, query = ctm.train (W, model, queryState, trainPlan)
+        with open("/Users/bryanfeeney/Desktop/test_result.pkl", "wb") as f:
+            pkl.dump ((model, query), f)
     
         topWordCount = 100
         kTopWordInds = []
