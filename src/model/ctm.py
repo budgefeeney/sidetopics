@@ -51,7 +51,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'expMeans varcs lxi s docLens'\
+    'means varcs lxi s docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -85,8 +85,11 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
     
-    sigT = rd.random((K,K)).astype(dtype)
-    sigT = sigT.T.dot(sigT)
+    isigT = np.eye(K)
+    sigT  = la.inv(isigT)
+    sigT  = np.eye(K)
+#    sigT = rd.random((K,K)).astype(dtype)
+#    sigT = sigT.T.dot(sigT)
     
     return ModelState(K, topicMean, sigT, vocab, dtype)
 
@@ -111,16 +114,14 @@ def newQueryState(W, modelState):
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
     means = normalizerows_ip(rd.random((D,K)).astype(dtype))
-    varcs = normalizerows_ip(rd.random((D,K)).astype(dtype))
+    varcs = np.ones((D,K), dtype=dtype)
     
     s = np.ndarray(shape=(D,), dtype=dtype)
     s.fill(0)
     
     lxi = negJakkolaOfDerivedXi(means, varcs, s)
     
-    expMeans = np.exp(means, out=means)
-    
-    return QueryState(expMeans, varcs, lxi, s, docLens)
+    return QueryState(means, varcs, lxi, s, docLens)
 
 
 def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, plotFile=None, plotIncremental=False, fastButInaccurate=False):
@@ -154,50 +155,100 @@ def train (W, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
-    expMeans, varcs, lxi, s, n = queryState.expMeans, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
-    boundIters  = np.zeros(iterations / logFrequency)
-    boundValues = np.zeros(iterations / logFrequency)
+    boundIters  = np.zeros(shape=(iterations // logFrequency,))
+    boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
     
     # Initialize some working variables
     isigT = la.inv(sigT)
     R = W.copy()
     
+    s = np.zeros(s.shape, dtype=dtype)
+    priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
+    priorSigt_diag.fill (0.001)
+    
     # Iterate over parameters
     for iter in range(iterations):
+        # We start with the M-Step, so the parameters are consistent with our
+        # initialisation of the RVs when we do the E-Step
         
-        # Building Blocks
+        if iter == 40:
+            print ("Oh dear...")
+        
+        # Update the mean and covariance of the prior
+        topicMean = means.sum(axis = 0)
+        topicMean /= D
+        print ("Iter %3d Update %s Bound %f" % (iter, "mu", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        
+#        sigT = (means - topicMean[np.newaxis,:])
+#        sigT = sigT.T.dot(sigT)
+#        sigT.flat[::K+1] += varcs.sum(axis=0) + priorSigt_diag
+#        sigT /= D
+#        isigT = la.inv(sigT)
+        print ("Iter %3d Update %s Bound %f" % (iter, "sigT", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        print ("\tNegative cov count %d" % (len(np.where(sigT.ravel() < 0)[0])))
+        
+        # Building Blocks - termporarily replaces means with exp(means)
+        expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         V = expMeans * R.dot(vocab.T)
         
-        # Update the Mean
-        means  = np.log(expMeans, out=expMeans)
+        # Update the vocabulary
+        vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        vocab = normalizerows_ip(vocab)
+        vocab += 1E-300
+        print ("Iter %3d Update %s Bound %f" % (iter, "vocab", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(np.log(means), varcs, lxi, s, n)))) 
+        
+        # Reset the means to their original form
+        means = np.log(expMeans, out=expMeans)
+        
+        # And now this is the E-Step, though it's followed by updates for the
+        # parameters also that handle the log-sum-exp approximation.
+        
+        # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
         rhsMat = vMat + isigT.dot(topicMean)
-        nD     = n[:,np.newaxis] * 2 * lxi
         for d in range(D):
             isigT.flat[::K+1] += n[d] * 2 * lxi[d,:]
             means[d,:] = la.inv(isigT).dot(rhsMat[d,:])
             isigT.flat[::K+1] -= n[d] * 2 * lxi[d,:]
-            
+        verifyProper(means, "means")
+        print ("Iter %3d Update %s Bound %f" % (iter, "means", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
-        expMeans = np.exp(means, out=means)
+        # Update the Variances
+        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        verifyProper(varcs, "varcs")
+        print ("Iter %3d Update %s Bound %f" % (iter, "varcs", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
+        # Update the approximation parameters
+        lxi = negJakkolaOfDerivedXi(means, varcs, s)
+        verifyProper(lxi, "lxi")
+        print ("Iter %3d Update %s Bound %f" % (iter, "lxi", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        
+        # s grows unboundedly
+        # Follow Bouchard's suggested approach of fixing it at zero
+        #
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        verifyProper(s, "s")
+        print ("Iter %3d Update %s Bound %f" % (iter, "s", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        print ("    (%f, %f, %f)" % (s.min(), s.mean(), s.max()))
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype)
-            queryState = QueryState(expMeans, varcs, lxi, s, n)
+            queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = iter
             print ("Iteration %d: bound %f\n" % (iter, boundValues[bvIdx]))
+            print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
             
     if plot:
-        plt.plot(boundIters, boundValues)
+        plt.plot(boundIters[5:], boundValues[5:])
         plt.xlabel("Iterations")
         plt.ylabel("Variational Bound")
         plt.show()
@@ -205,9 +256,25 @@ def train (W, modelState, queryState, trainPlan):
     
     return \
         ModelState(K, topicMean, sigT, vocab, dtype), \
-        QueryState(expMeans, varcs, lxi, s, n)
+        QueryState(means, varcs, lxi, s, n)
     
+
+def verifyProper(X, xName):
+    '''
+    Checks there's no NaNs or Infs
+    '''
+    if np.isnan(X).any():
+        print (xName + " contains NaNs")
+    if np.isinf(X).any():
+        print (xName + " contains Infs")
     
+def log_likelihood (W, modelState, queryState):
+    ''' 
+    Return the log-likelihood of the given data W according to the model
+    and the parameters inferred for the entries in W stored in the 
+    queryState object.
+    '''
+    return 0
     
 def var_bound(W, modelState, queryState):
     '''
@@ -218,21 +285,22 @@ def var_bound(W, modelState, queryState):
     
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
-    expMeans, varcs, lxi, s, docLens    = queryState.expMeans, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
-    K, topicMean, sigT, vocab = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab
+    means, varcs, lxi, s, docLens = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    K, topicMean, sigT, vocab     = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab
     
-    # Calculate some implicit 
-    means = np.log(expMeans, out=expMeans)
-    xi    = np.sqrt (means * means + 2 * means * s[:, np.newaxis] + (s * s)[:,np.newaxis] + varcs*varcs)
+    # Calculate some implicit  variables
+    xi = _deriveXi(means, varcs, s)
+    isigT = la.inv(sigT)
     
     bound = 0
     
     # Distribution over document topics
-    bound -= (D*K)/2. * np.log(2*pi)
+    bound -= (D*K)/2. * LN_OF_2_PI
     bound -= D/2. * la.det(sigT)
-    diff   = topicMean[np.newaxis,:] - means
-    bound -= 0.5 * np.sum (diff.dot(la.inv(sigT)) * diff)
-    
+    diff   = means - topicMean[np.newaxis,:]
+    bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
+    bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
+       
     # And its entropy
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
     
@@ -253,6 +321,8 @@ def var_bound(W, modelState, queryState):
     bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
     
     bound -= np.dot(s, docLens)
+    
+    means = np.log(expMeans, out=expMeans)
     
     return bound
         
@@ -275,15 +345,13 @@ def negJakkola(vec):
     # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
     return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
 
-def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
+def negJakkolaOfDerivedXi(means, varcs, s, d = None):
     '''
     The negated version of the Jakkola expression which was used in Bouchard's NIPS '07
     softmax bound calculated using an estimate of xi derived from lambda, nu, and s
     
-    lmda    - the DxK matrix of means of the topic distribution for each document.
-              Note that this is different to all other implementations of neg-Jaakkola which assume
-              the topic distribution is provided, and not e to the power of it.
-    nu      - the DxK the vector of variances of the topic distribution
+    means   - the DxK matrix of means of the topic distribution for each document.
+    varcs   - the DxK the vector of variances of the topic distribution
     s       - The Dx1 vector of offsets.
     d       - the document index (for lambda and nu). If not specified we construct
               the full matrix of A(xi_dk)
@@ -291,20 +359,20 @@ def negJakkolaOfDerivedXi(lmda, nu, s, d = None):
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
-        vec = (np.sqrt (lmda[d,:]**2 - 2 * lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
+        vec = (np.sqrt (means[d,:]**2 - 2 * means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
     else:
-        mat = _deriveXi(lmda, nu, s)
+        mat = _deriveXi(means, varcs, s)
         return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
     
 
-def jakkolaOfDerivedXi(lmda, nu, s, d = None):
+def jakkolaOfDerivedXi(means, varcs, s, d = None):
     '''
     The standard version of the Jakkola expression which was used in Bouchard's NIPS '07
     softmax bound calculated using an estimate of xi derived from lambda, nu, and s
     
-    lmda - the DxK matrix of means of the topic distribution for each document
-    nu   - the DxK the vector of variances of the topic distribution
+    means - the DxK matrix of means of the topic distribution for each document
+    varcs - the DxK the vector of variances of the topic distribution
     s    - The Dx1 vector of offsets.
     d    - the document index (for lambda and nu). If not specified we construct
            the full matrix of A(xi_dk)
@@ -312,10 +380,10 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
-        vec = (np.sqrt (lmda[d,:]**2 -2 *lmda[d,:] * s[d] + s[d]**2 + nu[d,:]**2))
+        vec = (np.sqrt (means[d,:]**2 -2 *means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
     else:
-        mat = _deriveXi(lmda, nu, s)
+        mat = _deriveXi(means, varcs, s)
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
 
@@ -324,11 +392,11 @@ def jakkolaOfDerivedXi(lmda, nu, s, d = None):
 # PRIVATE HELPERS
 # ==============================================================
 
-def _deriveXi (lmda, nu, s):
+def _deriveXi (means, varcs, s):
     '''
     Derives a value for xi. This is not normally needed directly, as we
     normally just work with the negJakkola() function of it
     '''
-    return np.sqrt(lmda**2 - 2 * lmda * s[:,np.newaxis] + (s**2)[:,np.newaxis] + nu**2)   
+    return np.sqrt(means**2 - 2 * means * s[:,np.newaxis] + (s**2)[:,np.newaxis] + varcs**2)   
 
 

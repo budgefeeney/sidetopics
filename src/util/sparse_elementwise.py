@@ -11,6 +11,7 @@ pyximport.install(setup_args={"include_dirs": np.get_include(), "libraries":[('m
 import util.se_fast as compiled
 from numba import autojit
 from math import log
+import sys
 
 def entropyOfDot (topics, vocab):
     '''
