@@ -138,7 +138,7 @@ class Test(unittest.TestCase):
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
         
-        K = 20
+        K = 30
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
         trainPlan  = ctm.newTrainPlan(iterations=100, plot=True, logFrequency=1)
@@ -146,16 +146,20 @@ class Test(unittest.TestCase):
         model, query = ctm.train (W, model, queryState, trainPlan)
     
         topWordCount = 100
-        kTopWords = []
+        kTopWordInds = []
         for k in range(K):
-            topWords = self.topWords(d, model.vocab[k,:], topWordCount)
-            kTopWords.append(topWords)
+            topWordInds = self.topWordInds(d, model.vocab[k,:], topWordCount)
+            kTopWordInds.append(topWordInds)
         
-        print ("\t".join (["Topic " + str(k) for k in range(K)]))
-        print ("\n".join ("\t".join (truncate(kTopWords[k][c]) for k in range(K)) for c in range(topWordCount)))
+        print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
+        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % model.vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         
     def topWords (self, wordDict, vocab, count=10):
-        return [wordDict[w] for w in vocab.argsort()[-count:][::-1]]
+        return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]
+
+    
+    def topWordInds (self, wordDict, vocab, count=10):
+        return vocab.argsort()[-count:][::-1]
     
     def printTopics(self, wordDict, vocab, count=10):
         words = vocab.argsort()[-count:][::-1]
