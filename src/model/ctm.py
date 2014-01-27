@@ -176,21 +176,17 @@ def train (W, modelState, queryState, trainPlan):
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
-        if iter == 40:
+        if iter == 65:
             print ("Oh dear...")
         
         # Update the mean and covariance of the prior
-        topicMean = means.sum(axis = 0)
-        topicMean /= D
+        topicMean = means.mean(axis = 0)
         print ("Iter %3d Update %s Bound %f" % (iter, "mu", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
-        sigT = (means - topicMean[np.newaxis,:])
-        sigT = sigT.T.dot(sigT)
-        sigT.flat[::K+1] += varcs.sum(axis=0) + priorSigt_diag
-        sigT /= D
+        sigT = np.cov(means.T)
+        sigT.flat[::K+1] += varcs.mean(axis=0)
         isigT = la.inv(sigT)
         print ("Iter %3d Update %s Bound %f" % (iter, "sigT", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
-        print ("\tNegative cov count %d" % (len(np.where(sigT.ravel() < 0)[0])))
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -240,7 +236,9 @@ def train (W, modelState, queryState, trainPlan):
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = iter
-            print ("Iteration %d: bound %f\n" % (iter, boundValues[bvIdx]))
+            print ("\nIteration %d: bound %f" % (iter, boundValues[bvIdx]))
+            if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
+                print ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
             
