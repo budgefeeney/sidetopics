@@ -141,7 +141,7 @@ class Test(unittest.TestCase):
         K = 50
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=150, plot=True, logFrequency=1)
         
         model, query = ctm.train (W, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/test_result.pkl", "wb") as f:
@@ -153,6 +153,7 @@ class Test(unittest.TestCase):
             topWordInds = self.topWordInds(d, model.vocab[k,:], topWordCount)
             kTopWordInds.append(topWordInds)
         
+        print ("Perplexity: %f\n\n" % ctm.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
         print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % model.vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         

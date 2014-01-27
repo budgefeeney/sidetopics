@@ -151,6 +151,16 @@ def train (W, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
     '''
+    def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
+        if np.isnan(var_value).any():
+            print ("WARNING: " + var_name + " contains NaNs")
+        if np.isinf(var_value).any():
+            print ("WARNING: " + var_name + " contains INFs")
+        
+        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+    def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
+        pass
+    
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
@@ -162,6 +172,7 @@ def train (W, modelState, queryState, trainPlan):
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
+    debugFn = debug_with_bound if DEBUG else debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -176,17 +187,14 @@ def train (W, modelState, queryState, trainPlan):
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
-        if iter == 65:
-            print ("Oh dear...")
-        
         # Update the mean and covariance of the prior
         topicMean = means.mean(axis = 0)
-        print ("Iter %3d Update %s Bound %f" % (iter, "mu", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         sigT = np.cov(means.T)
         sigT.flat[::K+1] += varcs.mean(axis=0)
         isigT = la.inv(sigT)
-        print ("Iter %3d Update %s Bound %f" % (iter, "sigT", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -197,10 +205,12 @@ def train (W, modelState, queryState, trainPlan):
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
         vocab += 1E-300
-        print ("Iter %3d Update %s Bound %f" % (iter, "vocab", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(np.log(means), varcs, lxi, s, n)))) 
         
-        # Reset the means to their original form
+        # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
+        debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+       
         
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
@@ -210,25 +220,21 @@ def train (W, modelState, queryState, trainPlan):
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-        verifyProper(means, "means")
-        print ("Iter %3d Update %s Bound %f" % (iter, "means", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        verifyProper(varcs, "varcs")
-        print ("Iter %3d Update %s Bound %f" % (iter, "varcs", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = negJakkolaOfDerivedXi(means, varcs, s)
-        verifyProper(lxi, "lxi")
-        print ("Iter %3d Update %s Bound %f" % (iter, "lxi", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s grows unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
-#        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-#        verifyProper(s, "s")
-#        print ("Iter %3d Update %s Bound %f" % (iter, "s", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype)
@@ -262,14 +268,31 @@ def verifyProper(X, xName):
         print (xName + " contains NaNs")
     if np.isinf(X).any():
         print (xName + " contains Infs")
+
+def perplexity (W, modelState, queryState):
+    '''
+    Return the perplexity of this model.
     
+    Perplexity is a sort of normalized likelihood, applicable to textual
+    data. Specifically it's the reciprocal of the geometric mean of the
+    likelihoods of each individual word in the corpus.
+    '''
+    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
+    
+
 def log_likelihood (W, modelState, queryState):
     ''' 
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the 
     queryState object.
     '''
-    return 0
+    return np.sum( \
+        sparseScalarProductOfSafeLnDot(\
+            W, \
+            queryState.means, \
+            modelState.vocab \
+        ).data \
+    )
     
 def var_bound(W, modelState, queryState):
     '''
