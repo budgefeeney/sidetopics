@@ -184,11 +184,11 @@ def train (W, modelState, queryState, trainPlan):
         topicMean /= D
         print ("Iter %3d Update %s Bound %f" % (iter, "mu", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
-#        sigT = (means - topicMean[np.newaxis,:])
-#        sigT = sigT.T.dot(sigT)
-#        sigT.flat[::K+1] += varcs.sum(axis=0) + priorSigt_diag
-#        sigT /= D
-#        isigT = la.inv(sigT)
+        sigT = (means - topicMean[np.newaxis,:])
+        sigT = sigT.T.dot(sigT)
+        sigT.flat[::K+1] += varcs.sum(axis=0) + priorSigt_diag
+        sigT /= D
+        isigT = la.inv(sigT)
         print ("Iter %3d Update %s Bound %f" % (iter, "sigT", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         print ("\tNegative cov count %d" % (len(np.where(sigT.ravel() < 0)[0])))
         
@@ -213,9 +213,7 @@ def train (W, modelState, queryState, trainPlan):
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
-            isigT.flat[::K+1] += n[d] * 2 * lxi[d,:]
-            means[d,:] = la.inv(isigT).dot(rhsMat[d,:])
-            isigT.flat[::K+1] -= n[d] * 2 * lxi[d,:]
+            means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
         verifyProper(means, "means")
         print ("Iter %3d Update %s Bound %f" % (iter, "means", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
@@ -232,10 +230,9 @@ def train (W, modelState, queryState, trainPlan):
         # s grows unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
-        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        verifyProper(s, "s")
-        print ("Iter %3d Update %s Bound %f" % (iter, "s", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
-        print ("    (%f, %f, %f)" % (s.min(), s.mean(), s.max()))
+#        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+#        verifyProper(s, "s")
+#        print ("Iter %3d Update %s Bound %f" % (iter, "s", var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype)
