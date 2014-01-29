@@ -138,10 +138,10 @@ class Test(unittest.TestCase):
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
         
-        K = 50
+        K = 30
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=150, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
         model, query = ctm.train (W, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/test_result.pkl", "wb") as f:
