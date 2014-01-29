@@ -104,7 +104,7 @@ def newQueryState(W, modelState):
     REturn:
     A CtmQueryState object
     '''
-    K, topicMean, sigT, vocab, dtype =  modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
+    K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
     
     D,T = W.shape
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
