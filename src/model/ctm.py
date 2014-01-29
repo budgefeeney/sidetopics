@@ -85,11 +85,9 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
     
-    isigT = np.eye(K)
-    sigT  = la.inv(isigT)
+#    isigT = np.eye(K)
+#    sigT  = la.inv(isigT)
     sigT  = np.eye(K)
-#    sigT = rd.random((K,K)).astype(dtype)
-#    sigT = sigT.T.dot(sigT)
     
     return ModelState(K, topicMean, sigT, vocab, dtype)
 
@@ -153,9 +151,9 @@ def train (W, modelState, queryState, trainPlan):
     '''
     def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
         if np.isnan(var_value).any():
-            print ("WARNING: " + var_name + " contains NaNs")
+            printStderr ("WARNING: " + var_name + " contains NaNs")
         if np.isinf(var_value).any():
-            print ("WARNING: " + var_name + " contains INFs")
+            printStderr ("WARNING: " + var_name + " contains INFs")
         
         print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
     def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
@@ -184,6 +182,9 @@ def train (W, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for iter in range(iterations):
+        if iter == 47:
+            print ("hmm")
+        
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
@@ -210,8 +211,6 @@ def train (W, modelState, queryState, trainPlan):
         means = np.log(expMeans, out=expMeans)
         debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-       
-        
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
@@ -233,8 +232,8 @@ def train (W, modelState, queryState, trainPlan):
         # s grows unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
-        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+#        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+#        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype)
@@ -244,7 +243,7 @@ def train (W, modelState, queryState, trainPlan):
             boundIters[bvIdx]  = iter
             print ("\nIteration %d: bound %f" % (iter, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
-                print ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
+                printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
             
@@ -351,6 +350,11 @@ def var_bound(W, modelState, queryState):
 # ==============================================================
 # PUBLIC HELPERS
 # ==============================================================
+
+def printStderr(msg):
+    sys.stdout.flush()
+    sys.stderr.write(msg + '\n')
+    sys.stderr.flush()
 
 def negJakkola(vec):
     '''
