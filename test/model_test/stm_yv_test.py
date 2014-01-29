@@ -105,6 +105,8 @@ class Test(unittest.TestCase):
         D, T, K, F, P = 200, 100, 10, 12, 8
         tpcs, vocab, docLens, X, W = self._sampleFromModel()
         
+        W = W.astype(DTYPE)
+        X = X.astype(DTYPE)
         
         # Create the cross-validation folds
         folds     = 5
