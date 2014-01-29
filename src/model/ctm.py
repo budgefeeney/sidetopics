@@ -33,8 +33,7 @@ from util.sparse_elementwise import sparseScalarProductOf, \
 # CONSTANTS
 # ==============================================================
 
-MAX_X_TICKS_PER_PLOT = 50
-DTYPE = np.float32
+DTYPE=np.float32 # A default, generally we should specify this in the model setup
 
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
@@ -176,7 +175,7 @@ def train (W, modelState, queryState, trainPlan):
     isigT = la.inv(sigT)
     R = W.copy()
     
-    s = np.zeros(s.shape, dtype=dtype)
+    s.fill(0)
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigt_diag.fill (0.001)
     
@@ -229,7 +228,7 @@ def train (W, modelState, queryState, trainPlan):
         lxi = negJakkolaOfDerivedXi(means, varcs, s)
         debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-        # s grows unboundedly
+        # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
 #        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
@@ -329,6 +328,7 @@ def var_bound(W, modelState, queryState):
     bound += np.sum(means * 2 * docLens[:,np.newaxis] * s[:,np.newaxis] * lxi)
     bound += np.sum(means * -0.5 * docLens[:,np.newaxis])
     # The last term of line 1 gets cancelled out by part of the first term in line 2
+    # so neither are included here
     
     expMeans = np.exp(means, out=means)
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
