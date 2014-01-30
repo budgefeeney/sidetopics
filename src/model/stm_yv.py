@@ -8,29 +8,27 @@ Created on 17 Jan 2014
 @author: bryanfeeney
 '''
 
-from math import log
-from math import pi
-from math import e
-
 from collections import namedtuple
+from math import e, log, pi
+from model.ctm import printStderr, verifyProper, perplexity, LN_OF_2_PI, \
+    LN_OF_2_PI_E, DTYPE
+from util.array_utils import normalizerows_ip, rowwise_softmax
+from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
+from util.sparse_elementwise import sparseScalarProductOf, \
+    sparseScalarProductOfDot, sparseScalarQuotientOfDot, entropyOfDot, \
+    sparseScalarProductOfSafeLnDot
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import model.ctm as ctm
 import numpy as np
+import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
-import numpy.random as rd
-import matplotlib as mpl
-#mpl.use('Agg')
-import matplotlib.pyplot as plt
 import sys
 
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
-from util.array_utils import normalizerows_ip, rowwise_softmax
-from util.sparse_elementwise import sparseScalarProductOf, \
-    sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    entropyOfDot, sparseScalarProductOfSafeLnDot
-import model.ctm as ctm
-from model.ctm import printStderr, verifyProper, perplexity, \
-    LN_OF_2_PI, LN_OF_2_PI_E, DTYPE
+#mpl.use('Agg')
+
     
 # ==============================================================
 # CONSTANTS
@@ -185,6 +183,9 @@ def train (W, X, modelState, queryState, trainPlan):
     
     s.fill(0)
     
+    R_Y_base = R_Y.copy()
+    R_A_base = R_A.copy()
+    
     # Iterate over parameters
     for iter in range(iterations):
         
@@ -226,7 +227,9 @@ def train (W, X, modelState, queryState, trainPlan):
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the distribution on the latent space
-        R_Y = la.inv(aI_P + 1/fv * V.dot(V.T))
+        R_Y_base = aI_P + 1/fv * V.dot(V.T)
+        S_Y = P / np.trace(R_Y.dot(R_Y_base)) * isigT
+        R_Y = K / np.trace(S_Y.dot(isigT)) * la.inv(R_Y_base)
         debugFn (iter, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         Y = A.dot(V.T).dot(R_Y)
         debugFn (iter, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
