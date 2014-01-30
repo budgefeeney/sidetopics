@@ -98,7 +98,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, X, W
         
-    def testLikelihoodOnModelDerivedExample(self):
+    def _testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -170,32 +170,38 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
         
 
-    def _testOnRealData(self):
+    def testOnRealData(self):
         path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats"
-        with open(path + "/words-by-author.pkl", 'rb') as f:
-            user_dict, d, W = pkl.load(f)
+        with open(path + "/all-in-one.pkl", "rb") as f:
+            (W, X, dic) = pkl.load(f)
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
+        if X.dtype != DTYPE:
+            X = X.astype(DTYPE)
+        
+        D,T = W.shape
+        _,F = X.shape
         
         K = 30
-        model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
-        queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+        P = 100
+        model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
+        queryState = stm.newQueryState(W, model)
+        trainPlan  = stm.newTrainPlan(iterations=20, plot=True, logFrequency=1)
         
-        model, query = ctm.train (W, model, queryState, trainPlan)
+        model, query = stm.train (W, X, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/test_result.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
         topWordCount = 100
         kTopWordInds = []
         for k in range(K):
-            topWordInds = self.topWordInds(d, model.vocab[k,:], topWordCount)
+            topWordInds = self.topWordInds(dic, model.vocab[k,:], topWordCount)
             kTopWordInds.append(topWordInds)
         
         print ("Perplexity: %f\n\n" % ctm.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
-        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % model.vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
+        print ("\n".join ("\t".join (dic[kTopWordInds[k][c]] + "\t%0.4f" % model.vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         
     def topWords (self, wordDict, vocab, count=10):
         return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]
