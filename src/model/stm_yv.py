@@ -26,6 +26,7 @@ import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import sys
+import time
 
 #mpl.use('Agg')
 
@@ -205,7 +206,7 @@ def train (W, X, modelState, queryState, trainPlan):
         isigT = la.inv(sigT)
         debugFn (iter, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-        # Building Blocks - termporarily replaces means with exp(means)
+        # Building Blocks - temporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
@@ -265,7 +266,7 @@ def train (W, X, modelState, queryState, trainPlan):
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
             boundIters[bvIdx]  = iter
-            print ("\nIteration %d: bound %f" % (iter, boundValues[bvIdx]))
+            print ("\n" + time.strftime('%X') + " : Iteration %d: bound %f" % (iter, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
