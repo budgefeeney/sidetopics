@@ -114,7 +114,7 @@ class Test(unittest.TestCase):
         querySize = foldSize
         trainSize = D - querySize
         
-        for fold in range(folds):
+        for fold in range(1):
             start = fold * foldSize
             end   = start + trainSize
             
@@ -127,7 +127,7 @@ class Test(unittest.TestCase):
             model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=np.float32)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+            plan  = stm.newTrainPlan(iterations=40, plot=True, logFrequency=1)
             model, queryState = stm.train(W_train, X_train, model, queryState, plan)
             
             self._plotCov(model)
