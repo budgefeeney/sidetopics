@@ -219,15 +219,13 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (iter, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Finally update the parameter V
-        V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(1./fv * (Y.T).dot(isigT).dot(A))
+        V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
         debugFn (iter, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the distribution on the latent space
-        if iter == 6:
-            print("Hmm")
         R_Y = la.inv(aI_P + 1/fv * V.dot(V.T))
         debugFn (iter, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         Y = A.dot(V.T).dot(R_Y)
