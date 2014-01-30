@@ -12,6 +12,7 @@ import util.se_fast as compiled
 from numba import autojit
 from math import log
 import sys
+from util.overflow_safe import safe_log
 
 def entropyOfDot (topics, vocab):
     '''
@@ -181,7 +182,7 @@ def _sparseScalarProductOfSafeLnDot_py(A,B,C, out=None):
     
     rhs = B.dot(C)
     rhs[rhs < sys.float_info.min] = sys.float_info.min
-    out.data *= np.log(rhs)[csr_indices(out.indptr, out.indices)]
+    out.data *= safe_log(rhs)[csr_indices(out.indptr, out.indices)]
     
     return out
 
