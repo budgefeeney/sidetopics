@@ -98,7 +98,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, X, W
         
-    def _testLikelihoodOnModelDerivedExample(self):
+    def testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -170,9 +170,9 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
         
 
-    def testOnRealData(self):
+    def _testOnRealData(self):
         rd.seed(0xDAFF0D12)
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats"
+        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
         with open(path + "/all-in-one.pkl", "rb") as f:
             (W, X, dic) = pkl.load(f)
         
@@ -184,14 +184,14 @@ class Test(unittest.TestCase):
         D,T = W.shape
         _,F = X.shape
         
-        K = 30
-        P = 100
+        K = 10
+        P = 30
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=20, plot=True, logFrequency=1)
+        trainPlan  = stm.newTrainPlan(iterations=50, plot=True, logFrequency=1)
         
         model, query = stm.train (W, X, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/test_result_real.pkl", "wb") as f:
+        with open("/Users/bryanfeeney/Desktop/test_result_real_p30_k10.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
         topWordCount = 100

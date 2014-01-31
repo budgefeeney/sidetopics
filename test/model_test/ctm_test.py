@@ -131,7 +131,7 @@ class Test(unittest.TestCase):
     
 
     def testOnRealData(self):
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats"
+        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
         with open(path + "/words-by-author.pkl", 'rb') as f:
             user_dict, d, W = pkl.load(f)
         
@@ -144,7 +144,7 @@ class Test(unittest.TestCase):
         trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
         model, query = ctm.train (W, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/test_result.pkl", "wb") as f:
+        with open("/Users/bryanfeeney/Desktop/author_ctm_result.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
         topWordCount = 100
