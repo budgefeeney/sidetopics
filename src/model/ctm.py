@@ -231,8 +231,8 @@ def train (W, modelState, queryState, trainPlan):
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
-#        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-#        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype)
