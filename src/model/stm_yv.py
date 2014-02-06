@@ -59,6 +59,19 @@ ModelState = namedtuple ( \
 # PUBLIC API
 # ==============================================================
 
+
+def newModelFromExisting(model):
+    '''
+    Creates a _deep_ copy of the given model
+    '''
+    return ModelState(\
+        model.F, model.P, model.K, \
+        model.A.copy(), model.R_A.copy(), model.featVar, \
+        model.Y.copy(), model.R_Y.copy(), model.latFeatVar, \
+        model.V.copy(), \
+        model.sigT.copy(), model.vocab.copy(), model.dtype)
+
+
 def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and

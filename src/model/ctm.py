@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 '''
 Implements a correlated topic model, similar to that described by Blei
 but using the Bouchard product of sigmoid bounds instead of Laplace
@@ -61,6 +62,12 @@ ModelState = namedtuple ( \
 # ==============================================================
 # PUBLIC API
 # ==============================================================
+
+def newModelFromExisting(model):
+    '''
+    Creates a _deep_ copy of the given model
+    '''
+    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype)
 
 def newModelAtRandom(W, K, dtype=DTYPE):
     '''
@@ -130,13 +137,14 @@ def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, pl
     return TrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
 
 
-def train (W, modelState, queryState, trainPlan):
+def train (W, X, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
     
     Params:
     W - the DxT document-term matrix
+    X - The DxF document-feature matrix, which is IGNORED in this case
     modelState - the actual CTM model
     queryState - the query results - essentially all the "local" variables
                  matched to the given observations
@@ -204,7 +212,7 @@ def train (W, modelState, queryState, trainPlan):
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-300
+        vocab += 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
@@ -364,7 +372,7 @@ def negJakkola(vec):
     CTM Source reads: y = .5./x.*(1./(1+exp(-x)) -.5);
     '''
     
-    # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
+    # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
     return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
 
 def negJakkolaOfDerivedXi(means, varcs, s, d = None):
@@ -379,7 +387,7 @@ def negJakkolaOfDerivedXi(means, varcs, s, d = None):
               the full matrix of A(xi_dk)
     '''
     
-    # COPY AND PASTE BETWEEN THIS AND negJakkola()
+    # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
         vec = (np.sqrt (means[d,:]**2 - 2 * means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
@@ -400,7 +408,7 @@ def jakkolaOfDerivedXi(means, varcs, s, d = None):
            the full matrix of A(xi_dk)
     '''
     
-    # COPY AND PASTE BETWEEN THIS AND negJakkola()
+    # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
         vec = (np.sqrt (means[d,:]**2 -2 *means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
         return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
