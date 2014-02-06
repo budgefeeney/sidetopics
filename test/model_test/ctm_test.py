@@ -22,7 +22,6 @@ DTYPE=np.float32
 
 class Test(unittest.TestCase):
 
-
     def _testOnModelHandcraftedData(self):
         #
         # Create the vocab
@@ -66,7 +65,7 @@ class Test(unittest.TestCase):
         # Create the corpus
         #
         rd.seed(0xC0FFEE)
-        D = 100
+        D = 1000
 
         # Make sense (of a sort) of this by assuming that these correspond to
         # Kittens    Omelettes    Puppies    Oranges    Tomatoes    Dutch People    Basketball    Football
@@ -108,24 +107,104 @@ class Test(unittest.TestCase):
         self.assertTrue (0.99 < np.sum(model.topicMean) < 1.01)
         
         return self._doTest (W, model, queryState, trainPlan)
+
+    def _sampleFromModel(self, D=200, T=100, K=10, avgWordsPerDoc = 500):
+        '''
+        Create a test dataset according to the model
+        
+        Params:
+            D - Sample documents (each with associated features)
+            T - Vocabulary size, the number of "terms". Must be a square number
+            K - Observed topics
+            avgWordsPerDoc - average number of words per document generated (Poisson)
+        
+        Returns:
+            modelState - a model state object configured for training
+            tpcs       - the matrix of per-document topic distribution
+            vocab      - the matrix of per-topic word distributions
+            docLens    - the vector of document lengths
+            X          - the DxF side information matrix
+            W          - The DxW word matrix
+        '''
+        
+        # Generate vocab
+        beta = 0.1
+        betaVec = np.ndarray((T,))
+        betaVec.fill(beta)
+        vocab = rd.dirichlet(betaVec, size=K)
+        
+        # Geneate the shared covariance matrix
+        # ...no real structure in this.
+        sigT = rd.random((K,K))
+        sigT = sigT.dot(sigT)
+        
+        # Generate topic mean
+        alpha = 1
+        alphaVec = np.ndarray((K,))
+        alphaVec.fill(alpha)
+        topicMean = rd.dirichlet(alphaVec)
+        
+        # Generate the actual topics.
+        tpcs = rd.multivariate_normal(topicMean, sigT, size=D)
+        tpcs = rowwise_softmax(tpcs)
+        
+        # Generate the corpus
+        docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
+        W = tpcs.dot(vocab)
+        W *= docLens[:, np.newaxis]
+        W = np.array(W, dtype=np.int32) # truncate word counts to integers
+        W = ssp.csr_matrix(W)
+        
+        # Return the initialised model, the true parameter values, and the
+        # generated observations
+        return tpcs, vocab, docLens, W
+        
+    def testOnModelDerivedExample(self):
+        print("Cross-validated likelihoods on model-derived example")
+        
+        rd.seed(0xBADB055) # Global init for repeatable test
+        D, T, K = 1000, 100, 7 # Document count, vocabularly size ("term count") and topic count
+        tpcs, vocab, docLens, W = self._sampleFromModel()
+        
+        W = W.astype(DTYPE)
+        
+        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.show()
+            
+        #
+        # Train the model
+        #
+        model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
+        queryState = ctm.newQueryState(W, model)
+        trainPlan  = ctm.newTrainPlan(iterations=150, plot=True, logFrequency=1)
+        
+        return self._doTest (W, model, queryState, trainPlan)
+        print("End of Test")
+        
+    def _plotCov(self, model):
+        fig, ax = plt.subplots(figsize=(11,9))
+
+        im = plt.imshow(model.sigT, interpolation="none")
+
+        cb = fig.colorbar(im, ax=ax)
+        ax.set_title("Covariance Matrix")
+        plt.show()
+        
     
     
     def _doTest (self, W, model, queryState, trainPlan):
         D,_ = W.shape
-        recons = queryState.means.dot(model.vocab)
+        recons = rowwise_softmax(queryState.means).dot(model.vocab)
         reconsErr = 1./D * np.sum((np.asarray(W.todense()) - recons) * (np.asarray(W.todense()) - recons))
         
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
         model, query = ctm.train (W, model, queryState, trainPlan)
-        ones = np.ones((3,3))
-        for k in range(model.K):
-            plt.subplot(2, 3, k)
-            plt.imshow(ones - model.vocab[k,:].reshape((3,3)), interpolation="none", cmap = cm.Greys_r)
+        plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
         
-        recons = queryState.means.dot(model.vocab)
+        recons = rowwise_softmax(queryState.means).dot(model.vocab)
         reconsErr = 1./D * np.sum((np.asarray(W.todense()) - recons) * (np.asarray(W.todense()) - recons))
         print ("Final reconstruction error is %f\n\n" % reconsErr)
     
@@ -137,16 +216,20 @@ class Test(unittest.TestCase):
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
-        
+        D,T = W.shape
+       
+        # Initialise the model  
         K = 30
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
         trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
+        # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/author_ctm_result.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
+        # Print out the most likely topic words
         topWordCount = 100
         kTopWordInds = []
         for k in range(K):
