@@ -7,118 +7,11 @@ import argparse as ap
 import pickle as pkl
 import numpy as np
 import sys
+import matplotlib as mpl
+mpl.use('Agg') # Force everything to be saved to disk, including VB plots
 from math import ceil
 
-from model.sidetopic_uy import \
-    train as train_uy, \
-    newVbModelState as new_uy
-from model.sidetopic_uyv import \
-    train as train_uyv, \
-    newVbModelState as new_uyv, \
-    query, \
-    newInferencePlan, \
-    log_likelihood, \
-    DTYPE, \
-    VbSideTopicQueryState, VbSideTopicModelState
-from model.sidetopic_uv_vecy import \
-    train as train_uv_vecy, \
-    newVbModelState as new_uv_vecy
-
-  
-def selectModel(args):
-    '''
-    Returns a tuple of three methods for instantiating a model, 
-    training it, and querying it, in that order. All methods take the
-    same parameters (see sidetopics_uyv for an example). Expects the
-    args to contain a 'model' value specifying the appropriate model, values
-    are 'uyv', 'uy' and 'uv_vec_y'
-    '''
-    
-    if args.model == 'uyv':
-        return new_uyv, train_uyv, query
-    elif args.model == 'uy':
-        return new_uy, train_uy, query
-    elif args.model == 'uv_vec_y' or args.model == 'uv_vecy':
-        return new_uv_vecy, train_uv_vecy, query
-    else:
-        raise ValueError ('Unknown model type ' + args.model)
-    
-def newTrainPlans(args):
-    '''
-    Creates a new inference plan for training from the command-line arguments.
-    Generates one plan for every cross-validated fold, as the fold names are
-    required to modify the filenames for each of the plots
-    '''
-    return newPlans (args.iters, 'train', args)
-   
-def newQueryPlans(args):
-    '''
-    Creates a new inference plan for querying from the command-line arguments
-    '''
-    queryIters = args.query_iters if args.query_iters is not None else args.iters
-    return newPlans (queryIters, 'query', args)
-    
-def newPlans(iters, plotSuffix, args):
-    '''
-    Creates a new inference plan for training or querying from the command-line 
-    arguments and given parameters.
-    Generates one plan for every cross-validated fold, as the fold names are
-    required to modify the filenames for each of the plots
-    
-    iters - the number of training iterations to run
-    plotSuffix - either 'train' or 'query'
-    args - the rest of the command-line arguments
-    '''
-    if args.folds == 1:
-        return newInferencePlan(args.iters, args.min_vb_change, args.log_freq, plot=args.out_plot is not None, plotFile=args.out_plot, fastButInaccurate=False)
-    else:
-        plotPrefix = args.out_plot if args.out_plot is not None else ''
-        plans = []
-        for fold in range(args.folds):
-            plotName = plotPrefix + '-' + plotSuffix + '-' + str(fold)
-            plans.append(newInferencePlan(iters, args.min_vb_change, args.log_freq, plot=args.out_plot is not None, plotFile=plotName, fastButInaccurate=False))
-        return plans
-    
-def dumpModel (file, modelState, trainTopics, queryTopics):
-    '''
-    Uses pickle to store the VbSideTopicModelState object summarising the model,
-    and the VbSideTopicQueryState bojects summarising the topic assignments for
-    the training set and the query set
-    '''
-    
-    megaTuple = (modelState.K, modelState.Q, modelState.F, modelState.P, modelState.T, \
-                 modelState.A, modelState.varA, modelState.Y, modelState.omY, modelState.sigY,\
-                 modelState.sigT, modelState.U, modelState.V, modelState.vocab, \
-                 modelState.topicVar, modelState.featVar, modelState.lowTopicVar, \
-                 modelState.lowFeatVar, trainTopics.expLmda, trainTopics.nu, trainTopics.lxi,\
-                 trainTopics.s, trainTopics.docLen, queryTopics.expLmda, queryTopics.nu, \
-                 queryTopics.lxi, queryTopics.s, queryTopics.docLen)
-    
-    pkl.dump(megaTuple, file)
-
-def loadModel (file):
-    '''
-    Loads in the model state and train and query topic assignments created
-    by dumpModel()
-    '''
-    (modelStateK, modelStateQ, modelStateF, modelStateP, modelStateT, \
-     modelStateA, modelStatevarA, modelStateY, modelStateomY, modelStatesigY,\
-     modelStatesigT, modelStateU, modelStateV, modelStatevocab, \
-     modelStatetopicVar, modelStatefeatVar, modelStatelowTopicVar, \
-     modelStatelowFeatVar, trainTopicsexpLmda, trainTopicsnu, trainTopicslxi,\
-     trainTopicss, trainTopicsdocLen, queryTopicsexpLmda, queryTopicsnu, \
-     queryTopicslxi, queryTopicss, queryTopicsdocLen) = pkl.load(file)
-     
-    return \
-         VbSideTopicModelState (modelStateK, modelStateQ, modelStateF, \
-              modelStateP, modelStateT, modelStateA, modelStatevarA, \
-              modelStateY, modelStateomY, modelStatesigY, modelStatesigT,\
-              modelStateU, modelStateV, modelStatevocab, modelStatetopicVar,\
-              modelStatefeatVar, modelStatelowTopicVar, modelStatelowFeatVar), \
-         VbSideTopicQueryState (trainTopicsexpLmda, trainTopicsnu, \
-                 trainTopicslxi, trainTopicss, trainTopicsdocLen), \
-         VbSideTopicQueryState (queryTopicsexpLmda, queryTopicsnu, \
-                 queryTopicslxi, queryTopicss, queryTopicsdocLen)
+DTYPE=np.float32
 
 
 def run(args):
@@ -169,8 +62,9 @@ def run(args):
     print ("Args are : " + str(args))
     args = parser.parse_args(args)
     
+    
     #
-    # Instantiate and execute the model
+    # Load in the files
     #
     with open(args.words, 'rb') as f:
         W = pkl.load(f)
@@ -187,18 +81,28 @@ def run(args):
     
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
     
-    newModel, trainModel, queryModel = selectModel(args)
-    trainPlans = newTrainPlans(args)
-    queryPlans = newQueryPlans(args)
-
-        
+    #
+    # Instantiate and configure the model
+    #
+    if args.model == 'ctm':
+        import model.ctm as mdl
+        templateModel = mdl.newModelAtRandom(W, K, dtype=DTYPE)
+    elif args.model == 'stm_yv':
+        import model.stm_yv as mdl 
+        templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=DTYPE)
     
+
     if folds == 1:
-        modelState = newModel(K, Q, F, P, fv, tv, lfv, ltv)
-        modelState, queryState = trainModel(modelState, X, W, trainPlans[0])
-        trainSetLikely = log_likelihood(modelState, X, W, queryState)
+        model = mdl.newModelFromExisting(templateModel)
+        query = mdl.newQueryState(W, model)
+        plan  = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, args.out_plot is not None, args.out_plot, False, False)
+        
+        model, query = mdl.train (W, X, model, query, plan)
+        trainSetLikely = mdl.log_likelihood (W, model, query)
+        perp = mdl.perplexity(W, model, query)
                     
         print("Train-set Likelihood: %12f" % (trainSetLikely))
+        print("Train-set Perplexity: %12f" % (perp))
         print("")
     else:
         foldSize  = ceil(D / folds)
@@ -215,10 +119,10 @@ def run(args):
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
             
-            modelState = newModel(K, Q, F, P, T, fv, tv, lfv, ltv)
-            modelState, trainTopics = trainModel(modelState, X_train, W_train, trainPlans[fold])
-            trainSetLikely = log_likelihood(modelState, X_train, W_train, trainTopics)
-            trainSetPerp   = np.exp (-trainSetLikely / np.sum(trainTopics.docLen))
+            modelState = mdl.newModelFromExisting(templateModel)
+            modelState, trainTopics = mdl.train(modelState, X_train, W_train, trainPlans[fold])
+            trainSetLikely = mdl.log_likelihood (W, model, query)
+            trainSetPerp   = mdl.perplexity(W, model, query)
             
             queryTopics    = queryModel(modelState, X_query, W_query, queryPlans[fold])
             querySetLikely = log_likelihood(modelState, X_query, W_query, queryTopics)
