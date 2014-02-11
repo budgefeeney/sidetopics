@@ -51,3 +51,7 @@ nosetests.xml
 .idea/vcs.xml
 
 .idea/workspace.xml
+
+
+# The notebooks copy
+src/notebooks-imac
