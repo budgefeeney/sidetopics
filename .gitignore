@@ -51,3 +51,15 @@ nosetests.xml
 .idea/vcs.xml
 
 .idea/workspace.xml
+
+
+# Notebooks
+#
+src/notebooks/.ipynb_checkpoints
+src/notebooks/.texpadtmp
+src/notebooks/*_files
+src/notebooks/*.pdf
+src/notebooks/*.tex
+src/notebooks/*.html
+src/notebooks/*.zip
+
