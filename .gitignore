@@ -63,3 +63,5 @@ src/notebooks/*.tex
 src/notebooks/*.html
 src/notebooks/*.zip
 
+# The notebooks copy
+src/notebooks-imac
