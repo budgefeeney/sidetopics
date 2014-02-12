@@ -13,6 +13,38 @@ from numba import autojit
 from math import log
 import sys
 from util.overflow_safe import safe_log
+from util.array_utils import rowwise_softmax
+
+def lse(matrix):
+    '''
+    The log-sum-exp function. For each _row_ in the matrix, calculated the
+    log of the sum of the exponent of the values, i.e.
+    
+    log(sum exp(X[d,:]) for d in range(X.shape[0]))
+    
+    albeit a bit more efficiently than that code would suggest.
+    '''
+    return np.log(np.sum(np.exp(matrix), axis=1))
+
+def selfSoftDot(matrix):
+    '''
+    Considers the given matrix to be a collection of stacked row-vectors. 
+    Returns the sum of the dot products of each row-vector and its 
+    soft-max form.
+    
+    This words on DENSE matrices only, and it appears in this module simply
+    for convenience.
+    
+    Uses fast, memory-efficient operations for matrices of single
+    and double-precision numbers, uses fast-ish numpy code as a
+    fallback, but at the cost of creating a copy of of the matrix.
+    '''
+    if matrix.dtype == np.float64:
+        return compiled.selfSoftDot_f8(matrix)
+    elif matrix.dtype == np.float32:
+        return compiled.selfSoftDot_f4(matrix)
+    
+    return np.sum(matrix * rowwise_softmax(matrix))
 
 def entropyOfDot (topics, vocab):
     '''

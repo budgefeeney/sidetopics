@@ -52,7 +52,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs lxi s docLens'\
+    'means varcs docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -121,12 +121,7 @@ def newQueryState(W, modelState):
     means = normalizerows_ip(rd.random((D,K)).astype(dtype))
     varcs = np.ones((D,K), dtype=dtype)
     
-    s = np.ndarray(shape=(D,), dtype=dtype)
-    s.fill(0)
-    
-    lxi = negJakkolaOfDerivedXi(means, varcs, s)
-    
-    return QueryState(means, varcs, lxi, s, docLens)
+    return QueryState(means, varcs, docLens)
 
 
 def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, plotFile=None, plotIncremental=False, fastButInaccurate=False):
@@ -171,7 +166,7 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
@@ -310,11 +305,10 @@ def var_bound(W, modelState, queryState):
     
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
-    means, varcs, lxi, s, docLens = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab     = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab
     
     # Calculate some implicit  variables
-    xi = _deriveXi(means, varcs, s)
     isigT = la.inv(sigT)
     
     bound = 0
@@ -364,70 +358,3 @@ def printStderr(msg):
     sys.stdout.flush()
     sys.stderr.write(msg + '\n')
     sys.stderr.flush()
-
-def negJakkola(vec):
-    '''
-    The negated version of the Jakkola expression which was used in Bouchard's NIPS
-    2007 softmax bound
-    
-    CTM Source reads: y = .5./x.*(1./(1+exp(-x)) -.5);
-    '''
-    
-    # COPY AND PASTE BETWEEN THIS AND negJakkolaOfDerivedXi()
-    return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
-
-def negJakkolaOfDerivedXi(means, varcs, s, d = None):
-    '''
-    The negated version of the Jakkola expression which was used in Bouchard's NIPS '07
-    softmax bound calculated using an estimate of xi derived from lambda, nu, and s
-    
-    means   - the DxK matrix of means of the topic distribution for each document.
-    varcs   - the DxK the vector of variances of the topic distribution
-    s       - The Dx1 vector of offsets.
-    d       - the document index (for lambda and nu). If not specified we construct
-              the full matrix of A(xi_dk)
-    '''
-    
-    # COPY AND PASTE BETWEEN THIS AND negJakkola()
-    if d is not None:
-        vec = (np.sqrt (means[d,:]**2 - 2 * means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
-        return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
-    else:
-        mat = _deriveXi(means, varcs, s)
-        return 0.5/mat * (1./(1 + np.exp(-mat)) - 0.5)
-    
-
-def jakkolaOfDerivedXi(means, varcs, s, d = None):
-    '''
-    The standard version of the Jakkola expression which was used in Bouchard's NIPS '07
-    softmax bound calculated using an estimate of xi derived from lambda, nu, and s
-    
-    means - the DxK matrix of means of the topic distribution for each document
-    varcs - the DxK the vector of variances of the topic distribution
-    s    - The Dx1 vector of offsets.
-    d    - the document index (for lambda and nu). If not specified we construct
-           the full matrix of A(xi_dk)
-    '''
-    
-    # COPY AND PASTE BETWEEN THIS AND negJakkola()
-    if d is not None:
-        vec = (np.sqrt (means[d,:]**2 -2 *means[d,:] * s[d] + s[d]**2 + varcs[d,:]**2))
-        return 0.5/vec * (1./(1 + np.exp(-vec)) - 0.5)
-    else:
-        mat = _deriveXi(means, varcs, s)
-        return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
-
-
-
-# ==============================================================
-# PRIVATE HELPERS
-# ==============================================================
-
-def _deriveXi (means, varcs, s):
-    '''
-    Derives a value for xi. This is not normally needed directly, as we
-    normally just work with the negJakkola() function of it
-    '''
-    return np.sqrt(means**2 - 2 * means * s[:,np.newaxis] + (s**2)[:,np.newaxis] + varcs**2)   
-
-
