@@ -26,7 +26,7 @@ import sys
 
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax
+from util.sigmoid_utils import rowwise_softmax, selfSoftDot, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
     entropyOfDot, sparseScalarProductOfSafeLnDot
@@ -57,7 +57,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicMean sigT vocab dtype'
+    'K topicMean sigT vocab A dtype'
 )
 
 # ==============================================================
@@ -96,7 +96,9 @@ def newModelAtRandom(W, K, dtype=DTYPE):
 #    sigT  = la.inv(isigT)
     sigT  = np.eye(K)
     
-    return ModelState(K, topicMean, sigT, vocab, dtype)
+    A = np.eye(K) - 1./K
+    
+    return ModelState(K, topicMean, sigT, vocab, A, dtype)
 
 def newQueryState(W, modelState):
     '''
@@ -152,14 +154,14 @@ def train (W, X, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
     '''
-    def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
+    def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
         if np.isnan(var_value).any():
             printStderr ("WARNING: " + var_name + " contains NaNs")
         if np.isinf(var_value).any():
             printStderr ("WARNING: " + var_name + " contains INFs")
         
-        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
-    def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
+        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype), QueryState(means, varcs, n)))) 
+    def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):   
         pass
     
     D,_ = W.shape
@@ -167,7 +169,7 @@ def train (W, X, modelState, queryState, trainPlan):
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
+    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
@@ -179,7 +181,6 @@ def train (W, X, modelState, queryState, trainPlan):
     isigT = la.inv(sigT)
     R = W.copy()
     
-    s.fill(0)
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigt_diag.fill (0.001)
     
@@ -193,12 +194,12 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Update the mean and covariance of the prior
         topicMean = means.mean(axis = 0)
-        debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         sigT = np.cov(means.T)
         sigT.flat[::K+1] += varcs.mean(axis=0)
         isigT = la.inv(sigT)
-        debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -212,7 +213,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
-        debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
@@ -222,25 +223,25 @@ def train (W, X, modelState, queryState, trainPlan):
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # Update the approximation parameters
         lxi = negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         if logFrequency > 0 and iter % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, dtype)
-            queryState = QueryState(means, varcs, lxi, s, n)
+            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype)
+            queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = iter
@@ -258,18 +259,9 @@ def train (W, X, modelState, queryState, trainPlan):
         
     
     return \
-        ModelState(K, topicMean, sigT, vocab, dtype), \
-        QueryState(means, varcs, lxi, s, n)
+        ModelState(K, topicMean, sigT, vocab, A, dtype), \
+        QueryState(means, varcs, n)
     
-
-def verifyProper(X, xName):
-    '''
-    Checks there's no NaNs or Infs
-    '''
-    if np.isnan(X).any():
-        print (xName + " contains NaNs")
-    if np.isinf(X).any():
-        print (xName + " contains Infs")
 
 def perplexity (W, modelState, queryState):
     '''
@@ -306,7 +298,7 @@ def var_bound(W, modelState, queryState):
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab     = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab
+    K, topicMean, sigT, vocab, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A
     
     # Calculate some implicit  variables
     isigT = la.inv(sigT)
@@ -324,25 +316,20 @@ def var_bound(W, modelState, queryState):
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
     
     # Distribution over word-topic assignments
-    # This also takes into account all the variables that 
-    # constitute the bound on log(sum_j exp(mean_j)) and
-    # also incorporates the implicit entropy of Z_dvk
-    bound -= np.sum((means*means + varcs*varcs) * docLens[:,np.newaxis] * lxi)
-    bound += np.sum(means * 2 * docLens[:,np.newaxis] * s[:,np.newaxis] * lxi)
-    bound += np.sum(means * -0.5 * docLens[:,np.newaxis])
-    # The last term of line 1 gets cancelled out by part of the first term in line 2
-    # so neither are included here
-    
     expMeans = np.exp(means, out=means)
-    bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
-    
-    bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
-    bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
-    
-    bound -= np.dot(s, docLens)
-    
+    R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
+    V = expMeans * (R.dot(vocab.T)) # D x K
     means = np.log(expMeans, out=expMeans)
+    
+    bound += np.sum(means * V)
+    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
+    bound -= 2. * scaledSelfSoftDot(means, docLens)
+    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
+    bound += np.sum(docLens * np.log(np.sum(np.exp(means), axis=1)))
+    
+    # And it's entropy, and the distribution over words
+    bound -= np.sum(means * V) 
+    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
     return bound
         
