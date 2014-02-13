@@ -65,3 +65,30 @@ def selfSoftDot(matrix):
     
     return np.sum(matrix * rowwise_softmax(matrix))
 
+def scaledSelfSoftDot(matrix, scale):
+    '''
+    Considers the given matrix to be a collection of stacked row-vectors. 
+    Returns the weighted sum of the dot products of each row-vector and its 
+    soft-max form, where the weights are given by the scale parameter.
+    
+    This words on DENSE matrices only, and it appears in this module simply
+    for convenience.
+    
+    Uses fast, memory-efficient operations for matrices of single
+    and double-precision numbers, uses fast-ish numpy code as a
+    fallback, but at the cost of creating a copy of of the matrix.
+    '''
+    if matrix.dtype == np.float64:
+        if scale.dtype == np.int64:
+            return compiled.selfSoftDot_f8_i8(matrix, scale)
+        else:
+            return compiled.selfSoftDot_f8_f8(matrix, scale.astype(np.float64))
+    elif matrix.dtype == np.float32:
+        if scale.dtype == np.int64:
+            return compiled.selfSoftDot_f4_i8(matrix, scale)
+        else:
+            scale_f4 = scale if scale.dtype == np.float32 else scale.astype(np.float32)
+            return compiled.selfSoftDot_f4_f4(matrix, scale_f4)
+    
+    return np.sum(matrix * rowwise_softmax(matrix))
+

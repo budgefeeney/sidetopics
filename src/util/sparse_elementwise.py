@@ -13,7 +13,7 @@ from numba import autojit
 from math import log
 import sys
 from util.overflow_safe import safe_log
-from util.array_utils import rowwise_softmax
+from util.sigmoid_utils import rowwise_softmax
 
 def lse(matrix):
     '''
