@@ -200,7 +200,7 @@ class Test(unittest.TestCase):
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
-        model, query = ctm.train (W, model, queryState, trainPlan)
+        model, query = ctm.train (W, None, model, queryState, trainPlan)
         plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
         
@@ -225,7 +225,7 @@ class Test(unittest.TestCase):
         trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query = ctm.train (W, model, queryState, trainPlan)
+        model, query = ctm.train (W, None, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/author_ctm_result.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
