@@ -94,7 +94,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
 #    isigT = np.eye(K)
 #    sigT  = la.inv(isigT)
-    sigT  = np.eye(K)
+    sigT  = np.eye(K, dtype=dtype)
     
     return ModelState(K, topicMean, sigT, vocab, dtype)
 
