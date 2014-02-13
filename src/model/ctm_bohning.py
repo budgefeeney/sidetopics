@@ -94,9 +94,9 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
 #    isigT = np.eye(K)
 #    sigT  = la.inv(isigT)
-    sigT  = np.eye(K)
+    sigT  = np.eye(K, dtype=dtype)
     
-    A = np.eye(K) - 1./K
+    A = np.eye(K, dtype=dtype) - 1./K
     
     return ModelState(K, topicMean, sigT, vocab, A, dtype)
 
@@ -153,17 +153,7 @@ def train (W, X, modelState, queryState, trainPlan):
     A new model object with the updated model (note parameters are
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
-    '''
-    def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
-        if np.isnan(var_value).any():
-            printStderr ("WARNING: " + var_name + " contains NaNs")
-        if np.isinf(var_value).any():
-            printStderr ("WARNING: " + var_name + " contains INFs")
-        
-        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype), QueryState(means, varcs, n)))) 
-    def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):   
-        pass
-    
+    ''' 
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
@@ -175,7 +165,7 @@ def train (W, X, modelState, queryState, trainPlan):
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = debug_with_bound if DEBUG else debug_with_nothing
+    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -186,7 +176,7 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for iter in range(iterations):
-        if iter == 47:
+        if iter == 31:
             print ("hmm")
         
         # We start with the M-Step, so the parameters are consistent with our
@@ -196,7 +186,7 @@ def train (W, X, modelState, queryState, trainPlan):
         topicMean = means.mean(axis = 0)
         debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
-        sigT = np.cov(means.T)
+        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
         isigT = la.inv(sigT)
         debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
@@ -209,7 +199,7 @@ def train (W, X, modelState, queryState, trainPlan):
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
+        vocab += 1E-30 if dtype==np.float32 else 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
@@ -218,26 +208,18 @@ def train (W, X, modelState, queryState, trainPlan):
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
-        # Update the Means
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
-        rhsMat = vMat + isigT.dot(topicMean)
-        for d in range(D):
-            means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
-        
         # Update the Variances
-        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
         
-        # Update the approximation parameters
-        lxi = negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        # Update the Means
+        rhs = V.copy()
+        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
+        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
+        means = varcs * rhs
+#        means -= means.max()
         
-        # s can sometimes grow unboundedly
-        # Follow Bouchard's suggested approach of fixing it at zero
-        #
-        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype)
@@ -327,7 +309,7 @@ def var_bound(W, modelState, queryState):
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
     bound += np.sum(docLens * np.log(np.sum(np.exp(means), axis=1)))
     
-    # And it's entropy, and the distribution over words
+    # And its entropy, and the distribution over words
     bound -= np.sum(means * V) 
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
@@ -345,3 +327,30 @@ def printStderr(msg):
     sys.stdout.flush()
     sys.stderr.write(msg + '\n')
     sys.stderr.flush()
+    
+
+def static_var(varname, value):
+    def decorate(func):
+        setattr(func, varname, value)
+        return func
+    return decorate
+
+@static_var("old_bound", 0)
+def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+    if np.isnan(var_value).any():
+        printStderr ("WARNING: " + var_name + " contains NaNs")
+    if np.isinf(var_value).any():
+        printStderr ("WARNING: " + var_name + " contains INFs")
+    if var_value.dtype != dtype:
+        printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
+    
+    old_bound = _debug_with_bound.old_bound
+    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype), QueryState(means, varcs, n))
+    diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
+    _debug_with_bound.old_bound = bound
+    
+    print ("Iter %3d Update %-15s Bound %22f (%15s)" % (iter, var_name, bound, diff)) 
+
+def _debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+    pass
+
