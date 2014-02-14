@@ -15,7 +15,6 @@ import sys
 from util.overflow_safe import safe_log
 
 
-
 def rowwise_softmax (matrix, out=None):
     '''
     Assumes each row of the given matrix is an unnormalized distribution and
@@ -29,7 +28,6 @@ def rowwise_softmax (matrix, out=None):
     np.exp(matrix - row_maxes[:, np.newaxis], out=out)
     out /= out.sum(axis=1)[:,np.newaxis]
     return out
-
 
 def lse(matrix):
     '''
