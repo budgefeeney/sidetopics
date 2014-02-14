@@ -223,14 +223,14 @@ class Test(unittest.TestCase):
         D,T = W.shape
        
         # Initialise the model  
-        K = 10
+        K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=35, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, None, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/author_ctm_result.pkl", "wb") as f:
+        with open("/Users/bryanfeeney/Desktop/author_ctm_result-2v.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
         # Print out the most likely topic words

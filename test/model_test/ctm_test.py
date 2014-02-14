@@ -3,7 +3,8 @@ Created on 17 Jan 2014
 
 @author: bryanfeeney
 '''
-from util.array_utils import normalizerows_ip, rowwise_softmax
+from util.array_utils import normalizerows_ip
+from util.sigmoid_utils import rowwise_softmax
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import model.ctm as ctm
@@ -159,7 +160,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, W
         
-    def testOnModelDerivedExample(self):
+    def _testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -219,14 +220,14 @@ class Test(unittest.TestCase):
         D,T = W.shape
        
         # Initialise the model  
-        K = 30
+        K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, None, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/author_ctm_result.pkl", "wb") as f:
+        with open("/Users/bryanfeeney/Desktop/author_ctm_result_bouchard.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
         # Print out the most likely topic words
