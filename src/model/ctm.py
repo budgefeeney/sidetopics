@@ -40,7 +40,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 # ==============================================================
 # TUPLES
@@ -296,7 +296,7 @@ def log_likelihood (W, modelState, queryState):
     return np.sum( \
         sparseScalarProductOfSafeLnDot(\
             W, \
-            queryState.means, \
+            rowwise_softmax(queryState.means), \
             modelState.vocab \
         ).data \
     )

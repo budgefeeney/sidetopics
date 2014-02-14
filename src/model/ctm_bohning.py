@@ -41,7 +41,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 # ==============================================================
 # TUPLES
@@ -206,6 +206,9 @@ def train (W, X, modelState, queryState, trainPlan):
         vocab += 1E-30 if dtype==np.float32 else 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
         
         # Reset the means to their original form, and log effect of vocab update
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
+        V = expMeans * R.dot(vocab.T)
+        
         means = np.log(expMeans, out=expMeans)
         debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
@@ -272,7 +275,7 @@ def log_likelihood (W, modelState, queryState):
     return np.sum( \
         sparseScalarProductOfSafeLnDot(\
             W, \
-            queryState.means, \
+            rowwise_softmax(queryState.means), \
             modelState.vocab \
         ).data \
     )
