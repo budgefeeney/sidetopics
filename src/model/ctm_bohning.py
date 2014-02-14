@@ -23,6 +23,7 @@ import matplotlib as mpl
 #mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
+from numba import autojit
 
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip
@@ -40,7 +41,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 # ==============================================================
 # TUPLES
@@ -134,7 +135,6 @@ def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, pl
     '''
     return TrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
 
-
 def train (W, X, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -176,7 +176,7 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for iter in range(iterations):
-        if iter == 31:
+        if iter == 36:
             print ("hmm")
         
         # We start with the M-Step, so the parameters are consistent with our
@@ -188,7 +188,11 @@ def train (W, X, modelState, queryState, trainPlan):
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        isigT = la.inv(sigT)
+        if fastButInaccurate:
+            sigT = np.diag(np.diag(sigT))
+            isigT = 1./ sigT
+        else:
+            isigT = la.inv(sigT)
         debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
@@ -216,8 +220,11 @@ def train (W, X, modelState, queryState, trainPlan):
         rhs = V.copy()
         rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        means = varcs * rhs
-#        means -= means.max()
+        if fastButInaccurate:
+            means = varcs * rhs
+        else:
+            for d in range(D):
+                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
         
         debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
         
