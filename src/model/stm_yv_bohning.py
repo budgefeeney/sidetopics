@@ -30,15 +30,16 @@ from util.sigmoid_utils import rowwise_softmax, selfSoftDot, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
     entropyOfDot, sparseScalarProductOfSafeLnDot
+from model.stm_yv import lnDetOfDiagMat, safeDet, static_var
+from model.ctm_bohning import printStderr, LN_OF_2_PI, \
+    LN_OF_2_PI_E, newModelAtRandom as newCtmModelAtRandom
+from model.ctm import verifyProper
     
 # ==============================================================
 # CONSTANTS
 # ==============================================================
 
 DTYPE=np.float32 # A default, generally we should specify this in the model setup
-
-LN_OF_2_PI   = log(2 * pi)
-LN_OF_2_PI_E = log(2 * pi * e)
 
 DEBUG=True
 
@@ -70,7 +71,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype)
 
-def newModelAtRandom(W, K, dtype=DTYPE):
+def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -78,27 +79,33 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
+    X - The DxF document-feature matrix of F features associated
+        with the D documents
     W - the DxT document-term matrix of T terms in D documents
         which will be used for training.
+    P - The size of the latent feature-space P << F
     K - the number of topics
+    featVar - the prior variance of the feature-space: this is a
+              scalar used to scale an identity matrix
+    featVar - the prior variance of the latent feature-space: this
+               is a scalar used to scale an identity matrix
     
     Return:
-    A CtmModelState object
+    A ModelState object
     '''
     assert K > 1, "There must be at least two topics"
     
-    _,T = W.shape
-    vocab     = normalizerows_ip(rd.random((K,T)).astype(dtype))
-    topicMean = rd.random((K,)).astype(dtype)
-    topicMean /= np.sum(topicMean)
+    base = newCtmModelAtRandom(W, K, dtype)
+    _,F = X.shape
+    Y = rd.random((K,P)).astype(dtype)
+    R_Y = latFeatVar * np.eye(P,P, dtype=dtype)
     
-#    isigT = np.eye(K)
-#    sigT  = la.inv(isigT)
-    sigT  = np.eye(K, dtype=dtype)
+    V = rd.random((P,F)).astype(dtype)
+    A = Y.dot(V)
+    R_A = featVar * np.eye(F,F, dtype=dtype)
     
-    A = np.eye(K, dtype=dtype) - 1./K
-    
-    return ModelState(K, topicMean, sigT, vocab, A, dtype)
+    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype)
+
 
 def newQueryState(W, modelState):
     '''
@@ -150,7 +157,7 @@ def train (W, X, modelState, queryState, trainPlan):
                  
     Return:
     A new model object with the updated model (note parameters are
-    updated in place, so make a defensive copy if you want it)
+    updated in place, so make a defensive copy if you want itr)
     A new query object with the update query parameters
     ''' 
     D,_ = W.shape
@@ -158,7 +165,7 @@ def train (W, X, modelState, queryState, trainPlan):
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
+    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
@@ -169,35 +176,51 @@ def train (W, X, modelState, queryState, trainPlan):
     # Initialize some working variables
     isigT = la.inv(sigT)
     R = W.copy()
+    sigT_regularizer = 0.001
+    
+    aI_P = 1./lfv  * ssp.eye(P, dtype=dtype)
+    tI_F = 1./fv * ssp.eye(F, dtype=dtype)
+    
+    print("Creating posterior covariance of A, this will take some time...")
+    XTX = X.T.dot(X)
+    R_A = XTX
+    R_A = R_A.todense()      # dense inverse typically as fast or faster than sparse inverse
+    R_A.flat[::F+1] += 1./fv # and the result is usually dense in any case
+    R_A = la.inv(R_A)
+    print("Covariance matrix calculated, launching inference")
+    
+    R_Y_base = R_Y.copy()
     
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigt_diag.fill (0.001)
     
     # Iterate over parameters
-    for iter in range(iterations):
-        if iter == 36:
-            print ("hmm")
+    for itr in range(iterations):
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
-        # Update the mean and covariance of the prior
-        topicMean = means.mean(axis = 0)
-        debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        # Update the covariance of the prior
+        diff_a_yv = (A-Y.dot(V))
+        diff_m_xa = (means-X.dot(A.T))
         
-        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-        sigT.flat[::K+1] += varcs.mean(axis=0)
-        if fastButInaccurate:
-            sigT = np.diag(np.diag(sigT))
-            isigT = 1./ sigT
-        else:
-            isigT = la.inv(sigT)
-        debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        sigT  = 1./lfv * (Y.dot(Y.T))
+        sigT += 1./fv * diff_a_yv.dot(diff_a_yv.T)
+        sigT += diff_m_xa.T.dot(diff_m_xa)
+        sigT.flat[::K+1] += varcs.sum(axis=0)
+        sigT /= (P+F+D)
+        sigT.flat[::K+1] += sigT_regularizer
+        
+        # ...and then diagonalize itr
+        sigT = np.diag(sigT.flat[::K+1])
+        # ...and finally invert itr.
+        isigT = np.diag(np.reciprocal(sigT.flat[::K+1]))
+        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
+        S = expMeans * R.dot(vocab.T)
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
@@ -205,38 +228,49 @@ def train (W, X, modelState, queryState, trainPlan):
         vocab += 1E-30 if dtype==np.float32 else 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
         
         # Reset the means to their original form, and log effect of vocab update
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
+#        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
+#        S = expMeans * R.dot(vocab.T)
         
         means = np.log(expMeans, out=expMeans)
-        debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
-        # And now this is the E-Step, though it's followed by updates for the
-        # parameters also that handle the log-sum-exp approximation.
+        #
+        # And now this is the E-Step
+        # 
+        
+        # Update the distribution on the latent space
+        R_Y_base = aI_P + 1/fv * V.dot(V.T)
+        R_Y = la.inv(R_Y_base)
+        debugFn (itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
+        Y = 1./fv * A.dot(V.T).dot(R_Y)
+        debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
+        # Update the mapping from the features to topics
+        A = (1./fv * (Y).dot(V) + (X.T.dot(means)).T).dot(R_A)
+        debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Update the Variances
         varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Update the Means
-        rhs = V.copy()
-        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
+        rhs = S.copy()
+        rhs += n[:,np.newaxis] * means.dot(Ab)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if fastButInaccurate:
-            means = varcs * rhs
-        else:
-            for d in range(D):
-                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
+        rhs += X.dot(A.T).dot(isigT)
+        lhs = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * Ab)  # inverse of D diagonal matrices...
         
-        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
+        means = lhs * rhs # as LHS is a diagonal matrix for all d, itr's equivalent to a Hadamard product
+        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
-        if logFrequency > 0 and iter % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype)
+        if logFrequency > 0 and itr % logFrequency == 0:
+            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype)
             queryState = QueryState(means, varcs, n)
             
-            boundValues[bvIdx] = var_bound(W, modelState, queryState)
-            boundIters[bvIdx]  = iter
-            print ("\nIteration %d: bound %f" % (iter, boundValues[bvIdx]))
+            boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
+            boundIters[bvIdx]  = itr
+            print ("\nIteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
@@ -250,7 +284,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
     
     return \
-        ModelState(K, topicMean, sigT, vocab, A, dtype), \
+        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype), \
         QueryState(means, varcs, n)
     
 
@@ -279,7 +313,7 @@ def log_likelihood (W, modelState, queryState):
         ).data \
     )
     
-def var_bound(W, modelState, queryState):
+def var_bound(W, X, modelState, queryState, XTX=None):
     '''
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial
@@ -289,23 +323,52 @@ def var_bound(W, modelState, queryState):
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A
+    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
     # Calculate some implicit  variables
     isigT = la.inv(sigT)
+    lnDetSigT = lnDetOfDiagMat(sigT)
+    verifyProper(lnDetSigT, "lnDetSigT")
+    
+    if XTX is None:
+        XTX = X.T.dot(X)
     
     bound = 0
     
+    # Distribution over latent space
+    bound -= (P*K)/2. * LN_OF_2_PI
+    bound -= P * lnDetSigT
+    bound -= K * P * log(lfv)
+    bound -= 0.5 * np.sum(1./lfv * isigT.dot(Y) * Y)
+    bound -= 0.5 * K * np.trace(R_Y)
+    
+    # And its entropy
+    detR_Y = safeDet(R_Y, "R_Y")
+    bound += 0.5 * LN_OF_2_PI_E + P/2. * lnDetSigT + K/2. * log(detR_Y)
+    
+    # Distribution over mapping from features to topics
+    diff   = (A - Y.dot(V))
+    bound -= (F*K)/2. * LN_OF_2_PI
+    bound -= F * lnDetSigT
+    bound -= K * P * log(fv)
+    bound -= 0.5 * np.sum (1./lfv * isigT.dot(diff) * diff)
+    bound -= 0.5 * K * np.trace(R_A)
+    
+    # And its entropy
+    detR_A = safeDet(R_A, "R_A")
+    bound += 0.5 * LN_OF_2_PI_E + F/2. * lnDetSigT + K/2. * log(detR_A)
+    
     # Distribution over document topics
     bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * la.det(sigT)
-    diff   = means - topicMean[np.newaxis,:]
+    bound -= D/2. * lnDetSigT
+    diff   = means - X.dot(A.T)
     bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
     bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
+    bound -= 0.5 * K * np.trace(XTX.dot(R_A))
        
     # And its entropy
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
-    
+        
     # Distribution over word-topic assignments
     expMeans = np.exp(means, out=means)
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
@@ -324,28 +387,13 @@ def var_bound(W, modelState, queryState):
     
     return bound
         
-        
-        
-        
 
 # ==============================================================
 # PUBLIC HELPERS
 # ==============================================================
 
-def printStderr(msg):
-    sys.stdout.flush()
-    sys.stderr.write(msg + '\n')
-    sys.stderr.flush()
-    
-
-def static_var(varname, value):
-    def decorate(func):
-        setattr(func, varname, value)
-        return func
-    return decorate
-
 @static_var("old_bound", 0)
-def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
@@ -354,12 +402,12 @@ def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, 
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype), QueryState(means, varcs, n))
-    diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
+    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype), QueryState(means, varcs, n), XTX)
+    diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %-15s Bound %22f (%15s)" % (iter, var_name, bound, diff)) 
+    print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
 
-def _debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_nothing (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     pass
 
