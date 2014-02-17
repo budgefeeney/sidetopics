@@ -226,18 +226,22 @@ class Test(unittest.TestCase):
         K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, None, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/author_ctm_result-2v.pkl", "wb") as f:
             pkl.dump ((model, query), f)
     
-        # Print out the most likely topic words
+        # Print out the most likely topic words, using TF-IDF
+        freq, df = self.idf(W)
+        idf = D / (1 + df)
+        lidf = np.log(idf)
+        
         topWordCount = 100
         kTopWordInds = []
         for k in range(K):
-            topWordInds = self.topWordInds(d, model.vocab[k,:], topWordCount)
+            topWordInds = self.topWordInds(d, model.vocab[k,:] * lidf, topWordCount)
             kTopWordInds.append(topWordInds)
         
         print ("Perplexity: %f\n\n" % ctm.perplexity(W, model, query))
@@ -250,6 +254,25 @@ class Test(unittest.TestCase):
     
     def topWordInds (self, wordDict, vocab, count=10):
         return vocab.argsort()[-count:][::-1]
+    
+    def idf(self, W):
+        '''
+        Returns the total corpus word frequency table, and the total
+        corpus df counts for each word (i.e. how many documents did
+        it occur in
+        '''
+        counts = W.sum(axis = 0)
+        freq = counts.astype(np.float64) / counts.sum()
+        freq = np.squeeze(np.asarray(freq))
+        freq += 1E-300
+        
+        w_dat_copy = W.data.copy()
+        w_dat_copy[w_dat_copy > 1] = 1
+        W2 = ssp.csr_matrix((w_dat_copy, W.indices, W.indptr))
+
+        df = np.squeeze(np.asarray(W2.sum(axis=0)))
+        
+        return freq, df
     
     def printTopics(self, wordDict, vocab, count=10):
         words = vocab.argsort()[-count:][::-1]
