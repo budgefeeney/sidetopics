@@ -340,7 +340,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= 0.5 * K * np.trace(R_Y)
     
     # And its entropy
-    detR_Y = _safeDet(R_Y, "R_Y")
+    detR_Y = safeDet(R_Y, "R_Y")
     bound += 0.5 * LN_OF_2_PI_E + P/2. * lnDetSigT + K/2. * log(detR_Y)
     
     # Distribution over mapping from features to topics
@@ -352,7 +352,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= 0.5 * K * np.trace(R_A)
     
     # And its entropy
-    detR_A = _safeDet(R_A, "R_A")
+    detR_A = safeDet(R_A, "R_A")
     bound += 0.5 * LN_OF_2_PI_E + F/2. * lnDetSigT + K/2. * log(detR_A)
     
     # Distribution over document topics
@@ -397,7 +397,7 @@ def lnDetOfDiagMat(X):
     return np.sum(np.log(np.diag(X)))
   
 
-def _safeDet(X, x_name="X"):
+def safeDet(X, x_name="X"):
     '''
     Returns max(det(X), epsilon) where epsilon is the smallest, **positive**
     value allowed by the dtype of X

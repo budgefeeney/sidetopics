@@ -3,7 +3,8 @@ Created on 17 Jan 2014
 
 @author: bryanfeeney
 '''
-from util.array_utils import normalizerows_ip, rowwise_softmax
+from util.array_utils import normalizerows_ip
+from util.sigmoid_utils import rowwise_softmax
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import model.ctm as ctm

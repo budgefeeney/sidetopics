@@ -173,6 +173,17 @@ def train (W, X, modelState, queryState, trainPlan):
     bvIdx = 0
     debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
     
+    # For efficient inference, we need a separate covariance for every unique
+    # document length. For products to execute quickly, the doc-term matrix
+    # therefore needs to be ordered in ascending terms of document length
+#    originalDocLens = queryState.docLens
+#    sortIdx = queryState.docLens.argsort(algorithm="mergesort") # sort needs to be stable in order to be reversable
+#    W = W[sortIdx,:] # deep sorted copy
+#    docLens = originalDocLens[sortIdx]
+#    
+#    vals, inds = np.unique(docLens, return_index=True)
+#    inds = np.append(inds, [W.shape[0]])
+    
     # Initialize some working variables
     isigT = la.inv(sigT)
     R = W.copy()
@@ -209,13 +220,6 @@ def train (W, X, modelState, queryState, trainPlan):
         sigT += diff_m_xa.T.dot(diff_m_xa)
         sigT.flat[::K+1] += varcs.sum(axis=0)
         sigT /= (P+F+D)
-        sigT.flat[::K+1] += sigT_regularizer
-        
-        # ...and then diagonalize itr
-        sigT = np.diag(sigT.flat[::K+1])
-        # ...and finally invert itr.
-        isigT = np.diag(np.reciprocal(sigT.flat[::K+1]))
-        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -255,13 +259,18 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Update the Means
-        rhs = S.copy()
+        rhs = X.dot(A.T).dot(isigT)
+        rhs += S
         rhs += n[:,np.newaxis] * means.dot(Ab)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        rhs += X.dot(A.T).dot(isigT)
-        lhs = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * Ab)  # inverse of D diagonal matrices...
-        
-        means = lhs * rhs # as LHS is a diagonal matrix for all d, itr's equivalent to a Hadamard product
+            
+        inverses = dict()
+        for d in range(D):
+            if not n[d] in inverses:
+                inverses[n[d]] = la.inv(isigT + n[d] * Ab)
+            lhs = inverses[n[d]]
+            means[d,:] = lhs.dot(rhs[d,:])
+           
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -376,9 +385,9 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     means = np.log(expMeans, out=expMeans)
     
     bound += np.sum(means * V)
-    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
+    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
     bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
+    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(Ab))[np.newaxis,:])
     bound += np.sum(docLens * np.log(np.sum(np.exp(means), axis=1)))
     
     # And its entropy, and the distribution over words
