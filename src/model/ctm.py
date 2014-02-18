@@ -50,7 +50,7 @@ MODEL_NAME="ctm/bouchard"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency plot plotFile plotIncremental fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -254,17 +254,11 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
-            
-    if plot:
-        plt.plot(boundIters[5:], boundValues[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
-        plt.show()
-        
     
     return \
         ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n)
+        QueryState(means, varcs, lxi, s, n), \
+        (boundIters, boundValues)
     
 
 def verifyProper(X, xName):
