@@ -43,6 +43,8 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=False
 
+MODEL_NAME="stm-yv/bohning"
+
 STABLE_SORT_ALG="mergesort"
 
 # ==============================================================
@@ -60,7 +62,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'F P K A R_A fv Y R_Y lfv V sigT vocab Ab dtype'
+    'F P K A R_A fv Y R_Y lfv V sigT vocab Ab dtype name'
 )
 
 # ==============================================================
@@ -71,7 +73,7 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
-    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype)
+    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
 
 def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
@@ -109,7 +111,7 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A[:,0] = 0
     Y[:,0] = 0
     
-    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype)
+    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype, MODEL_NAME)
 
 
 def newQueryState(W, modelState):
@@ -315,7 +317,7 @@ def train (W, X, modelState, queryState, trainPlan):
     varcs = varcs[revert_sort,:]
     
     return \
-        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype), \
+        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
         QueryState(means, varcs, n)
     
 

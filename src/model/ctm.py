@@ -42,6 +42,8 @@ LN_OF_2_PI_E = log(2 * pi * e)
 
 DEBUG=False
 
+MODEL_NAME="ctm/bouchard"
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -57,7 +59,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicMean sigT vocab dtype'
+    'K topicMean sigT vocab dtype name'
 )
 
 # ==============================================================
@@ -68,7 +70,7 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
-    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype)
+    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
 
 def newModelAtRandom(W, K, dtype=DTYPE):
     '''
@@ -96,7 +98,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
 #    sigT  = la.inv(isigT)
     sigT  = np.eye(K, dtype=dtype)
     
-    return ModelState(K, topicMean, sigT, vocab, dtype)
+    return ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
 
 def newQueryState(W, modelState):
     '''
@@ -190,8 +192,6 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for iter in range(iterations):
-        if iter == 47:
-            print ("hmm")
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
@@ -263,7 +263,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
     
     return \
-        ModelState(K, topicMean, sigT, vocab, dtype), \
+        ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n)
     
 

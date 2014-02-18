@@ -37,6 +37,7 @@ import time
 # ==============================================================
 
 DEBUG=True
+MODEL_NAME="stm-yv/bouchard"
 
 # ==============================================================
 # TUPLES
@@ -53,7 +54,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'F P K A R_A fv Y R_Y lfv V sigT vocab dtype'
+    'F P K A R_A fv Y R_Y lfv V sigT vocab dtype name'
 )
 
 # ==============================================================
@@ -70,7 +71,8 @@ def newModelFromExisting(model):
         model.A.copy(), model.R_A.copy(), model.featVar, \
         model.Y.copy(), model.R_Y.copy(), model.latFeatVar, \
         model.V.copy(), \
-        model.sigT.copy(), model.vocab.copy(), model.dtype)
+        model.sigT.copy(), model.vocab.copy(), \
+        model.dtype, model.name)
 
 
 def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
@@ -106,7 +108,7 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
-    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype)
+    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype, MODEL_NAME)
 
 def newQueryState(W, modelState):
     '''
@@ -291,7 +293,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
     
     return \
-        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype), \
+        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n)
     
 
