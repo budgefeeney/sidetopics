@@ -160,7 +160,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, W
         
-    def _testOnModelDerivedExample(self):
+    def testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -210,7 +210,7 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
     
 
-    def testOnRealData(self):
+    def _testOnRealData(self):
         path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
         with open(path + "/words-by-author.pkl", 'rb') as f:
             user_dict, d, W = pkl.load(f)
