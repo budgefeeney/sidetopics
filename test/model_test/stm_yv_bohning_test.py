@@ -99,7 +99,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, X, W
         
-    def testLikelihoodOnModelDerivedExample(self):
+    def _testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -128,7 +128,7 @@ class Test(unittest.TestCase):
             model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=DTYPE)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=50, plot=True, logFrequency=1)
+            plan  = stm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
             model, queryState = stm.train(W_train, X_train, model, queryState, plan)
             
             self._plotCov(model)
@@ -171,7 +171,7 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
         
 
-    def _testOnRealData(self):
+    def testOnRealData(self):
         rd.seed(0xDAFF0D12)
         path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
         with open(path + "/all-in-one.pkl", "rb") as f:
@@ -185,7 +185,7 @@ class Test(unittest.TestCase):
         D,T = W.shape
         _,F = X.shape
         
-        K = 10
+        K = 30
         P = 30
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)

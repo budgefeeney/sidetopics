@@ -41,7 +41,7 @@ from model.ctm import verifyProper
 
 DTYPE=np.float32 # A default, generally we should specify this in the model setup
 
-DEBUG=True
+DEBUG=False
 
 STABLE_SORT_ALG="mergesort"
 
@@ -182,14 +182,14 @@ def train (W, X, modelState, queryState, trainPlan):
     # For efficient inference, we need a separate covariance for every unique
     # document length. For products to execute quickly, the doc-term matrix
     # therefore needs to be ordered in ascending terms of document length
-#    originalDocLens = queryState.docLens
-#    sortIdx = np.argsort(queryState.docLens, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
-#    W = W[sortIdx,:] # deep sorted copy
-#    X = X[sortIdx,:] # ditto
-#    docLens = originalDocLens[sortIdx]
-#    
-#    lens, inds = np.unique(docLens, return_index=True)
-#    inds = np.append(inds, [W.shape[0]])
+    original_n = n
+    sortIdx = np.argsort(n, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
+    W = W[sortIdx,:] # deep sorted copy
+    X = X[sortIdx,:] # ditto
+    n = original_n[sortIdx]
+    
+    lens, inds = np.unique(n, return_index=True)
+    inds = np.append(inds, [W.shape[0]])
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -271,24 +271,25 @@ def train (W, X, modelState, queryState, trainPlan):
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
         
         # Long version
-        inverses = dict()
-        for d in range(D):
-            if not n[d] in inverses:
-                inverses[n[d]] = la.inv(isigT + n[d] * Ab)
-            lhs = inverses[n[d]]
-            means[d,:] = lhs.dot(rhs[d,:])
-        print("Sca-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+#        inverses = dict()
+#        sca_means = means.copy()
+#        for d in range(D):
+#            if not n[d] in inverses:
+#                inverses[n[d]] = la.inv(isigT + n[d] * Ab)
+#            lhs = inverses[n[d]]
+#            sca_means[d,:] = lhs.dot(rhs[d,:])
+#        print("Sca-Means: %f, %f, %f, %f" % (sca_means.min(), sca_means.mean(), sca_means.std(), sca_means.max()))
         
             
-#        # Faster version?
-#        for lenIdx in range(len(lens)):
-#            docLen     = lens[lenIdx]
-#            start, end = inds[lenIdx], inds[lenIdx + 1]
-#            lhs        = la.inv(isigT + docLen * Ab)
-#            
-#            means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
-#         
-#        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+        # Faster version?
+        for lenIdx in range(len(lens)):
+            nd         = lens[lenIdx]
+            start, end = inds[lenIdx], inds[lenIdx + 1]
+            lhs        = la.inv(isigT + nd * Ab)
+            
+            means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
+         
+        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
