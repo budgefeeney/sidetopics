@@ -295,7 +295,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype)
+            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
@@ -435,7 +435,7 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype), QueryState(means, varcs, n), XTX)
+    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), QueryState(means, varcs, n), XTX)
     diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     

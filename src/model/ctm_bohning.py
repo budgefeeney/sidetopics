@@ -232,7 +232,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
         
         if logFrequency > 0 and iter % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype)
+            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
@@ -355,7 +355,7 @@ def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, 
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype), QueryState(means, varcs, n))
+    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     

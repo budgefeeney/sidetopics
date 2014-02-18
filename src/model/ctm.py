@@ -165,7 +165,7 @@ def train (W, X, modelState, queryState, trainPlan):
         if np.isinf(var_value).any():
             printStderr ("WARNING: " + var_name + " contains INFs")
         
-        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n)))) 
+        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)))) 
     def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
         pass
     
@@ -244,7 +244,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         if logFrequency > 0 and iter % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, dtype)
+            modelState = ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
