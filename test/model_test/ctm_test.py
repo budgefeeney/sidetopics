@@ -16,7 +16,7 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import unittest
 import pickle as pkl
-
+import time
 
 
 DTYPE=np.float32
@@ -227,8 +227,14 @@ class Test(unittest.TestCase):
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, None, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/author_ctm_result_bouchard.pkl", "wb") as f:
+        with open(modelFile(model), "wb") as f:
             pkl.dump ((model, query), f)
+            
+        # Plot the bound
+        plt.plot(bndItrs[5:], bndVals[5:])
+        plt.xlabel("Iterations")
+        plt.ylabel("Variational Bound")
+        plt.show()
     
         # Print out the most likely topic words
         topWordCount = 100
@@ -258,6 +264,20 @@ class Test(unittest.TestCase):
 def truncate(word, max_len=12):      
     return word if len(word) < max_len else word[:(max_len-3)] + '...'
     
+def modelFile(model, prefix="/Users/bryanfeeney/Desktop"):
+    modelName = model.name
+    modelName = modelName.replace('/','_')
+    modelName = modelName.replace('-','_')
+    timestamp = time.strftime("%Y%m%d_%H%M", time.gmtime())
+    
+    cfg = "k_" + str(model.K)
+    if modelName[:3] == 'stm':
+        cfg += "_p_" + str(model.P)
+    
+    return prefix + '/' \
+         + modelName + '_' \
+         + cfg + '_' \
+         + timestamp + '.pkl'
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

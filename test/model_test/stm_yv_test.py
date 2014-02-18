@@ -20,6 +20,7 @@ import pickle as pkl
 import model.stm_yv as stm
 
 from model_test.sidetopic_test import matrix_normal
+from model_test.ctm_test import modelFile
 from math import ceil
 
 DTYPE=np.float32
@@ -192,7 +193,7 @@ class Test(unittest.TestCase):
         trainPlan  = stm.newTrainPlan(iterations=50, plot=True, logFrequency=1)
         
         model, query = stm.train (W, X, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/test_result_real_p30_k10.pkl", "wb") as f:
+        with open(modelFile(model), "wb") as f:
             pkl.dump ((model, query), f)
     
         topWordCount = 100

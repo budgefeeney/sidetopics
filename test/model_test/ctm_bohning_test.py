@@ -17,6 +17,7 @@ import scipy.sparse.linalg as sla
 import unittest
 import pickle as pkl
 
+from model_test.ctm_test import modelFile
 
 
 DTYPE=np.float32
@@ -230,7 +231,7 @@ class Test(unittest.TestCase):
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query = ctm.train (W, None, model, queryState, trainPlan)
-        with open("/Users/bryanfeeney/Desktop/author_ctm_result-2v.pkl", "wb") as f:
+        with open(modelFile(model), "wb") as f:
             pkl.dump ((model, query), f)
     
         # Print out the most likely topic words, using TF-IDF
