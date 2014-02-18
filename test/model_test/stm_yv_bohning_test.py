@@ -22,7 +22,7 @@ import model.stm_yv_bohning as stm
 from model_test.sidetopic_test import matrix_normal
 from math import ceil
 
-DTYPE=np.float32
+DTYPE=np.float64
 
 class Test(unittest.TestCase):
     
@@ -125,10 +125,10 @@ class Test(unittest.TestCase):
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
             
-            model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=np.float32)
+            model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=DTYPE)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=200, plot=True, logFrequency=1)
+            plan  = stm.newTrainPlan(iterations=50, plot=True, logFrequency=1)
             model, queryState = stm.train(W_train, X_train, model, queryState, plan)
             
             self._plotCov(model)
@@ -189,7 +189,7 @@ class Test(unittest.TestCase):
         P = 30
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=50, plot=True, logFrequency=1)
+        trainPlan  = stm.newTrainPlan(iterations=100, plot=True, logFrequency=1)
         
         model, query = stm.train (W, X, model, queryState, trainPlan)
         with open("/Users/bryanfeeney/Desktop/test_result_real_p30_k10.pkl", "wb") as f:

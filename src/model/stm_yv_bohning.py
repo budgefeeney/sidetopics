@@ -43,6 +43,8 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=True
 
+STABLE_SORT_ALG="mergesort"
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -104,6 +106,9 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
+    A[:,0] = 0
+    Y[:,0] = 0
+    
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype)
 
 
@@ -127,7 +132,8 @@ def newQueryState(W, modelState):
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
-    means = normalizerows_ip(rd.random((D,K)).astype(dtype))
+    means = rd.random((D,K)).astype(dtype)
+    means[:,0] = 0
     varcs = np.ones((D,K), dtype=dtype)
     
     return QueryState(means, varcs, docLens)
@@ -177,11 +183,12 @@ def train (W, X, modelState, queryState, trainPlan):
     # document length. For products to execute quickly, the doc-term matrix
     # therefore needs to be ordered in ascending terms of document length
 #    originalDocLens = queryState.docLens
-#    sortIdx = queryState.docLens.argsort(algorithm="mergesort") # sort needs to be stable in order to be reversable
+#    sortIdx = np.argsort(queryState.docLens, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
 #    W = W[sortIdx,:] # deep sorted copy
+#    X = X[sortIdx,:] # ditto
 #    docLens = originalDocLens[sortIdx]
 #    
-#    vals, inds = np.unique(docLens, return_index=True)
+#    lens, inds = np.unique(docLens, return_index=True)
 #    inds = np.append(inds, [W.shape[0]])
     
     # Initialize some working variables
@@ -234,7 +241,6 @@ def train (W, X, modelState, queryState, trainPlan):
         # Reset the means to their original form, and log effect of vocab update
 #        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
 #        S = expMeans * R.dot(vocab.T)
-        
         means = np.log(expMeans, out=expMeans)
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
@@ -263,14 +269,26 @@ def train (W, X, modelState, queryState, trainPlan):
         rhs += S
         rhs += n[:,np.newaxis] * means.dot(Ab)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-            
+        
+        # Long version
         inverses = dict()
         for d in range(D):
             if not n[d] in inverses:
                 inverses[n[d]] = la.inv(isigT + n[d] * Ab)
             lhs = inverses[n[d]]
             means[d,:] = lhs.dot(rhs[d,:])
-           
+        print("Sca-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+        
+            
+#        # Faster version?
+#        for lenIdx in range(len(lens)):
+#            docLen     = lens[lenIdx]
+#            start, end = inds[lenIdx], inds[lenIdx + 1]
+#            lhs        = la.inv(isigT + docLen * Ab)
+#            
+#            means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
+#         
+#        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -291,6 +309,9 @@ def train (W, X, modelState, queryState, trainPlan):
         plt.ylabel("Variational Bound")
         plt.show()
         
+    revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)
+    means = means[revert_sort,:]
+    varcs = varcs[revert_sort,:]
     
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype), \
@@ -398,7 +419,7 @@ def var_bound(W, X, modelState, queryState, XTX=None):
         
 
 # ==============================================================
-# PUBLIC HELPERS
+# PRIVATE HELPERS
 # ==============================================================
 
 @static_var("old_bound", 0)
@@ -419,4 +440,14 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
 
 def _debug_with_nothing (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     pass
+
+
+def isOk(mat):
+    if np.isnan(mat).any():
+        print ("Matrix has NaNs")
+    if np.isinf(mat).any():
+        print ("Matrix has INFs")
+    if not (np.isnan(mat).any() or np.isinf(mat).any()):
+        print ("Matrix is OK")
+
 
