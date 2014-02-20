@@ -103,7 +103,7 @@ class Test(unittest.TestCase):
         #
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=65, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=65, logFrequency=1)
         
         self.assertTrue (0.99 < np.sum(model.topicMean) < 1.01)
         
@@ -177,7 +177,7 @@ class Test(unittest.TestCase):
         #
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=150, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=150, logFrequency=1)
         
         return self._doTest (W, model, queryState, trainPlan)
         print("End of Test")
@@ -231,7 +231,7 @@ class Test(unittest.TestCase):
         K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=1000, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)

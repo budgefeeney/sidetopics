@@ -129,9 +129,16 @@ class Test(unittest.TestCase):
             model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=DTYPE)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
-            model, queryState = stm.train(W_train, X_train, model, queryState, plan)
-            
+            plan  = stm.newTrainPlan(iterations=1000, logFrequency=1)
+            model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, plan)
+                
+            # Plot the bound
+            plt.plot(bndItrs[5:], bndVals[5:])
+            plt.xlabel("Iterations")
+            plt.ylabel("Variational Bound")
+            plt.show()
+        
+            # Plot the topic covariance
             self._plotCov(model)
             
             trainSetLikely = stm.log_likelihood(W_train, model, queryState)
@@ -152,7 +159,7 @@ class Test(unittest.TestCase):
         plt.show()
     
     
-    def _doTest (self, W, model, queryState, trainPlan):
+    def _doTest (self, W, X, model, queryState, trainPlan):
         D,_ = W.shape
         recons = queryState.means.dot(model.vocab)
         reconsErr = 1./D * np.sum((np.asarray(W.todense()) - recons) * (np.asarray(W.todense()) - recons))
@@ -160,7 +167,15 @@ class Test(unittest.TestCase):
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
-        model, query = ctm.train (W, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
+            
+        # Plot the bound
+        plt.plot(bndItrs[5:], bndVals[5:])
+        plt.xlabel("Iterations")
+        plt.ylabel("Variational Bound")
+        plt.show()
+        
+        # Plot the vocabulary
         ones = np.ones((3,3))
         for k in range(model.K):
             plt.subplot(2, 3, k)
@@ -192,10 +207,17 @@ class Test(unittest.TestCase):
         queryState = stm.newQueryState(W, model)
         trainPlan  = stm.newTrainPlan(iterations=100, plot=True, logFrequency=1)
         
-        model, query = stm.train (W, X, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
         with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query), f)
-    
+            pkl.dump ((model, query, (bndItrs, bndVals)), f)
+            
+        # Plot the bound
+        plt.plot(bndItrs[5:], bndVals[5:])
+        plt.xlabel("Iterations")
+        plt.ylabel("Variational Bound")
+        plt.show()
+        
+        # Print the top words
         topWordCount = 100
         kTopWordInds = []
         for k in range(K):

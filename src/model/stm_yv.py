@@ -45,7 +45,7 @@ MODEL_NAME="stm-yv/bouchard"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency plot plotFile plotIncremental fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -129,14 +129,14 @@ def newQueryState(W, modelState):
     return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, plotFile=None, plotIncremental=False, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
-    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.plot, base.plotFile, base.plotIncremental, base.fastButInaccurate)
+    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, fastButInaccurate)
+    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate)
 
 
 def train (W, X, modelState, queryState, trainPlan):
@@ -164,7 +164,7 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
     means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
@@ -285,16 +285,10 @@ def train (W, X, modelState, queryState, trainPlan):
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
             
-    if plot:
-        plt.plot(boundIters, boundValues)
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
-        plt.show()
-        
-    
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n)
+        QueryState(means, varcs, lxi, s, n), \
+        (boundIters, boundValues)
     
 
 def log_likelihood (W, modelState, queryState):

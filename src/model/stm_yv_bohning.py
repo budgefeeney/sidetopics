@@ -53,7 +53,7 @@ STABLE_SORT_ALG="mergesort"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency plot plotFile plotIncremental fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -141,13 +141,13 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, plotFile=None, plotIncremental=False, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    return TrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
+    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate)
 
 def train (W, X, modelState, queryState, trainPlan):
     '''
@@ -171,7 +171,7 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
@@ -305,12 +305,7 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
-            
-    if plot:
-        plt.plot(boundIters[5:], boundValues[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
-        plt.show()
+        
         
     revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)
     means = means[revert_sort,:]
@@ -318,7 +313,8 @@ def train (W, X, modelState, queryState, trainPlan):
     
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n)
+        QueryState(means, varcs, n), \
+        (boundIters, boundValues)
     
 
 def perplexity (W, modelState, queryState):

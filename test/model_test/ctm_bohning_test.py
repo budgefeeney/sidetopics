@@ -202,7 +202,15 @@ class Test(unittest.TestCase):
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
-        model, query = ctm.train (W, None, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
+        
+        # Plot the bound
+        plt.plot(bndItrs[5:], bndVals[5:])
+        plt.xlabel("Iterations")
+        plt.ylabel("Variational Bound")
+        plt.show()
+        
+        # Plot the inferred vocab
         plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
         
@@ -230,10 +238,16 @@ class Test(unittest.TestCase):
         trainPlan  = ctm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query = ctm.train (W, None, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
         with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query), f)
-    
+            pkl.dump ((model, query, (bndItrs, bndVals)), f)
+            
+        # Plot the bound
+        plt.plot(bndItrs[5:], bndVals[5:])
+        plt.xlabel("Iterations")
+        plt.ylabel("Variational Bound")
+        plt.show()
+        
         # Print out the most likely topic words, using TF-IDF
         freq, df = self.idf(W)
         idf = D / (1 + df)
