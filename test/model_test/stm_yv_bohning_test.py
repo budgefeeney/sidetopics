@@ -19,7 +19,7 @@ import pickle as pkl
 
 import model.stm_yv_bohning as stm
 
-from model_test.sidetopic_test import matrix_normal
+from model_test.old.sidetopic_test import matrix_normal
 from model_test.ctm_test import modelFile
 from math import ceil
 
