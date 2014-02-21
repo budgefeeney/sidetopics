@@ -41,7 +41,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-DEBUG=True
+DEBUG=False
 
 MODEL_NAME="ctm/bohning"
 
@@ -55,7 +55,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs docLens'\
+    'means varcs docLens debug'\
 )
 
 ModelState = namedtuple ( \
@@ -103,7 +103,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
     return ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState):
+def newQueryState(W, modelState, debug=DEBUG):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -126,7 +126,7 @@ def newQueryState(W, modelState):
     means = normalizerows_ip(rd.random((D,K)).astype(dtype))
     varcs = np.ones((D,K), dtype=dtype)
     
-    return QueryState(means, varcs, docLens)
+    return QueryState(means, varcs, docLens, debug)
 
 
 def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
@@ -160,14 +160,14 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    means, varcs, n, debug = queryState.means, queryState.varcs, queryState.docLens, queryState.debug
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -234,7 +234,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, n)
+            queryState = QueryState(means, varcs, n, debug)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = itr
@@ -247,7 +247,7 @@ def train (W, X, modelState, queryState, trainPlan):
     
     return \
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n), \
+        QueryState(means, varcs, n, debug), \
         (boundIters, boundValues)
 
 def query(W, X, modelState, queryState, trainPlan):
@@ -267,10 +267,10 @@ def query(W, X, modelState, queryState, trainPlan):
     unchanged, the query is.
     '''
     iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    means, varcs, n, debug = queryState.means, queryState.varcs, queryState.docLens, queryState.debug
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
-    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
     D = W.shape[0]
     
     # Necessary temp variables (notably the count of topic to word assignments
@@ -402,7 +402,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
+    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n, True))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     

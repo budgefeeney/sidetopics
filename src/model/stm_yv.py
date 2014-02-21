@@ -49,7 +49,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs lxi s docLens'\
+    'means varcs lxi s docLens debug'\
 )
 
 ModelState = namedtuple ( \
@@ -110,7 +110,7 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState):
+def newQueryState(W, modelState, debug=DEBUG):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -124,9 +124,9 @@ def newQueryState(W, modelState):
     REturn:
     A QueryState object
     '''
-    base = ctm.newQueryState(W, modelState)
+    base = ctm.newQueryState(W, modelState, debug)
     
-    return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
+    return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens, base.debug)
 
 
 def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
@@ -165,14 +165,14 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -275,7 +275,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, lxi, s, n)
+            queryState = QueryState(means, varcs, lxi, s, n, debug)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
             boundIters[bvIdx]  = itr
@@ -287,7 +287,7 @@ def train (W, X, modelState, queryState, trainPlan):
             
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n), \
+        QueryState(means, varcs, lxi, s, n, debug), \
         (boundIters, boundValues)
 
 def query(W, X, modelState, queryState, trainPlan):
@@ -307,7 +307,7 @@ def query(W, X, modelState, queryState, trainPlan):
     unchanged, the query is.
     '''
     iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Necessary temp variables (notably the count of topic to word assignments
@@ -319,7 +319,7 @@ def query(W, X, modelState, queryState, trainPlan):
     means = np.log(expMeans, out=expMeans) # Revert in-place exp()
         
     # Enable logging or not. If enabled, we need the inner product of the feat matrix
-    if DEBUG:
+    if debug:
         XTX = X.T.dot(X)
         debugFn = _debug_with_bound
     else:
@@ -352,7 +352,7 @@ def query(W, X, modelState, queryState, trainPlan):
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
         debugFn (iter, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-    return modelState, QueryState (means, varcs, lxi, s, n)
+    return modelState, QueryState (means, varcs, lxi, s, n, debug)
 
 def log_likelihood (W, modelState, queryState):
     ''' 
@@ -492,7 +492,7 @@ def _debug_with_bound (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n), XTX)
+    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n, True), XTX)
     diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     
