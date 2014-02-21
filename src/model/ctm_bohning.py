@@ -153,13 +153,13 @@ def train (W, X, modelState, queryState, trainPlan):
                  
     Return:
     A new model object with the updated model (note parameters are
-    updated in place, so make a defensive copy if you want it)
+    updated in place, so make a defensive copy if you want itr)
     A new query object with the update query parameters
     ''' 
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    iterations, epsilon, logFrequency, diagonalPriorCov = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
@@ -177,24 +177,24 @@ def train (W, X, modelState, queryState, trainPlan):
     priorSigt_diag.fill (0.001)
     
     # Iterate over parameters
-    for iter in range(iterations):
+    for itr in range(iterations):
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
         topicMean = means.mean(axis = 0)
-        debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        if fastButInaccurate:
+        if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
             isigT = np.diag(1./ diag)
         else:
             isigT = la.inv(sigT)
-        debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -211,34 +211,34 @@ def train (W, X, modelState, queryState, trainPlan):
         V = expMeans * R.dot(vocab.T)
         
         means = np.log(expMeans, out=expMeans)
-        debugFn (iter, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
-        # And now this is the E-Step, though it's followed by updates for the
+        # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the Variances
         varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
         
         # Update the Means
         rhs = V.copy()
         rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if fastButInaccurate:
+        if diagonalPriorCov:
             means = varcs * rhs
         else:
             for d in range(D):
                 means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
         
-        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
         
-        if logFrequency > 0 and iter % logFrequency == 0:
+        if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
-            boundIters[bvIdx]  = iter
-            print ("\nIteration %d: bound %f" % (iter, boundValues[bvIdx]))
+            boundIters[bvIdx]  = itr
+            print ("\nIteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
