@@ -51,7 +51,7 @@ def run(args):
                     help="Scale of the prior isotropic variance over features")
     parser.add_argument('--lat-topic-var', dest='lat_topic_var', type=float, default=0.1, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent topics")
-    parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=0.1, default=0.1, metavar=' ', \
+    parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=0.1, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent features")
     parser.add_argument('--folds', '-f', dest='folds', type=int, default=1, metavar=' ', \
                     help="Number of cross validation folds.")
@@ -119,7 +119,7 @@ def run(args):
             
             model, query, (boundItrs, boundVals) = mdl.train (W, X, model, query, trainPlan)
             trainSetLikely = mdl.log_likelihood (W, model, query)
-            perp = mdl.perplexity(W, model, query)
+            perp = np.exp (-trainSetLikely / W.data.sum())
                         
             print("Train-set Likelihood: %12f" % (trainSetLikely))
             print("Train-set Perplexity: %12f" % (perp))
@@ -136,7 +136,7 @@ def run(args):
             trainSize = D - querySize
         
             for fold in range(folds):
-                # Split the datasets up for hte current fold
+                # Split the datasets up for the current fold
                 start = fold * foldSize
                 end   = start + trainSize
                 
