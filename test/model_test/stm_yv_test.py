@@ -173,7 +173,7 @@ class Test(unittest.TestCase):
             queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])
             
             print("Fold %3d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainLikely[fold], queryLikely[fold]))
-            print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (fold, trainPerp, queryPerp))
+            print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (trainPerp, queryPerp))
         
             self.assertTrue(queryPerp < 60.0) # Maximum perplexity.
             self.assertTrue(trainPerp < 60.0)
