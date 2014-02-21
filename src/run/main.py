@@ -165,7 +165,7 @@ def run(args):
                 trainSetPerp   = np.exp(-trainSetLikely / W_train.data.sum())
                         
                 # Save the training results
-                models.append (model)
+                models.append (modelState)
                 trainTopicses.append(query)
                 boundItrses.append(boundItrs)
                 boundValses.append(boundVals)
