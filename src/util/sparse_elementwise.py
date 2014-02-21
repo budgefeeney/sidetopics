@@ -5,9 +5,11 @@ Created on 1 Dec 2013
 '''
 from distutils.core import setup
 
+import os
+
 import numpy as np
 import pyximport; 
-pyximport.install(setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
+pyximport.install(build_dir=os.path.dirname(os.path.realpath(__file__)), setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.se_fast as compiled
 from math import log
 import sys
