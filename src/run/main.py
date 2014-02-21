@@ -149,8 +149,10 @@ def run(args):
                 trainSet = np.arange(start,end) % D
                 querySet = np.arange(end, end + querySize) % D
                 
-                X_train, W_train = X[trainSet,:], W[trainSet,:]
-                X_query, W_query = X[querySet,:], W[querySet,:]
+                W_train, W_query = W[trainSet,:], W[querySet,:]
+                X_train, X_query = \
+                    X[trainSet,:], X[querySet,:] if X is not None \
+                    else None, None
                 
                 # Train the model
                 modelState  = mdl.newModelFromExisting(templateModel)
