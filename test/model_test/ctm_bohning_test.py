@@ -7,7 +7,7 @@ from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
-import model.ctm as ctm
+import model.ctm_bohning as ctm
 import numpy as np
 import numpy.random as rd
 import scipy as sp
@@ -16,9 +16,8 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import unittest
 import pickle as pkl
-import time
 
-from math import ceil 
+from math import ceil
 
 from run.main import newModelFile
 
@@ -107,7 +106,7 @@ class Test(unittest.TestCase):
         #
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=65, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=65, plot=True, logFrequency=1)
         
         self.assertTrue (0.99 < np.sum(model.topicMean) < 1.01)
         
@@ -166,7 +165,6 @@ class Test(unittest.TestCase):
         
     def testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
-        useDiagonalPriorCov = True
         
         rd.seed(0xBADB055) # Global init for repeatable test
         D, T, K = 1000, 100, 7 # Document count, vocabularly size ("term count") and topic count
@@ -268,7 +266,7 @@ class Test(unittest.TestCase):
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
         model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
-            
+        
         # Plot the bound
         plt.plot(bndItrs[5:], bndVals[5:])
         plt.xlabel("Iterations")
@@ -285,19 +283,24 @@ class Test(unittest.TestCase):
     
 
     def _testOnRealData(self):
+        rd.seed(0xC0FFEE)
+        dtype = np.float64
+        
         path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
         with open(path + "/words-by-author.pkl", 'rb') as f:
             user_dict, d, W = pkl.load(f)
         
-        if W.dtype != DTYPE:
-            W = W.astype(DTYPE)
+        if W.dtype != dtype:
+            W = W.astype(dtype)
         D,T = W.shape
+        
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1 + freq)
        
+       
         # Initialise the model  
         K = 20
-        model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
+        model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
         trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False)
         
@@ -311,8 +314,7 @@ class Test(unittest.TestCase):
         plt.xlabel("Iterations")
         plt.ylabel("Variational Bound")
         plt.show()
-    
-        # Print out the most likely topic words
+        
         topWordCount = 100
         kTopWordInds = [self.topWordInds(d, model.vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
@@ -328,6 +330,25 @@ class Test(unittest.TestCase):
     def topWordInds (self, wordDict, vocab, count=10):
         return vocab.argsort()[-count:][::-1]
     
+    def idf(self, W):
+        '''
+        Returns the total corpus word frequency table, and the total
+        corpus df counts for each word (i.e. how many documents did
+        it occur in
+        '''
+        counts = W.sum(axis = 0)
+        freq = counts.astype(np.float64) / counts.sum()
+        freq = np.squeeze(np.asarray(freq))
+        freq += 1E-300
+        
+        w_dat_copy = W.data.copy()
+        w_dat_copy[w_dat_copy > 1] = 1
+        W2 = ssp.csr_matrix((w_dat_copy, W.indices, W.indptr))
+
+        df = np.squeeze(np.asarray(W2.sum(axis=0)))
+        
+        return freq, df
+    
     def printTopics(self, wordDict, vocab, count=10):
         words = vocab.argsort()[-count:][::-1]
         for wordIdx in words:
@@ -337,7 +358,7 @@ class Test(unittest.TestCase):
 
 def truncate(word, max_len=12):      
     return word if len(word) < max_len else word[:(max_len-3)] + '...'
-
+    
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

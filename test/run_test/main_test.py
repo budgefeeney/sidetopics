@@ -9,7 +9,7 @@ import tempfile as tmp
 
 from run.main import run
 
-from model_test.sidetopic_uyv_test import sampleFromModel as sample_uyv_dataset
+from model_test.stm_yv_test import sampleFromModel
 
 def tmpFiles():
     '''
@@ -18,7 +18,7 @@ def tmpFiles():
     details, and the file containing a plot of the variational bounds.
     '''
     tmpDir = tmp.gettempdir()
-    return tmpDir + '/words.pkl', tmpDir + '/feats.pkl', tmpDir + '/model.pkl', tmpDir + '/plot'
+    return tmpDir + '/words.pkl', tmpDir + '/feats.pkl', tmpDir
 
 class Test(unittest.TestCase):
 
@@ -33,40 +33,38 @@ class Test(unittest.TestCase):
 
     def testUyv(self):
         D, T, K, Q, F, P, avgWordsPerDoc = 200, 100, 10, 6, 12, 8, 500
-        modelState, _, _, _, X, W = sample_uyv_dataset(D, T, K, Q, F, P, avgWordsPerDoc)
+        tpcs, vocab, docLens, X, W = sampleFromModel(D, T, K, F, P, avgWordsPerDoc)
         
-        wordsFile, featsFile, modelFile, plotFile = tmpFiles()
+        wordsFile, featsFile, modelFileDir = tmpFiles()
         with open(wordsFile, 'wb') as f:
             pkl.dump(W, f)
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
         
-        K, Q, P = 40, 10, 50
         cmdline = '' \
-                + ' --model '          + 'uyv'      \
+                + ' --model '          + 'ctm_bouchard' \
                 + ' --num-topics '     + str(K)    \
                 + ' --num-lat-topics ' + str(Q)    \
                 + ' --num-lat-feats '  + str(P)    \
                 + ' --eval '           + 'likely'  \
-                + ' --out-model '      + modelFile \
-                + ' --out-plot '       + plotFile  \
+                + ' --out-model '      + modelFileDir \
                 + ' --log-freq '       + '100'     \
                 + ' --iters '          + '500'     \
                 + ' --query-iters '    + '50'      \
                 + ' --min-vb-change '  + '0.00001' \
                 + ' --topic-var '      + '0.01'    \
                 + ' --feat-var '       + '0.01'    \
-                + ' --lat-topic-var '  + '1'       \
-                + ' --lat-feat-var '   + '1'       \
+                + ' --lat-topic-var '  + '0.1'       \
+                + ' --lat-feat-var '   + '0.1'       \
                 + ' --folds '          + '5'       \
                 + ' --feats '          + featsFile \
                 + ' --words '          + wordsFile
 #                 + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallDB2/side.pkl' \
 #                 + ' --words '          + '/Users/bryanfeeney/Desktop/SmallDB2/words.pkl'
         
-        run(cmdline.strip().split(' '))
-        print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))
+        modelFile = run(cmdline.strip().split(' '))
+        print ("Files can be found in %s, %s, %s" % ( wordsFile, featsFile, modelFile))
         
 
 if __name__ == "__main__":

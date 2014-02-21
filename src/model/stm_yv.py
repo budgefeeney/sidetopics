@@ -12,7 +12,8 @@ from collections import namedtuple
 from math import e, log, pi
 from model.ctm import printStderr, verifyProper, perplexity, LN_OF_2_PI, \
     LN_OF_2_PI_E, DTYPE
-from util.array_utils import normalizerows_ip, rowwise_softmax
+from util.array_utils import normalizerows_ip
+from util.sigmoid_utils import rowwise_softmax
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, entropyOfDot, \
@@ -35,7 +36,8 @@ import time
 # CONSTANTS
 # ==============================================================
 
-DEBUG=True
+DEBUG=False
+MODEL_NAME="stm-yv/bouchard"
 
 # ==============================================================
 # TUPLES
@@ -43,7 +45,7 @@ DEBUG=True
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency plot plotFile plotIncremental fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -52,7 +54,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'F P K A R_A fv Y R_Y lfv V sigT vocab dtype'
+    'F P K A R_A fv Y R_Y lfv V sigT vocab dtype name'
 )
 
 # ==============================================================
@@ -69,7 +71,8 @@ def newModelFromExisting(model):
         model.A.copy(), model.R_A.copy(), model.featVar, \
         model.Y.copy(), model.R_Y.copy(), model.latFeatVar, \
         model.V.copy(), \
-        model.sigT.copy(), model.vocab.copy(), model.dtype)
+        model.sigT.copy(), model.vocab.copy(), \
+        model.dtype, model.name)
 
 
 def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
@@ -105,7 +108,7 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
-    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype)
+    return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype, MODEL_NAME)
 
 def newQueryState(W, modelState):
     '''
@@ -126,14 +129,14 @@ def newQueryState(W, modelState):
     return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, plot=False, plotFile=None, plotIncremental=False, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate)
-    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.plot, base.plotFile, base.plotIncremental, base.fastButInaccurate)
+    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
+    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate, base.debug)
 
 
 def train (W, X, modelState, queryState, trainPlan):
@@ -161,7 +164,7 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, plot, plotFile, plotIncremental, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.plot, trainPlan.plotFile, trainPlan.plotIncremental, trainPlan.fastButInaccurate
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
@@ -169,7 +172,7 @@ def train (W, X, modelState, queryState, trainPlan):
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -192,7 +195,7 @@ def train (W, X, modelState, queryState, trainPlan):
     R_Y_base = R_Y.copy()
     
     # Iterate over parameters
-    for iter in range(iterations):
+    for itr in range(iterations):
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
@@ -212,7 +215,7 @@ def train (W, X, modelState, queryState, trainPlan):
         sigT = np.diag(sigT.flat[::K+1])
         # and invert it.
         isigT = np.diag(np.reciprocal(sigT.flat[::K+1]))
-        debugFn (iter, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Building Blocks - temporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -226,11 +229,11 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
-        debugFn (iter, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Finally update the parameter V
         V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
-        debugFn (iter, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
@@ -238,14 +241,14 @@ def train (W, X, modelState, queryState, trainPlan):
         # Update the distribution on the latent space
         R_Y_base = aI_P + 1/fv * V.dot(V.T)
         R_Y = la.inv(R_Y_base)
-        debugFn (iter, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         Y = 1./fv * A.dot(V.T).dot(R_Y)
-        debugFn (iter, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the mapping from the features to topics
         A = (1./fv * (Y).dot(V) + (X.T.dot(means)).T).dot(R_A)
-        debugFn (iter, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
@@ -254,45 +257,101 @@ def train (W, X, modelState, queryState, trainPlan):
         
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
-        debugFn (iter, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (iter, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (iter, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-        if logFrequency > 0 and iter % logFrequency == 0:
-            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype)
+        if logFrequency > 0 and itr % logFrequency == 0:
+            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
-            boundIters[bvIdx]  = iter
-            print ("\n" + time.strftime('%X') + " : Iteration %d: bound %f" % (iter, boundValues[bvIdx]))
+            boundIters[bvIdx]  = itr
+            print ("\n" + time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
             
-    if plot:
-        plt.plot(boundIters, boundValues)
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
-        plt.show()
-        
-    
     return \
-        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype), \
-        QueryState(means, varcs, lxi, s, n)
+        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
+        QueryState(means, varcs, lxi, s, n), \
+        (boundIters, boundValues)
+
+def query(W, X, modelState, queryState, queryPlan):
+    '''
+    Given a _trained_ model, attempts to predict the topics for each of
+    the inputs.
     
+    Params:
+    W - The query words to which we assign topics
+    X - The query features, used to assign topics
+    modelState - the _trained_ model
+    queryState - the query state generated for the query dataset
+    queryPlan  - used in this case as we need to tighten up the approx
+    
+    Returns:
+    The model state and query state, in that order. The model state is
+    unchanged, the query is.
+    '''
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
+    
+    # Necessary temp variables (notably the count of topic to word assignments
+    # per topic per doc)
+    isigT = la.inv(sigT)
+    expMeans = np.exp(means, out=means) # Do in-place to save memory
+    R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+    S = expMeans * R.dot(vocab.T)
+    means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        
+    # Enable logging or not. If enabled, we need the inner product of the feat matrix
+    if debug:
+        XTX = X.T.dot(X)
+        debugFn = _debug_with_bound
+    else:
+        XTX = None
+        debugFn = _debug_with_nothing
+    
+    # Iterate over parameters
+    for itr in range(iterations):
+        # Update the Means
+        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
+        lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * 2 * lxi)  # inverse of D diagonal matrices...
+        
+        means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
+                                # do doing a hadamard product for all d
+        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the Variances
+        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the approximation parameters
+        lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
+        debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # s can sometimes grow unboundedly
+        # Follow Bouchard's suggested approach of fixing it at zero
+        #
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+    return modelState, QueryState (means, varcs, lxi, s, n)
 
 def log_likelihood (W, modelState, queryState):
     ''' 
@@ -339,7 +398,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= 0.5 * K * np.trace(R_Y)
     
     # And its entropy
-    detR_Y = _safeDet(R_Y, "R_Y")
+    detR_Y = safeDet(R_Y, "R_Y")
     bound += 0.5 * LN_OF_2_PI_E + P/2. * lnDetSigT + K/2. * log(detR_Y)
     
     # Distribution over mapping from features to topics
@@ -351,7 +410,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= 0.5 * K * np.trace(R_A)
     
     # And its entropy
-    detR_A = _safeDet(R_A, "R_A")
+    detR_A = safeDet(R_A, "R_A")
     bound += 0.5 * LN_OF_2_PI_E + F/2. * lnDetSigT + K/2. * log(detR_A)
     
     # Distribution over document topics
@@ -396,7 +455,7 @@ def lnDetOfDiagMat(X):
     return np.sum(np.log(np.diag(X)))
   
 
-def _safeDet(X, x_name="X"):
+def safeDet(X, x_name="X"):
     '''
     Returns max(det(X), epsilon) where epsilon is the smallest, **positive**
     value allowed by the dtype of X
@@ -423,7 +482,7 @@ def static_var(varname, value):
     return decorate
 
 @static_var("old_bound", 0)
-def _debug_with_bound (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
+def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
@@ -432,11 +491,11 @@ def _debug_with_bound (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype), QueryState(means, varcs, lxi, s, n), XTX)
+    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n), XTX)
     diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %s Bound %f (%s)" % (iter, var_name, bound, diff)) 
+    print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
 
 def _debug_with_nothing (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     pass

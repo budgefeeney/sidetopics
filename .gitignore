@@ -65,3 +65,5 @@ src/notebooks/*.zip
 
 # The notebooks copy
 src/notebooks-imac
+
+src/notebooks/Local Mathjax.ipynb

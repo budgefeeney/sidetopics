@@ -21,7 +21,8 @@ import matplotlib.pyplot as plt
 from math import sqrt
 
 from util.overflow_safe import safe_log, safe_x_log_x, safe_log_one_plus_exp_of
-from util.array_utils import normalizerows_ip, rowwise_softmax
+from util.array_utils import normalizerows_ip
+from util.sigmoid_utils import rowwise_softmax
 
 # TODO Consider using numba for autojit (And jit with local types)
 # TODO Investigate numba structs as an alternative to namedtuples

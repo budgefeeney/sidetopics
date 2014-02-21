@@ -11,7 +11,7 @@ import unittest
 
 from math import sqrt
 
-from model.sidetopic import newVbModelState, train, rowwise_softmax, normalizerows_ip
+from model.old.sidetopic import newVbModelState, train, rowwise_softmax, normalizerows_ip
 
 import numpy as np
 import scipy.linalg as la

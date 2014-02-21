@@ -363,7 +363,7 @@ cdef double dotProduct_f8 (int r, int c, double[:,:] B, double[:,:] C) nogil:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef double dotProduct_f4 (int r, int c, float[:,:] B, float[:,:] C) nogil:
+cdef float dotProduct_f4 (int r, int c, float[:,:] B, float[:,:] C) nogil:
     '''
     The dot product of the r-th row of B and the c-th column of C.
     Done directly with a for-loop, no BLAS, SSE or anything. Still
