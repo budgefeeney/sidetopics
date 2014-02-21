@@ -18,8 +18,6 @@ from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.sparse_elementwise import sparseScalarProductOf, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot, entropyOfDot, \
     sparseScalarProductOfSafeLnDot
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import model.ctm as ctm
 import numpy as np
 import numpy.random as rd

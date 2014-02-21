@@ -16,7 +16,6 @@ from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import numpy.random as rd
-import matplotlib.pyplot as plt
 
 from math import sqrt
 

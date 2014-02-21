@@ -7,10 +7,8 @@ import argparse as ap
 import pickle as pkl
 import numpy as np
 import sys
-import matplotlib as mpl
 import time
 import os
-mpl.use('Agg') # Force everything to be saved to disk, including VB plots
 from math import ceil
 
 DTYPE=np.float32

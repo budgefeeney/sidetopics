@@ -22,9 +22,6 @@ import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
-import matplotlib as mpl
-mpl.use('Agg')
-import matplotlib.pyplot as plt
 import sys
 
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
