@@ -233,11 +233,14 @@ class Test(unittest.TestCase):
         D,T = W.shape
         _,F = X.shape
         
-        K = 10
+        freq = np.squeeze(np.asarray(W.sum(axis=0)))
+        scale = np.reciprocal(1. + freq)
+        
+        K = 30
         P = 30
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=50, logFrequency=1)
+        trainPlan  = stm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True)
         
         model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
         with open(modelFile(model), "wb") as f:
@@ -251,10 +254,8 @@ class Test(unittest.TestCase):
         
         # Print the top topic words
         topWordCount = 100
-        kTopWordInds = []
-        for k in range(K):
-            topWordInds = self.topWordInds(dic, model.vocab[k,:], topWordCount)
-            kTopWordInds.append(topWordInds)
+        kTopWordInds = [self.topWordInds(dic, model.vocab[k,:] * scale, topWordCount) \
+                        for k in range(K)]
         
         print ("Perplexity: %f\n\n" % ctm.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))

@@ -293,12 +293,16 @@ class Test(unittest.TestCase):
         if W.dtype != dtype:
             W = W.astype(dtype)
         D,T = W.shape
+        
+        freq = np.squeeze(np.asarray(W.sum(axis=0)))
+        scale = np.reciprocal(1 + freq)
+       
        
         # Initialise the model  
         K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=1000, plot=True, logFrequency=1)
+        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
@@ -311,16 +315,9 @@ class Test(unittest.TestCase):
         plt.ylabel("Variational Bound")
         plt.show()
         
-        # Print out the most likely topic words, using TF-IDF
-        freq, df = self.idf(W)
-        idf = D / (1 + df)
-        lidf = np.log(idf)
-        
         topWordCount = 100
-        kTopWordInds = []
-        for k in range(K):
-            topWordInds = self.topWordInds(d, model.vocab[k,:] * lidf, topWordCount)
-            kTopWordInds.append(topWordInds)
+        kTopWordInds = [self.topWordInds(d, model.vocab[k,:] * scale, topWordCount) \
+                        for k in range(K)]
         
         print ("Perplexity: %f\n\n" % ctm.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
