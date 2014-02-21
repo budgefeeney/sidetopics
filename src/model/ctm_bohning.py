@@ -20,7 +20,6 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import sys
-from numba import autojit
 
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip
@@ -68,7 +67,7 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
-    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
+    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.copy(), model.dtype, model.name)
 
 def newModelAtRandom(W, K, dtype=DTYPE):
     '''
@@ -238,7 +237,7 @@ def train (W, X, modelState, queryState, trainPlan):
             print ("\nIteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
-            print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+#             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
         
     

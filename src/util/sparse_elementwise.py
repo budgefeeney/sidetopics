@@ -9,11 +9,12 @@ import numpy as np
 import pyximport; 
 pyximport.install(setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.se_fast as compiled
-from numba import autojit
 from math import log
 import sys
 from util.overflow_safe import safe_log
 from util.sigmoid_utils import rowwise_softmax
+
+WarnIfSlow=True
 
 def lse(matrix):
     '''
@@ -44,6 +45,8 @@ def selfSoftDot(matrix):
     elif matrix.dtype == np.float32:
         return compiled.selfSoftDot_f4(matrix)
     
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (selfSoftDot)")
     return np.sum(matrix * rowwise_softmax(matrix))
 
 def entropyOfDot (topics, vocab):
@@ -66,7 +69,7 @@ def entropyOfDot (topics, vocab):
     else:
         return entropyOfDot_py (topics, vocab)
     
-@autojit
+
 def entropyOfDot_py (topics, vocab):
     '''
     Given a DxK matrix of topic assignments for each of the D document,
@@ -80,6 +83,9 @@ def entropyOfDot_py (topics, vocab):
     
     This calculates and returns that entropy.
     '''
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (entropyOfDot_py)")
+    
     (D,K) = topics.shape
     (_,T) = vocab.shape
     
@@ -160,6 +166,9 @@ def _sparseScalarProductOfDot_py(A,B,C, out=None):
     the sparse matrix A. If this has an integral type, this will
     only provide integer-based multiplication.
     '''
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (_sparseScalarProductOfDot_py)")
+        
     if out is None:
         out = A.copy()
     if out is not A:
@@ -208,6 +217,9 @@ def _sparseScalarProductOfSafeLnDot_py(A,B,C, out=None):
     the sparse matrix A. If this has an integral type, this will
     only provide integer-based multiplication.
     '''
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (_sparseScalarProductOfSafeLnDot_py)")
+        
     if out is None:
         out = A.copy()
     out.data[:] = A.data
@@ -229,6 +241,9 @@ def sparseScalarProductOf(A,B, out=None):
     the sparse matrix A. If this has an integral type, this will
     only provide integer-based multiplication.
     '''
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (sparseScalarProductOf)")
+        
     if out is None:
         out = A.copy()
     if not out is A:
@@ -248,6 +263,9 @@ def _sparseScalarQuotientOfDot_py(A,B,C, out=None):
     the sparse matrix A. If this has an integral type, this will
     only provide integer-based division.
     '''
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (_sparseScalarQuotientOfDot_py)")
+    
     if out is None:
         out = A.copy()
     if not out is A:
@@ -258,7 +276,6 @@ def _sparseScalarQuotientOfDot_py(A,B,C, out=None):
     return out
 
 
-@autojit
 def csr_indices(ptr, ind):
     '''
     Returns the indices of a CSR matrix, given its indptr and indices arrays.

@@ -9,11 +9,11 @@ import numpy as np
 import pyximport; 
 pyximport.install(setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.sig_fast as compiled
-from numba import autojit
 from math import log
 import sys
 from util.overflow_safe import safe_log
 
+from util.sparse_elementwise import WarnIfSlow
 
 def rowwise_softmax (matrix, out=None):
     '''
@@ -61,6 +61,8 @@ def selfSoftDot(matrix):
     elif matrix.dtype == np.float32:
         return compiled.selfSoftDot_f4(matrix)
     
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (selfSoftDot)")
     return np.sum(matrix * rowwise_softmax(matrix))
 
 def scaledSelfSoftDot(matrix, scale):
@@ -88,5 +90,7 @@ def scaledSelfSoftDot(matrix, scale):
             scale_f4 = scale if scale.dtype == np.float32 else scale.astype(np.float32)
             return compiled.selfSoftDot_f4_f4(matrix, scale_f4)
     
+    if WarnIfSlow:
+        sys.stderr.write("WARNING: Slow code path triggered (scaledSelfSoftDot)")
     return np.sum(matrix * rowwise_softmax(matrix))
 

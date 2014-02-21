@@ -55,6 +55,8 @@ def run(args):
                     help="Number of cross validation folds.")
     parser.add_argument('--debug', '-b', dest='debug', type=bool, default=False, metavar=' ', \
                     help="Display a debug message, with the bound, after every variable update")
+    parser.add_argument('--dtype', '-t', dest='dtype', default="f4", metavar=' ', \
+                    help="Datatype to use, values are f4 and f8 for single and double-precision floats respectively")
     
     #
     # Parse the arguments
@@ -80,22 +82,23 @@ def run(args):
     folds = args.folds
     
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
+    dtype = np.float32 if args.dtype=='f4' else np.float64
     
     #
     # Instantiate and configure the model
     #
     if args.model == 'ctm_bouchard':
         import model.ctm as mdl
-        templateModel = mdl.newModelAtRandom(W, K, dtype=DTYPE)
+        templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
     elif args.model == 'ctm_bohning':
         import model.ctm_bohning as mdl
-        templateModel = mdl.newModelAtRandom(W, K, dtype=DTYPE)
+        templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
     elif args.model == 'stm_yv_bouchard':
         import model.stm_yv as mdl 
-        templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=DTYPE)
+        templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     elif args.model == 'stm_yv_bohning':
         import model.stm_yv as mdl 
-        templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=DTYPE)
+        templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     
