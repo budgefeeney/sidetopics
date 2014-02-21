@@ -9,22 +9,19 @@ Created on 17 Jan 2014
 '''
 
 from collections import namedtuple
-from math import e, log, pi
-from model.ctm import printStderr, verifyProper, perplexity, LN_OF_2_PI, \
+from math import log
+from model.ctm import printStderr, verifyProper, LN_OF_2_PI, \
     LN_OF_2_PI_E, DTYPE
 from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
-from util.sparse_elementwise import sparseScalarProductOf, \
-    sparseScalarProductOfDot, sparseScalarQuotientOfDot, entropyOfDot, \
+from util.overflow_safe import safe_log_one_plus_exp_of
+from util.sparse_elementwise import sparseScalarQuotientOfDot,\
     sparseScalarProductOfSafeLnDot
 import model.ctm as ctm
 import numpy as np
 import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
-import scipy.sparse.linalg as sla
-import sys
+
 import time
 
 #mpl.use('Agg')
@@ -64,12 +61,15 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
+    def copy(matrix):
+        return None if matrix is None else matrix.copy()
+    
     return ModelState(\
         model.F, model.P, model.K, \
-        model.A.copy(), model.R_A.copy(), model.featVar, \
-        model.Y.copy(), model.R_Y.copy(), model.latFeatVar, \
-        model.V.copy(), \
-        model.sigT.copy(), model.vocab.copy(), \
+        copy(model.A), copy(model.R_A), model.featVar, \
+        copy(model.Y), copy(model.R_Y), model.latFeatVar, \
+        copy(model.V), \
+        copy(model.sigT), copy(model.vocab), \
         model.dtype, model.name)
 
 

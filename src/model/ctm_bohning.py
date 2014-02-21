@@ -17,16 +17,13 @@ from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
-import scipy.sparse.linalg as sla
 import numpy.random as rd
 import sys
 
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax, selfSoftDot, scaledSelfSoftDot
-from util.sparse_elementwise import sparseScalarProductOf, \
-    sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    entropyOfDot, sparseScalarProductOfSafeLnDot
+from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
+from util.sparse_elementwise import sparseScalarQuotientOfDot, \
+    sparseScalarProductOfSafeLnDot
     
 # ==============================================================
 # CONSTANTS

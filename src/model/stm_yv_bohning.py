@@ -9,24 +9,17 @@ Created on 17 Jan 2014
 '''
 
 from math import log
-from math import pi
-from math import e
 
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
-import scipy.sparse.linalg as sla
 import numpy.random as rd
-import sys
-from numba import autojit
 
-from util.overflow_safe import safe_log, safe_log_one_plus_exp_of, safe_log_det
 from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax, selfSoftDot, scaledSelfSoftDot
-from util.sparse_elementwise import sparseScalarProductOf, \
-    sparseScalarProductOfDot, sparseScalarQuotientOfDot, \
-    entropyOfDot, sparseScalarProductOfSafeLnDot
+from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
+from util.sparse_elementwise import sparseScalarQuotientOfDot, \
+    sparseScalarProductOfSafeLnDot
 from model.stm_yv import lnDetOfDiagMat, safeDet, static_var
 from model.ctm_bohning import printStderr, LN_OF_2_PI, \
     LN_OF_2_PI_E, newModelAtRandom as newCtmModelAtRandom
@@ -70,7 +63,15 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
-    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
+    def copy(matrix):
+        return None if matrix is None else matrix.copy()
+    
+    return ModelState(model.F, model.P, model.K, \
+        copy(model.A), copy(model.R_A), model.fv, \
+        copy(model.Y), copy(model.R_Y), model.lfv, \
+        copy(model.V), \
+        copy(model.sigT), copy(model.vocab), copy(model.Ab), \
+        model.dtype, model.name)
 
 def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
