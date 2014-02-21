@@ -67,3 +67,7 @@ src/notebooks/*.zip
 src/notebooks-imac
 
 src/notebooks/Local Mathjax.ipynb
+
+# The compiled library files
+src/util/lib.macosx-10.9-x86_64-3.3
+src/util/temp.macosx-10.9-x86_64-3.3
