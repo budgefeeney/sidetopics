@@ -18,6 +18,10 @@ import unittest
 import pickle as pkl
 import time
 
+from math import ceil 
+
+from run.main import modelFile
+
 
 DTYPE=np.float32
 
@@ -162,24 +166,83 @@ class Test(unittest.TestCase):
         
     def testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
+        useDiagonalPriorCov = True
         
         rd.seed(0xBADB055) # Global init for repeatable test
         D, T, K = 1000, 100, 7 # Document count, vocabularly size ("term count") and topic count
-        tpcs, vocab, docLens, W = self._sampleFromModel()
+        tpcs, vocab, docLens, W = self._sampleFromModel(D, T, K)
         
         W = W.astype(DTYPE)
         
         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
-            
-        #
-        # Train the model
-        #
-        model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
-        queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=150, logFrequency=1)
         
-        return self._doTest (W, model, queryState, trainPlan)
+        
+        # Create the cross-validation folds
+        folds     = 5
+        foldSize  = ceil(D / 5)
+        querySize = foldSize
+        trainSize = D - querySize
+        
+        trainLikely = []
+        trainWordCount = []
+        queryLikely = []
+        queryWordCount = []
+        
+        for fold in range(folds):
+            # Split the datasets
+            start = fold * foldSize
+            end   = start + trainSize
+            
+            trainSet = np.arange(start,end) % D
+            querySet = np.arange(end, end + querySize) % D
+            
+            W_train = W[trainSet,:]
+            W_query = W[querySet,:]
+            
+            # Train the model
+            model = ctm.newModelAtRandom(W_train, K, dtype=DTYPE)
+            queryState = ctm.newQueryState(W_train, model)
+            
+            plan  = ctm.newTrainPlan(iterations=50, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
+            model, queryState, (bndItrs, bndVals) = ctm.train (W_train, None, model, queryState, plan)
+                
+            # Plot the evoluation of the bound during training.
+            plt.plot(bndItrs[5:], bndVals[5:])
+            plt.xlabel("Iterations")
+            plt.ylabel("Variational Bound")
+            plt.show()
+        
+            # Plot the topic covariance
+            self._plotCov(model)
+            
+            # Plot the vocab
+            plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
+            plt.show()
+            
+            # Calculating the training set likelihood
+            trainLikely.append(ctm.log_likelihood(W_train, model, queryState))
+            trainWordCount.append(W_train.data.sum())
+            
+            # Now query the model.
+            plan       = ctm.newTrainPlan(iterations=10, fastButInaccurate=useDiagonalPriorCov)
+            queryState = ctm.newQueryState(W_query, model)
+            model, queryState = ctm.query(W_query, None, model, queryState, plan)
+            
+            queryLikely.append(ctm.log_likelihood(W_query, model, queryState))
+            queryWordCount.append(W_query.data.sum())
+            
+        # Check and print results.
+        for fold in range(folds):
+            trainPerp = np.exp(-trainLikely[fold]/trainWordCount[fold])
+            queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])
+            
+            print("Fold %3d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainLikely[fold], queryLikely[fold]))
+            print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (fold, trainPerp, queryPerp))
+        
+            self.assertTrue(queryPerp < 60.0) # Maximum perplexity.
+            self.assertTrue(trainPerp < 60.0)
+        
         print("End of Test")
         
     def _plotCov(self, model):
@@ -271,21 +334,7 @@ class Test(unittest.TestCase):
 
 def truncate(word, max_len=12):      
     return word if len(word) < max_len else word[:(max_len-3)] + '...'
-    
-def modelFile(model, prefix="/Users/bryanfeeney/Desktop"):
-    modelName = model.name
-    modelName = modelName.replace('/','_')
-    modelName = modelName.replace('-','_')
-    timestamp = time.strftime("%Y%m%d_%H%M", time.gmtime())
-    
-    cfg = "k_" + str(model.K)
-    if modelName[:3] == 'stm':
-        cfg += "_p_" + str(model.P)
-    
-    return prefix + '/' \
-         + modelName + '_' \
-         + cfg + '_' \
-         + timestamp + '.pkl'
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

@@ -20,7 +20,6 @@ import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import numpy.random as rd
 import matplotlib as mpl
-#mpl.use('Agg')
 import matplotlib.pyplot as plt
 import sys
 
@@ -159,16 +158,6 @@ def train (W, X, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
     '''
-    def debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
-        if np.isnan(var_value).any():
-            printStderr ("WARNING: " + var_name + " contains NaNs")
-        if np.isinf(var_value).any():
-            printStderr ("WARNING: " + var_name + " contains INFs")
-        
-        print ("Iter %3d Update %s Bound %f" % (iter, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)))) 
-    def debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
-        pass
-    
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
@@ -180,7 +169,7 @@ def train (W, X, modelState, queryState, trainPlan):
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = debug_with_bound if DEBUG else debug_with_nothing
+    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -213,7 +202,7 @@ def train (W, X, modelState, queryState, trainPlan):
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
+        vocab += 1E-35 if dtype == np.float32 else 1E-300 # Just to ensure that we don't get zero probabilities in the absence of a proper prior
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
@@ -260,6 +249,69 @@ def train (W, X, modelState, queryState, trainPlan):
         QueryState(means, varcs, lxi, s, n), \
         (boundIters, boundValues)
     
+
+def query(W, X, modelState, queryState, trainPlan):
+    '''
+    Given a _trained_ model, attempts to predict the topics for each of
+    the inputs.
+    
+    Params:
+    W - The query words to which we assign topics
+    X - This is ignored, and can be omitted
+    modelState - the _trained_ model
+    queryState - the query state generated for the query dataset
+    trainPlan  - used in this case as we need to tighten up the approx
+    
+    Returns:
+    The model state and query state, in that order. The model state is
+    unchanged, the query is.
+    '''
+    D = W.shape[0]
+    
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
+    
+    # Necessary temp variables (notably the count of topic to word assignments
+    # per topic per doc)
+    isigT = la.inv(sigT)
+    expMeans = np.exp(means, out=means) # Do in-place to save memory
+    R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+    S = expMeans * R.dot(vocab.T)
+    means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        
+    # Enable logging or not. If enabled, we need the inner product of the feat matrix
+    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    
+    # Iterate over parameters
+    for itr in range(iterations):
+        # Update the Means
+        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        rhsMat = vMat + isigT.dot(topicMean)
+        for d in range(D):
+            try:
+                means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
+            except ValueError as e:
+                print(str(e))
+                print ("Ah")
+        debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the Variances
+        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the approximation parameters
+        lxi = negJakkolaOfDerivedXi(means, varcs, s)
+        debugFn (iter, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # s can sometimes grow unboundedly
+        # Follow Bouchard's suggested approach of fixing it at zero
+        #
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+    return modelState, QueryState (means, varcs, lxi, s, n)
+
 
 def verifyProper(X, xName):
     '''
@@ -381,6 +433,20 @@ def negJakkolaOfDerivedXi(means, varcs, s, d = None):
     d       - the document index (for lambda and nu). If not specified we construct
               the full matrix of A(xi_dk)
     '''
+    err = errorMsg(means)
+    if err is not None:
+        print ("Means " + err)
+        print ("")
+        
+    err = errorMsg(s)
+    if err is not None:
+        print ("s " + err)
+        print ("")
+        
+    err = errorMsg(varcs)
+    if err is not None:
+        print ("lxi " + err)
+        print ("")
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
@@ -402,6 +468,20 @@ def jakkolaOfDerivedXi(means, varcs, s, d = None):
     d    - the document index (for lambda and nu). If not specified we construct
            the full matrix of A(xi_dk)
     '''
+    err = errorMsg(means)
+    if err is not None:
+        print ("Means " + err)
+        print ("")
+        
+    err = errorMsg(s)
+    if err is not None:
+        print ("s " + err)
+        print ("")
+        
+    err = errorMsg(varcs)
+    if err is not None:
+        print ("lxi " + err)
+        print ("")
     
     # COPY AND PASTE BETWEEN THIS AND negJakkola()
     if d is not None:
@@ -424,4 +504,28 @@ def _deriveXi (means, varcs, s):
     '''
     return np.sqrt(means**2 - 2 * means * s[:,np.newaxis] + (s**2)[:,np.newaxis] + varcs**2)   
 
+def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
+    if np.isnan(var_value).any():
+        printStderr ("WARNING: " + var_name + " contains NaNs")
+    if np.isinf(var_value).any():
+        printStderr ("WARNING: " + var_name + " contains INFs")
+        
+    print ("Iter %3d Update %s Bound %f" % (itr, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)))) 
 
+
+def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   
+    pass
+
+def errorMsg(mat):
+    '''
+    If somethings wrong, return an error message, otherwise return None
+    '''
+    if np.isnan(mat).any() and np.isinf(mat).any():
+        return "Matrix has NaNs and INFs"
+    elif np.isnan(mat).any() :
+        return "Matrix has NaNs"
+    elif np.isinf(mat).any():
+        return "Matrix has INFs"
+    else:
+        return None
+    

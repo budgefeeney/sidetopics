@@ -189,8 +189,9 @@ def train (W, X, modelState, queryState, trainPlan):
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
         if fastButInaccurate:
-            sigT = np.diag(np.diag(sigT))
-            isigT = 1./ sigT
+            diag = np.diag(sigT)
+            sigT = np.diag(diag)
+            isigT = np.diag(1./ diag)
         else:
             isigT = la.inv(sigT)
         debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
@@ -248,7 +249,58 @@ def train (W, X, modelState, queryState, trainPlan):
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
         QueryState(means, varcs, n), \
         (boundIters, boundValues)
+
+def query(W, X, modelState, queryState, trainPlan):
+    '''
+    Given a _trained_ model, attempts to predict the topics for each of
+    the inputs.
     
+    Params:
+    W - The query words to which we assign topics
+    X - This is ignored, and can be omitted
+    modelState - the _trained_ model
+    queryState - the query state generated for the query dataset
+    trainPlan  - used in this case as we need to tighten up the approx
+    
+    Returns:
+    The model state and query state, in that order. The model state is
+    unchanged, the query is.
+    '''
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
+    
+    debugFn = _debug_with_bound if DEBUG else _debug_with_nothing
+    D = W.shape[0]
+    
+    # Necessary temp variables (notably the count of topic to word assignments
+    # per topic per doc)
+    isigT = la.inv(sigT)
+    
+    for itr in range(iterations):
+        expMeans = np.exp(means, out=means) # Do in-place to save memory
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+        S = expMeans * R.dot(vocab.T)
+        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+            
+        # Update the Variances
+        varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        
+        # Update the Means
+        rhs = S.copy()
+        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
+        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
+        if fastButInaccurate:
+            means[:] = varcs * rhs
+        else:
+            for d in range(D):
+                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        
+    return modelState, queryState
+
+   
 
 def perplexity (W, modelState, queryState):
     '''
@@ -341,7 +393,7 @@ def static_var(varname, value):
     return decorate
 
 @static_var("old_bound", 0)
-def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
@@ -354,8 +406,8 @@ def _debug_with_bound (iter, var_value, var_name, W, K, topicMean, sigT, vocab, 
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %-15s Bound %22f (%15s)" % (iter, var_name, bound, diff)) 
+    print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
 
-def _debug_with_nothing (iter, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
     pass
 

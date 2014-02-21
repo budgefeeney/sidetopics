@@ -289,7 +289,70 @@ def train (W, X, modelState, queryState, trainPlan):
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n), \
         (boundIters, boundValues)
+
+def query(W, X, modelState, queryState, trainPlan):
+    '''
+    Given a _trained_ model, attempts to predict the topics for each of
+    the inputs.
     
+    Params:
+    W - The query words to which we assign topics
+    X - The query features, used to assign topics
+    modelState - the _trained_ model
+    queryState - the query state generated for the query dataset
+    trainPlan  - used in this case as we need to tighten up the approx
+    
+    Returns:
+    The model state and query state, in that order. The model state is
+    unchanged, the query is.
+    '''
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
+    
+    # Necessary temp variables (notably the count of topic to word assignments
+    # per topic per doc)
+    isigT = la.inv(sigT)
+    expMeans = np.exp(means, out=means) # Do in-place to save memory
+    R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+    S = expMeans * R.dot(vocab.T)
+    means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        
+    # Enable logging or not. If enabled, we need the inner product of the feat matrix
+    if DEBUG:
+        XTX = X.T.dot(X)
+        debugFn = _debug_with_bound
+    else:
+        XTX = None
+        debugFn = _debug_with_nothing
+    
+    
+    # Iterate over parameters
+    for iter in range(iterations):
+        # Update the Means
+        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
+        lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * 2 * lxi)  # inverse of D diagonal matrices...
+        
+        means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
+                                # do doing a hadamard product for all d
+        debugFn (iter, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the Variances
+        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        debugFn (iter, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # Update the approximation parameters
+        lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
+        debugFn (iter, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+        # s can sometimes grow unboundedly
+        # Follow Bouchard's suggested approach of fixing it at zero
+        #
+        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        debugFn (iter, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
+    return modelState, QueryState (means, varcs, lxi, s, n)
 
 def log_likelihood (W, modelState, queryState):
     ''' 

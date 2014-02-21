@@ -315,7 +315,59 @@ def train (W, X, modelState, queryState, trainPlan):
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
         QueryState(means, varcs, n), \
         (boundIters, boundValues)
+ 
+def query(W, X, modelState, queryState, trainPlan):
+    '''
+    Given a _trained_ model, attempts to predict the topics for each of
+    the inputs.
     
+    Params:
+    W - The query words to which we assign topics
+    X - The query features, used to assign topics
+    modelState - the _trained_ model
+    queryState - the query state generated for the query dataset
+    trainPlan  - used in this case as we need to tighten up the approx
+    
+    Returns:
+    The model state and query state, in that order. The model state is
+    unchanged, the query is.
+    '''
+    D,_ = W.shape
+    
+    # Unpack the the structs, for ease of access and efficiency
+    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
+    
+    # Necessary values
+    isigT = la.inv(sigT)
+    
+    for itr in range(iterations):
+        # Counts of topic assignments
+        expMeans = np.exp(means, out=means) # Do exp in-place to avoid allocating memory
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+        S = expMeans * R.dot(vocab.T)
+        means = np.log(expMeans, out=expMeans) # undo inplace exp
+        
+        # the variance
+        varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        
+        # Update the Means
+        rhs = X.dot(A.T).dot(isigT)
+        rhs += S
+        rhs += n[:,np.newaxis] * means.dot(Ab)
+        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
+        
+        # Long version
+        inverses = dict()
+        for d in range(D):
+            if not n[d] in inverses:
+                inverses[n[d]] = la.inv(isigT + n[d] * Ab)
+            lhs = inverses[n[d]]
+            means[d,:] = lhs.dot(rhs[d,:])
+    
+    return modelState, queryState # query vars altered in-place
+   
 
 def perplexity (W, modelState, queryState):
     '''

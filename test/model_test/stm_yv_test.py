@@ -20,7 +20,7 @@ import pickle as pkl
 import model.stm_yv as stm
 
 from model_test.old.sidetopic_test import matrix_normal
-from model_test.ctm_test import modelFile
+from run.main import modelFile
 from math import ceil
 
 DTYPE=np.float32
@@ -107,6 +107,9 @@ class Test(unittest.TestCase):
         D, T, K, F, P = 200, 100, 10, 12, 8
         tpcs, vocab, docLens, X, W = self._sampleFromModel()
         
+        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.show()
+        
         W = W.astype(DTYPE)
         X = X.astype(DTYPE)
         
@@ -116,7 +119,13 @@ class Test(unittest.TestCase):
         querySize = foldSize
         trainSize = D - querySize
         
-        for fold in range(1):
+        trainLikely = []
+        trainWordCount = []
+        queryLikely = []
+        queryWordCount = []
+        
+        for fold in range(folds):
+            # Split the datasets
             start = fold * foldSize
             end   = start + trainSize
             
@@ -126,29 +135,52 @@ class Test(unittest.TestCase):
             X_train, W_train = X[trainSet,:], W[trainSet,:]
             X_query, W_query = X[querySet,:], W[querySet,:]
             
-            model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=np.float32)
+            # Train the model
+            model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=DTYPE)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=200, logFrequency=1)
-            model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, plan)
-            
-            # Plot the bound
+            plan  = stm.newTrainPlan(iterations=1000, logFrequency=1)
+            model, query, (bndItrs, bndVals) = stm.train (W_train, X_train, model, queryState, plan)
+                
+            # Plot the evoluation of the bound during training.
             plt.plot(bndItrs[5:], bndVals[5:])
             plt.xlabel("Iterations")
             plt.ylabel("Variational Bound")
             plt.show()
         
-            # Plot the covariance
+            # Plot the topic covariance
             self._plotCov(model)
             
-            trainSetLikely = stm.log_likelihood(W_train, model, queryState)
+            # Plot the vocab
+            plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
+            plt.show()
             
+            # Calculating the training set likelihood
+            trainLikely.append(stm.log_likelihood(W_train, model, queryState))
+            trainWordCount.append(W_train.data.sum())
             
-            print("Fold %d: Train-set Likelihood: %12f \t Query-set Likelihood: TODO" % (fold, trainSetLikely))
-            print("")
+            # Now query the model.
+            plan       = stm.newTrainPlan(iterations=1000)
+            queryState = stm.newQueryState(W_query, model)
+            model, queryState = stm.query(W_query, X_query, model, queryState, plan)
+            
+            queryLikely.append(stm.log_likelihood(W_query, model, queryState))
+            queryWordCount.append(W_query.data.sum())
+            
+        # Check and print results.
+        for fold in range(folds):
+            trainPerp = np.exp(-trainLikely[fold]/trainWordCount[fold])
+            queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])
+            
+            print("Fold %3d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainLikely[fold], queryLikely[fold]))
+            print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (fold, trainPerp, queryPerp))
+        
+            self.assertTrue(queryPerp < 60.0) # Maximum perplexity.
+            self.assertTrue(trainPerp < 60.0)
             
         print("End of Test")
-        
+    
+            
     def _plotCov(self, model):
         fig, ax = plt.subplots(figsize=(11,9))
 
