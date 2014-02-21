@@ -184,65 +184,68 @@ class Test(unittest.TestCase):
         querySize = foldSize
         trainSize = D - querySize
         
-        trainLikely = []
-        trainWordCount = []
-        queryLikely = []
-        queryWordCount = []
-        
-        for fold in range(folds):
-            # Split the datasets
-            start = fold * foldSize
-            end   = start + trainSize
+        for useDiagonalPriorCov in [False, True]:
+            trainLikely = []
+            trainWordCount = []
+            queryLikely = []
+            queryWordCount = []
             
-            trainSet = np.arange(start,end) % D
-            querySet = np.arange(end, end + querySize) % D
-            
-            W_train = W[trainSet,:]
-            W_query = W[querySet,:]
-            
-            # Train the model
-            model = ctm.newModelAtRandom(W_train, K, dtype=DTYPE)
-            queryState = ctm.newQueryState(W_train, model)
-            
-            plan  = ctm.newTrainPlan(iterations=50, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
-            model, queryState, (bndItrs, bndVals) = ctm.train (W_train, None, model, queryState, plan)
+            for fold in range(folds):
+                # Split the datasets
+                start = fold * foldSize
+                end   = start + trainSize
                 
-            # Plot the evoluation of the bound during training.
-            plt.plot(bndItrs[5:], bndVals[5:])
-            plt.xlabel("Iterations")
-            plt.ylabel("Variational Bound")
-            plt.show()
+                trainSet = np.arange(start,end) % D
+                querySet = np.arange(end, end + querySize) % D
+                
+                W_train = W[trainSet,:]
+                W_query = W[querySet,:]
+                
+                # Train the model
+                model = ctm.newModelAtRandom(W_train, K, dtype=DTYPE)
+                queryState = ctm.newQueryState(W_train, model)
+                
+                plan  = ctm.newTrainPlan(iterations=50, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
+                model, queryState, (bndItrs, bndVals) = ctm.train (W_train, None, model, queryState, plan)
+                    
+                # Plot the evoluation of the bound during training.
+                plt.plot(bndItrs[5:], bndVals[5:])
+                plt.xlabel("Iterations")
+                plt.ylabel("Variational Bound")
+                plt.show()
+            
+                # Plot the topic covariance
+                self._plotCov(model)
+                
+                # Plot the vocab
+                plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
+                plt.show()
+                
+                # Calculating the training set likelihood
+                trainLikely.append(ctm.log_likelihood(W_train, model, queryState))
+                trainWordCount.append(W_train.data.sum())
+                
+                # Now query the model.
+                plan       = ctm.newTrainPlan(iterations=10, fastButInaccurate=useDiagonalPriorCov)
+                queryState = ctm.newQueryState(W_query, model)
+                model, queryState = ctm.query(W_query, None, model, queryState, plan)
+                
+                queryLikely.append(ctm.log_likelihood(W_query, model, queryState))
+                queryWordCount.append(W_query.data.sum())
+             
+            # Print out the likelihood and perplexity for each fold.   
+            print ("\n\n\nWith " + ("diagonal" if useDiagonalPriorCov else "full") + " covariances")
+            for fold in range(folds):
+                trainPerp = np.exp(-trainLikely[fold]/trainWordCount[fold])
+                queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])
+                
+                print("Fold %3d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainLikely[fold], queryLikely[fold]))
+                print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (trainPerp, queryPerp))
         
-            # Plot the topic covariance
-            self._plotCov(model)
+                self.assertTrue(queryPerp < 60.0) # Maximum perplexity.
+                self.assertTrue(trainPerp < 60.0)
+            print ("\n\n")
             
-            # Plot the vocab
-            plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
-            plt.show()
-            
-            # Calculating the training set likelihood
-            trainLikely.append(ctm.log_likelihood(W_train, model, queryState))
-            trainWordCount.append(W_train.data.sum())
-            
-            # Now query the model.
-            plan       = ctm.newTrainPlan(iterations=10, fastButInaccurate=useDiagonalPriorCov)
-            queryState = ctm.newQueryState(W_query, model)
-            model, queryState = ctm.query(W_query, None, model, queryState, plan)
-            
-            queryLikely.append(ctm.log_likelihood(W_query, model, queryState))
-            queryWordCount.append(W_query.data.sum())
-            
-        # Check and print results.
-        for fold in range(folds):
-            trainPerp = np.exp(-trainLikely[fold]/trainWordCount[fold])
-            queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])
-            
-            print("Fold %3d: Train-set Likelihood: %12f \t Query-set Likelihood: %12f" % (fold, trainLikely[fold], queryLikely[fold]))
-            print("                    Perplexity: %12.2f \t           Perplexity: %12.2f" % (fold, trainPerp, queryPerp))
-        
-            self.assertTrue(queryPerp < 60.0) # Maximum perplexity.
-            self.assertTrue(trainPerp < 60.0)
-        
         print("End of Test")
         
     def _plotCov(self, model):

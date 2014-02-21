@@ -161,7 +161,7 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
+    iterations, epsilon, logFrequency, diagonalPriorCov = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
     means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
@@ -189,10 +189,16 @@ def train (W, X, modelState, queryState, trainPlan):
         topicMean = means.mean(axis = 0)
         debugFn (iter, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-        sigT = np.cov(means.T)
+        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        isigT = la.inv(sigT)
+        if diagonalPriorCov:
+            diag = np.diag(sigT)
+            sigT = np.diag(diag)
+            isigT = np.diag(1./ diag)
+        else:
+            isigT = la.inv(sigT)
         debugFn (iter, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -211,16 +217,24 @@ def train (W, X, modelState, queryState, trainPlan):
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
+        # Update the Variances
+        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
         # Update the Means
+        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
+        rhsMat = vMat + isigT.dot(topicMean)
+        if diagonalPriorCov:
+            means = varcs * rhsMat
+        else:
+            for d in range(D):
+                means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
+        
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
         debugFn (iter, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        
-        # Update the Variances
-        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = negJakkolaOfDerivedXi(means, varcs, s)
