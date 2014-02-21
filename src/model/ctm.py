@@ -49,11 +49,11 @@ MODEL_NAME="ctm/bouchard"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs lxi s docLens debug'\
+    'means varcs lxi s docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -99,7 +99,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
     return ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState, debug=DEBUG):
+def newQueryState(W, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -127,16 +127,16 @@ def newQueryState(W, modelState, debug=DEBUG):
     
     lxi = negJakkolaOfDerivedXi(means, varcs, s)
     
-    return QueryState(means, varcs, lxi, s, docLens, debug)
+    return QueryState(means, varcs, lxi, s, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate)
+    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
 
 def train (W, X, modelState, queryState, trainPlan):
@@ -161,15 +161,15 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, diagonalPriorCov = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
-    debugFn = _debug_with_bound if queryState.debug else _debug_with_nothing
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -248,7 +248,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and iter % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, lxi, s, n, debug)
+            queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = iter
@@ -260,11 +260,11 @@ def train (W, X, modelState, queryState, trainPlan):
     
     return \
         ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n, debug), \
+        QueryState(means, varcs, lxi, s, n), \
         (boundIters, boundValues)
     
 
-def query(W, X, modelState, queryState, trainPlan):
+def query(W, X, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
@@ -274,7 +274,7 @@ def query(W, X, modelState, queryState, trainPlan):
     X - This is ignored, and can be omitted
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
-    trainPlan  - used in this case as we need to tighten up the approx
+    queryPlan  - used in this case as we need to tighten up the approx
     
     Returns:
     The model state and query state, in that order. The model state is
@@ -282,8 +282,8 @@ def query(W, X, modelState, queryState, trainPlan):
     '''
     D = W.shape[0]
     
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Necessary temp variables (notably the count of topic to word assignments
@@ -324,7 +324,7 @@ def query(W, X, modelState, queryState, trainPlan):
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
         debugFn (iter, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-    return modelState, QueryState (means, varcs, lxi, s, n, debug)
+    return modelState, QueryState (means, varcs, lxi, s, n)
 
 
 def verifyProper(X, xName):
@@ -524,7 +524,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
     if np.isinf(var_value).any():
         printStderr ("WARNING: " + var_name + " contains INFs")
         
-    print ("Iter %3d Update %s Bound %f" % (itr, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n, True)))) 
+    print ("Iter %3d Update %s Bound %f" % (itr, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)))) 
 
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   

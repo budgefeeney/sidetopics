@@ -45,11 +45,11 @@ MODEL_NAME="stm-yv/bouchard"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs lxi s docLens debug'\
+    'means varcs lxi s docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -110,7 +110,7 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState, debug=DEBUG):
+def newQueryState(W, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -124,19 +124,19 @@ def newQueryState(W, modelState, debug=DEBUG):
     REturn:
     A QueryState object
     '''
-    base = ctm.newQueryState(W, modelState, debug)
+    base = ctm.newQueryState(W, modelState)
     
-    return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens, base.debug)
+    return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, fastButInaccurate)
-    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate)
+    base = ctm.newTrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
+    return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate, base.debug)
 
 
 def train (W, X, modelState, queryState, trainPlan):
@@ -164,8 +164,8 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
@@ -275,7 +275,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, lxi, s, n, debug)
+            queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
             boundIters[bvIdx]  = itr
@@ -287,10 +287,10 @@ def train (W, X, modelState, queryState, trainPlan):
             
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n, debug), \
+        QueryState(means, varcs, lxi, s, n), \
         (boundIters, boundValues)
 
-def query(W, X, modelState, queryState, trainPlan):
+def query(W, X, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
@@ -300,14 +300,14 @@ def query(W, X, modelState, queryState, trainPlan):
     X - The query features, used to assign topics
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
-    trainPlan  - used in this case as we need to tighten up the approx
+    queryPlan  - used in this case as we need to tighten up the approx
     
     Returns:
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, lxi, s, n, debug = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
+    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Necessary temp variables (notably the count of topic to word assignments
@@ -326,9 +326,8 @@ def query(W, X, modelState, queryState, trainPlan):
         XTX = None
         debugFn = _debug_with_nothing
     
-    
     # Iterate over parameters
-    for iter in range(iterations):
+    for itr in range(iterations):
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
@@ -336,23 +335,23 @@ def query(W, X, modelState, queryState, trainPlan):
         
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
-        debugFn (iter, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (iter, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (iter, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (iter, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-    return modelState, QueryState (means, varcs, lxi, s, n, debug)
+    return modelState, QueryState (means, varcs, lxi, s, n)
 
 def log_likelihood (W, modelState, queryState):
     ''' 
@@ -483,7 +482,7 @@ def static_var(varname, value):
     return decorate
 
 @static_var("old_bound", 0)
-def _debug_with_bound (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
+def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
@@ -492,11 +491,11 @@ def _debug_with_bound (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n, True), XTX)
+    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n), XTX)
     diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %s Bound %f (%s)" % (iter, var_name, bound, diff)) 
+    print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
 
 def _debug_with_nothing (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     pass

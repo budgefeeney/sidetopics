@@ -51,11 +51,11 @@ MODEL_NAME="ctm/bohning"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')                            
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs docLens debug'\
+    'means varcs docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -103,7 +103,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
     return ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState, debug=DEBUG):
+def newQueryState(W, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -126,16 +126,16 @@ def newQueryState(W, modelState, debug=DEBUG):
     means = normalizerows_ip(rd.random((D,K)).astype(dtype))
     varcs = np.ones((D,K), dtype=dtype)
     
-    return QueryState(means, varcs, docLens, debug)
+    return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False):
+def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
     '''
-    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate)
+    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
 def train (W, X, modelState, queryState, trainPlan):
     '''
@@ -159,8 +159,8 @@ def train (W, X, modelState, queryState, trainPlan):
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, diagonalPriorCov = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, n, debug = queryState.means, queryState.varcs, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
+    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
@@ -234,7 +234,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, n, debug)
+            queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, modelState, queryState)
             boundIters[bvIdx]  = itr
@@ -247,10 +247,10 @@ def train (W, X, modelState, queryState, trainPlan):
     
     return \
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n, debug), \
+        QueryState(means, varcs, n), \
         (boundIters, boundValues)
 
-def query(W, X, modelState, queryState, trainPlan):
+def query(W, X, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
@@ -260,14 +260,14 @@ def query(W, X, modelState, queryState, trainPlan):
     X - This is ignored, and can be omitted
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
-    trainPlan  - used in this case as we need to tighten up the approx
+    queryPlan  - used in this case as we need to tighten up the approx
     
     Returns:
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate
-    means, varcs, n, debug = queryState.means, queryState.varcs, queryState.docLens, queryState.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
+    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     debugFn = _debug_with_bound if debug else _debug_with_nothing
@@ -402,7 +402,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n, True))
+    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
