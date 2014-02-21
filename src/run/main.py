@@ -111,6 +111,7 @@ def run(args):
     trainTopicses = []
     queryTopicses = []
 
+    modelFile = "NOT_SAVED" # Altered later if all goes well.
     try:
         # Run the model on each fold
         if folds == 1:
@@ -176,18 +177,20 @@ def run(args):
                 print("")
     finally:
         # Write out the end result of the model run.
-        with open(modelFile(args.model, args.K, args.P, args.out_model)) as f:
+        modelFile = newModelFile(args.model, args.K, args.P, args.out_model)
+        with open(modelFile, 'wb') as f:
             pkl.dump ((boundItrses, boundValses, models, trainTopicses, queryTopicses), f)
-        
+    
+    return modelFile
 
-def modelFileFromModel(model, prefix="/Users/bryanfeeney/Desktop"):
-    return modelFile (\
+def newModelFileFromModel(model, prefix="/Users/bryanfeeney/Desktop"):
+    return newModelFile (\
                 model.name, \
                 model.K, \
                 None if model[:3] == "ctm" else model.P, \
                 prefix)
 
-def modelFile(modelName, K, P, prefix="/Users/bryanfeeney/Desktop"):
+def newModelFile(modelName, K, P, prefix="/Users/bryanfeeney/Desktop"):
     modelName = modelName.replace('/','_')
     modelName = modelName.replace('-','_')
     timestamp = time.strftime("%Y%m%d_%H%M", time.gmtime())

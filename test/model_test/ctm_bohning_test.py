@@ -19,7 +19,7 @@ import pickle as pkl
 
 from math import ceil
 
-from run.main import modelFile
+from run.main import newModelFile
 
 
 DTYPE=np.float32

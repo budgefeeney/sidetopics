@@ -20,7 +20,7 @@ import pickle as pkl
 import model.stm_yv as stm
 
 from model_test.old.sidetopic_test import matrix_normal
-from run.main import modelFile
+from run.main import newModelFile
 from math import ceil
 
 DTYPE=np.float32

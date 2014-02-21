@@ -35,22 +35,20 @@ class Test(unittest.TestCase):
         D, T, K, Q, F, P, avgWordsPerDoc = 200, 100, 10, 6, 12, 8, 500
         tpcs, vocab, docLens, X, W = sampleFromModel(D, T, K, F, P, avgWordsPerDoc)
         
-        wordsFile, featsFile, modelFile = tmpFiles()
+        wordsFile, featsFile, modelFileDir = tmpFiles()
         with open(wordsFile, 'wb') as f:
             pkl.dump(W, f)
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
         
-        K, Q, P = 40, 10, 50
         cmdline = '' \
-                + ' --model '          + 'ctm_bouchard'      \
+                + ' --model '          + 'ctm_bouchard' \
                 + ' --num-topics '     + str(K)    \
                 + ' --num-lat-topics ' + str(Q)    \
                 + ' --num-lat-feats '  + str(P)    \
                 + ' --eval '           + 'likely'  \
-                + ' --out-model '      + modelFile \
-                + ' --out-plot '       + plotFile  \
+                + ' --out-model '      + modelFileDir \
                 + ' --log-freq '       + '100'     \
                 + ' --iters '          + '500'     \
                 + ' --query-iters '    + '50'      \
@@ -65,8 +63,8 @@ class Test(unittest.TestCase):
 #                 + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallDB2/side.pkl' \
 #                 + ' --words '          + '/Users/bryanfeeney/Desktop/SmallDB2/words.pkl'
         
-        run(cmdline.strip().split(' '))
-        print ("Files can be found in %s, %s, %s, %s" % ( wordsFile, featsFile, modelFile, plotFile))
+        modelFile = run(cmdline.strip().split(' '))
+        print ("Files can be found in %s, %s, %s" % ( wordsFile, featsFile, modelFile))
         
 
 if __name__ == "__main__":

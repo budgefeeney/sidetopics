@@ -20,7 +20,7 @@ import time
 
 from math import ceil 
 
-from run.main import modelFile
+from run.main import newModelFile
 
 
 DTYPE=np.float32
