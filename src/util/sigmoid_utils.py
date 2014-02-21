@@ -9,11 +9,9 @@ import numpy as np
 import pyximport; 
 pyximport.install(setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.sig_fast as compiled
-from math import log
 import sys
-from util.overflow_safe import safe_log
 
-from util.sparse_elementwise import WarnIfSlow
+WarnIfSlow=True
 
 def rowwise_softmax (matrix, out=None):
     '''
