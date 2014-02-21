@@ -1,4 +1,4 @@
-metavar=' ', '''
+'''
 Created on 26 Nov 2013
 
 @author: bryanfeeney
@@ -73,7 +73,7 @@ def run(args):
         W = W.astype(DTYPE)
     if args.feats is None:
         X = None
-        D,F = W.shaope[0], 0
+        D,F = W.shape[0], 0
     else:
         with open(args.feats, 'rb') as f:
             X = pkl.load(f)
