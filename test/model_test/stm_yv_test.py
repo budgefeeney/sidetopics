@@ -27,85 +27,14 @@ DTYPE=np.float32
 
 class Test(unittest.TestCase):
     
-    def _sampleFromModel(self, D=200, T=100, K=10, F=12, P=8, avgWordsPerDoc = 500):
-        '''
-        Create a test dataset according to the model
-        
-        Params:
-            T - Vocabulary size, the number of "terms". Must be a square number
-            K - Observed topics
-            P - Latent features
-            F - Observed features
-            D - Sample documents (each with associated features)
-            avgWordsPerDoc - average number of words per document generated (Poisson)
-        
-        Returns:
-            modelState - a model state object configured for training
-            tpcs       - the matrix of per-document topic distribution
-            vocab      - the matrix of per-topic word distributions
-            docLens    - the vector of document lengths
-            X          - the DxF side information matrix
-            W          - The DxW word matrix
-        '''
-        
-        # Generate vocab
-        beta = 0.1
-        betaVec = np.ndarray((T,))
-        betaVec.fill(beta)
-        vocab = np.zeros((K,T))
-        for k in range(K):
-            vocab[k,:] = rd.dirichlet(betaVec)
-        
-        # Geneate the shared covariance matrix
-        sigT = rd.random((K,K))
-        sigT = sigT.dot(sigT)
-        sigT.flat[::K+1] += rd.random((K,)) * 4
-        
-        # Just link two topics
-        sigT[K//2, K//3] = 3
-        sigT[K//3, K//2] = 3
-        
-        sigT[4 * K//5, K//5] = 4
-        sigT[K//5, 4 * K//5] = 4
-        
-        # Generate Y, then V, then A
-        lfv = 0.1 # latent feature variance (for Y)
-        fv  = 0.1 # feature variance (for A)
-        
-        Y = matrix_normal(np.zeros((K,P)),   lfv * np.eye(P), sigT)
-        V = matrix_normal(np.zeros((P,F)),   fv * np.eye(F), lfv * np.eye(P))
-        A = matrix_normal(Y.dot(V), fv * np.eye(F), sigT)
-        
-        # Generate the input features. Assume the features are multinomial and sparse
-        # (not quite a perfect match for the twitter example: twitter is binary, this 
-        # may not be)
-        featuresDist  = [1. / F] * F 
-        maxNonZeroFeatures = 3
-        
-        X = np.zeros((D,F), dtype=np.float32)
-        for d in range(D):
-            X[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
-        X = ssp.csr_matrix(X)
-        
-        # Use the features and the matrix A to generate the topics and documents
-        tpcs = rowwise_softmax (X.dot(A.T))
-        
-        docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
-        W = tpcs.dot(vocab)
-        W *= docLens[:, np.newaxis]
-        W = np.array(W, dtype=np.int32) # truncate word counts to integers
-        W = ssp.csr_matrix(W)
-        
-        # Return the initialised model, the true parameter values, and the
-        # generated observations
-        return tpcs, vocab, docLens, X, W
+    
         
     def testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
         D, T, K, F, P = 200, 100, 10, 12, 8
-        tpcs, vocab, docLens, X, W = self._sampleFromModel()
+        tpcs, vocab, docLens, X, W = sampleFromModel(D, T, K, F, P)
         
         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
@@ -274,6 +203,78 @@ class Test(unittest.TestCase):
             print("%s" % wordDict[wordIdx])
         print("")
 
+def sampleFromModel(D=200, T=100, K=10, F=12, P=8, avgWordsPerDoc = 500):
+        '''
+        Create a test dataset according to the model
+        
+        Params:
+            T - Vocabulary size, the number of "terms". Must be a square number
+            K - Observed topics
+            P - Latent features
+            F - Observed features
+            D - Sample documents (each with associated features)
+            avgWordsPerDoc - average number of words per document generated (Poisson)
+        
+        Returns:
+            modelState - a model state object configured for training
+            tpcs       - the matrix of per-document topic distribution
+            vocab      - the matrix of per-topic word distributions
+            docLens    - the vector of document lengths
+            X          - the DxF side information matrix
+            W          - The DxW word matrix
+        '''
+        
+        # Generate vocab
+        beta = 0.1
+        betaVec = np.ndarray((T,))
+        betaVec.fill(beta)
+        vocab = np.zeros((K,T))
+        for k in range(K):
+            vocab[k,:] = rd.dirichlet(betaVec)
+        
+        # Geneate the shared covariance matrix
+        sigT = rd.random((K,K))
+        sigT = sigT.dot(sigT)
+        sigT.flat[::K+1] += rd.random((K,)) * 4
+        
+        # Just link two topics
+        sigT[K//2, K//3] = 3
+        sigT[K//3, K//2] = 3
+        
+        sigT[4 * K//5, K//5] = 4
+        sigT[K//5, 4 * K//5] = 4
+        
+        # Generate Y, then V, then A
+        lfv = 0.1 # latent feature variance (for Y)
+        fv  = 0.1 # feature variance (for A)
+        
+        Y = matrix_normal(np.zeros((K,P)),   lfv * np.eye(P), sigT)
+        V = matrix_normal(np.zeros((P,F)),   fv * np.eye(F), lfv * np.eye(P))
+        A = matrix_normal(Y.dot(V), fv * np.eye(F), sigT)
+        
+        # Generate the input features. Assume the features are multinomial and sparse
+        # (not quite a perfect match for the twitter example: twitter is binary, this 
+        # may not be)
+        featuresDist  = [1. / F] * F 
+        maxNonZeroFeatures = 3
+        
+        X = np.zeros((D,F), dtype=np.float32)
+        for d in range(D):
+            X[d,:] = rd.multinomial(maxNonZeroFeatures, featuresDist)
+        X = ssp.csr_matrix(X)
+        
+        # Use the features and the matrix A to generate the topics and documents
+        tpcs = rowwise_softmax (X.dot(A.T))
+        
+        docLens = rd.poisson(avgWordsPerDoc, (D,)).astype(np.float32)
+        W = tpcs.dot(vocab)
+        W *= docLens[:, np.newaxis]
+        W = np.array(W, dtype=np.int32) # truncate word counts to integers
+        W = ssp.csr_matrix(W)
+        
+        # Return the initialised model, the true parameter values, and the
+        # generated observations
+        return tpcs, vocab, docLens, X, W
 
 def truncate(word, max_len=12):      
     return word if len(word) < max_len else word[:(max_len-3)] + '...'
