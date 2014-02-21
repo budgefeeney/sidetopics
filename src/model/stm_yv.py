@@ -66,8 +66,8 @@ def newModelFromExisting(model):
     
     return ModelState(\
         model.F, model.P, model.K, \
-        copy(model.A), copy(model.R_A), model.featVar, \
-        copy(model.Y), copy(model.R_Y), model.latFeatVar, \
+        copy(model.A), copy(model.R_A), model.fv, \
+        copy(model.Y), copy(model.R_Y), model.lfv, \
         copy(model.V), \
         copy(model.sigT), copy(model.vocab), \
         model.dtype, model.name)
