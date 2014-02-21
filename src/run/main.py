@@ -86,13 +86,13 @@ def run(args):
     #
     # Instantiate and configure the model
     #
-    if args.model == 'ctm':
+    if args.model == 'ctm_bouchard':
         import model.ctm as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=DTYPE)
     elif args.model == 'ctm_bohning':
         import model.ctm_bohning as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=DTYPE)
-    elif args.model == 'stm_yv':
+    elif args.model == 'stm_yv_bouchard':
         import model.stm_yv as mdl 
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=DTYPE)
     elif args.model == 'stm_yv_bohning':
