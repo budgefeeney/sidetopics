@@ -1,5 +1,7 @@
 #!/bin/bash
 
+RUNTIME_HOURS=8
+
 HOME="/home/ucabbfe/Tweets"
 FEATS_FILE="$HOME/side-noisy.pkl"
 WORDS_FILE="$HOME/words-noisy.pkl"
@@ -34,7 +36,7 @@ do
 		--iters $TRAIN_ITERS \
 		--query-iters $QUERY_ITERS \
 		--out-model $OUT_PATH \
-		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS" -l h_rt=$hours:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
+		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS" -l h_rt=$RUNTIME_HOURS:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
 	done
 done
 
@@ -54,7 +56,7 @@ do
 			--query-iters $QUERY_ITERS \
 			--out-model $OUT_PATH \
 			--feats $FEATS_FILE \
-			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS-P-$LATENT_SIZE" -l h_rt=$hours:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
+			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS-P-$LATENT_SIZE" -l h_rt=$RUNTIME_HOURS:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
 		done
 	done
 done
