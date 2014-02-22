@@ -36,7 +36,7 @@ do
 		--iters $TRAIN_ITERS \
 		--query-iters $QUERY_ITERS \
 		--out-model $OUT_PATH \
-		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
+		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$TOPIC_COUNT" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
 	done
 done
 
@@ -56,7 +56,7 @@ do
 			--query-iters $QUERY_ITERS \
 			--out-model $OUT_PATH \
 			--feats $FEATS_FILE \
-			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS-P-$LATENT_SIZE" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
+			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$TOPIC_COUNT-P-$LATENT_SIZE" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
 		done
 	done
 done
