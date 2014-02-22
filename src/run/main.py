@@ -166,7 +166,7 @@ def run(args):
                         
                 # Save the training results
                 models.append (modelState)
-                trainTopicses.append(query)
+                trainTopicses.append(trainTopics)
                 boundItrses.append(boundItrs)
                 boundValses.append(boundVals)
                 
