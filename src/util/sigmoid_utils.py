@@ -8,7 +8,7 @@ from distutils.core import setup
 import os
 import numpy as np
 import pyximport; 
-pyximport.install(build_dir=os.path.dirname(os.path.realpath(__file__)) + '/siglib', setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
+pyximport.install(build_dir=os.path.dirname(os.path.realpath(__file__)), setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.sig_fast as compiled
 import sys
 
