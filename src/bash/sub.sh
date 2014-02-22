@@ -1,6 +1,6 @@
 #!/bin/bash
 
-RUNTIME_HOURS=8
+HOURS=8
 
 HOME="/home/ucabbfe/Tweets"
 FEATS_FILE="$HOME/side-noisy.pkl"
@@ -12,7 +12,7 @@ STM_EXEC="$HOME/stm.sh"
 FOLDS=5
 EVAL="perplexity"
 
-NUM_TOPICS="5 10 25 50 100 150 250"
+TOPIC_COUNTS="5 10 25 50 100 150 250"
 LATENT_SIZES="5 10 25 50 75 100"
 
 OBS_FEAT_VAR=0.01
@@ -26,29 +26,29 @@ QUERY_ITERS=100
 
 for ALGOR in ctm_bouchard ctm_bohning
 do
-	for NUM_TOPICS in $NUM_TOPICS
+	for TOPIC_COUNT in $TOPIC_COUNTS
 	do
 		echo "$STM_EXEC \
 		--model $ALGOR \
-		--num-topics $NUM_TOPICS  \
+		--num-topics $TOPIC_COUNT  \
 		--folds $FOLDS \
 		--eval $EVAL \
 		--iters $TRAIN_ITERS \
 		--query-iters $QUERY_ITERS \
 		--out-model $OUT_PATH \
-		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS" -l h_rt=$RUNTIME_HOURS:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
+		--words $AUTHOR_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
 	done
 done
 
 for ALGOR in stm_yv_bouchard stm_yv_bohning
 do
-	for NUM_TOPICS in $NUM_TOPICS
+	for TOPIC_COUNT in $TOPIC_COUNTS
 	do
 		for LATENT_SIZE in $LATENT_SIZES
 		do
 			echo "$STM_EXEC \
 			--model $ALGOR \
-			--num-topics $NUM_TOPICS  \
+			--num-topics $TOPIC_COUNT  \
 			--num-lat-feats $LATENT_SIZE \
 			--folds $FOLDS \
 			--eval $EVAL \
@@ -56,8 +56,7 @@ do
 			--query-iters $QUERY_ITERS \
 			--out-model $OUT_PATH \
 			--feats $FEATS_FILE \
-			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS-P-$LATENT_SIZE" -l h_rt=$RUNTIME_HOURS:0:0 -l mem_free=4G,h_vmem=8G,tmem=8G -S /bin/bash
+			--words $WORDS_FILE" | qsub -N "Job-$ALGOR-K-$NUM_TOPICS-P-$LATENT_SIZE" -l h_rt=$HOURS:0:0 -l mem_free=8G,h_vmem=12G,tmem=12G -S /bin/bash
 		done
 	done
 done
-
