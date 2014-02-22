@@ -7,9 +7,121 @@ Created on 1 Dec 2013
 cimport cython
 import numpy as np
 cimport numpy as np
-from libc.math cimport log
+from libc.math cimport log, exp
 from libc.float cimport FLT_MIN, DBL_MIN
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def scaledSumOfLnOnePlusExp_f8(double[:] weights, double[:,:] matrix):
+    '''
+    Calculates sum(weights[row] * log(1 + exp(matrix[row,col]))
+    for all rows and columns.
+    
+    Avoids under and overflow via approx
+    
+    Temporarily placed here for convenience
+    '''
+    cdef:
+        double sum = 0.0
+        int row = 0
+        int rowCount = matrix.shape[0]
+        int col = 0
+        int colCount = matrix.shape[1]
+        double value = 0.0
+        
+    with nogil:
+        while row < rowCount:
+            col = 0
+            while col < colCount:
+                value = matrix[row,col]
+                sum += weights[row] * _safe_log_one_plus_exp_f8(value)
+                col += 1
+            row += 1
+    return sum
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def scaledSumOfLnOnePlusExp_f4(float[:] weights, float[:,:] matrix):
+    '''
+    Calculates sum(weights[row] * log(1 + exp(matrix[row,col]))
+    for all rows and columns.
+    
+    Avoids under and overflow via approx
+    
+    Temporarily placed here for convenience
+    '''
+    cdef:
+        float sum = 0.0
+        float value = 0.0
+        int row = 0
+        int rowCount = matrix.shape[0]
+        int col = 0
+        int colCount = matrix.shape[1]
+        
+    with nogil:
+        while row < rowCount:
+            col = 0
+            while col < colCount:
+                value = matrix[row,col]
+                sum += weights[row] * _safe_log_one_plus_exp_f4(value)
+                col += 1
+            row += 1
+    return sum
+
+cdef float _safe_log_one_plus_exp_f4(float x) nogil:
+    '''
+    Returns log(1+exp(x))
+    
+    Works around three classes of precision issue:
+     * Overflow
+     * Underflow
+     * Catastrophic cancellation (1+e^x == 1 for all x less some value)
+    
+    Note: There may be an advantage (thanks to branch prediction) in
+    presorting the inputs when presenting a sequence of values
+    '''
+    cdef:
+        float LOWER = -11
+        float UPPER =  13.8
+    
+    if x <= LOWER:
+        return exp(x) # 1 dominates in 1+exp(x), exceeding precision, so a dumb approach would give the same answer for all x. This gives an answer that's "close enough" to the answer we'd get with infinite precision
+    elif x <= -LOWER:
+        return log(1 + exp(x)) # within machine precision, so just evaluate.
+    elif x <= UPPER:
+        return x + exp(-x) # avoid overflow by evaluating log e^x + log (1 + e^-x) == log (e^x + 1). Use LOWER trick above to avoid domination by the "1" term
+    else:
+        return x # difference between 1+e^UPPER and e^UPPER is neglible
+    
+cdef double _safe_log_one_plus_exp_f8(double x) nogil:
+    '''
+    Returns log(1+exp(x))
+    
+    Works around three classes of precision issue:
+     * Overflow
+     * Underflow
+     * Catastrophic cancellation (1+e^x == 1 for all x less some value)
+    
+    Note: There may be an advantage (thanks to branch prediction) in
+    presorting the inputs when presenting a sequence of values
+    '''
+    cdef:
+        double LOWER = -17
+        double UPPER =  33
+    
+    if x <= LOWER:
+        return exp(x) # 1 dominates in 1+exp(x), exceeding precision, so a dumb approach would give the same answer for all x. This gives an answer that's "close enough" to the answer we'd get with infinite precision
+    elif x <= -LOWER:
+        return log(1 + exp(x)) # within machine precision, so just evaluate.
+    elif x <= UPPER:
+        return x + exp(-x) # avoid overflow by evaluating log e^x + log (1 + e^-x) == log (e^x + 1). Use LOWER trick above to avoid domination by the "1" term
+    else:
+        return x # difference between 1+e^UPPER and e^UPPER is neglible
+
+    
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

@@ -18,6 +18,23 @@ from util.sigmoid_utils import rowwise_softmax
 
 WarnIfSlow=True
 
+
+def scaledSumOfLnOnePlusExp(weights, matrix):
+    '''
+    Calculates sum(weights[row] * log(1 + exp(matrix[row,col]))
+    for all rows and columns.
+    
+    Avoids under and overflow via approx
+    
+    Temporarily placed here for convenience
+    '''
+    if matrix.dtype == np.float64:
+        return compiled.scaledSumOfLnOnePlusExp_f8(weights, matrix)
+    elif matrix.dtype == np.float32:
+        return compiled.scaledSumOfLnOnePlusExp_f4(weights, matrix)
+    else:
+        raise ValueError ("No implementation for dtype=" + (str(matrix.dtype)))
+
 def lse(matrix):
     '''
     The log-sum-exp function. For each _row_ in the matrix, calculated the

@@ -24,7 +24,7 @@ from util.overflow_safe import safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
-    sparseScalarProductOfSafeLnDot
+    sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
     
 # ==============================================================
 # CONSTANTS
@@ -400,7 +400,8 @@ def var_bound(W, modelState, queryState):
     
     bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
     bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
+#    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
+    bound -= scaledSumOfLnOnePlusExp(docLens, xi)
     
     bound -= np.dot(s, docLens)
     

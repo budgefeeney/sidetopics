@@ -15,7 +15,7 @@ from model.ctm import printStderr, verifyProper, LN_OF_2_PI, \
 from util.array_utils import normalizerows_ip
 from util.overflow_safe import safe_log_one_plus_exp_of
 from util.sparse_elementwise import sparseScalarQuotientOfDot,\
-    sparseScalarProductOfSafeLnDot
+    sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
 import model.ctm as ctm
 import numpy as np
 import numpy.random as rd
@@ -437,7 +437,8 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     
     bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
     bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
-    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
+#    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
+    bound -= scaledSumOfLnOnePlusExp(docLens, xi)
     
     bound -= np.dot(s, docLens)
     
