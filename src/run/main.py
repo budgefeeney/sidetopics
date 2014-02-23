@@ -6,6 +6,8 @@ Created on 26 Nov 2013
 import argparse as ap
 import pickle as pkl
 import numpy as np
+import numpy.random as rd
+import scipy.sparse as ssp
 import sys
 import time
 import os
@@ -66,20 +68,27 @@ def run(args):
     
     
     #
-    # Load in the files
+    # Load in the files. As the cross-validation slices aren't randomized, we
+    # randomly re-order the data to help ensure that there's no patterns in the
+    # data that might hurt on querying 
     #
     with open(args.words, 'rb') as f:
         W = pkl.load(f)
-        W = W.astype(DTYPE)
+        D,T = W.shape
+        
+        order = np.linspace(0, D - 1, D)
+        rd.shuffle(order)
+        
+        W = W[order,:].astype(DTYPE)
     if args.feats is None:
         X = None
-        D,F = W.shape[0], 0
+        F = 0
     else:
         with open(args.feats, 'rb') as f:
             X = pkl.load(f)
-            X = X.astype(DTYPE)
-            (D,F) = X.shape
-    (_,T) = W.shape
+            X = X[order,:].astype(DTYPE)
+            F = X.shape[1]
+            
     K     = args.K
     P     = args.P
     Q     = args.Q
@@ -170,12 +179,13 @@ def run(args):
                 boundItrses.append(boundItrs)
                 boundValses.append(boundVals)
                 
-                # Query the model
-                queryTopics = mdl.newQueryState(W_query, modelState)
-                modelState, queryTopics = mdl.query(W_query, X_query, modelState, queryTopics, queryPlan)
+                # Query the model - if there are no features we need to split the text
+                W_query_train, W_query_eval = splitInput(X, W_query)
+                queryTopics = mdl.newQueryState(W_query_train, modelState)
+                modelState, queryTopics = mdl.query(W_query_train, X_query, modelState, queryTopics, queryPlan)
                 
-                querySetLikely = mdl.log_likelihood(W_query, modelState, queryTopics)
-                querySetPerp   = np.exp(-querySetLikely / W_query.data.sum())
+                querySetLikely = mdl.log_likelihood(W_query_eval, modelState, queryTopics)
+                querySetPerp   = np.exp(-querySetLikely / W_query_eval.data.sum())
                 
                 # Save the query results
                 queryTopicses.append(queryTopics)
@@ -187,7 +197,7 @@ def run(args):
         # Write out the end result of the model run.
         modelFile = newModelFile(args.model, args.K, args.P, args.out_model)
         with open(modelFile, 'wb') as f:
-            pkl.dump ((boundItrses, boundValses, models, trainTopicses, queryTopicses), f)
+            pkl.dump ((order, boundItrses, boundValses, models, trainTopicses, queryTopicses), f)
     
     return modelFile
 
@@ -197,6 +207,42 @@ def newModelFileFromModel(model, prefix="/Users/bryanfeeney/Desktop"):
                 model.K, \
                 None if model[:3] == "ctm" else model.P, \
                 prefix)
+
+def splitInput(X, W):
+    '''
+    For traditional topic models, when evaluating on unseen data, we partition
+    each document into two parts, using one to estimate topic memberships, and
+    the second part to evaluate the log-likelihood given those memberships.
+    
+    For topic models with side-information, where we don't use words to determine
+    topic-memberships, we can use the entire set of words to evaluate the
+    likelihood.
+    
+    So if there are features (X is not None) then we return W for both estimation
+    and evaluation. If there are not we partition each document (i.e. row) in W
+    into two, and return both versions.
+    
+    Params:
+    X - the DxF matrix of F features for all D documents, used only to see if a 
+        split in W is necessary
+    W - the DxT matrix of T term-counts for all D documents
+
+    Returns:
+    Two DxT matrices of word-counts derived from W, the former for estimation, the
+    latter for evaluation
+    '''
+    if X is not None:
+        return W, W
+    
+    dat    = W.data
+    jitter = rd.normal(scale=0.3, size=len(dat)).astype(dtype=W.dtype)
+    evl    = dat + jitter
+    est    = np.around(evl / 2.0)
+    evl    = dat - est
+    
+    return \
+        ssp.csr_matrix((est, W.indices, W.indptr)), \
+        ssp.csr_matrix((evl, W.indices, W.indptr))
 
 def newModelFile(modelName, K, P, prefix="/Users/bryanfeeney/Desktop"):
     modelName = modelName.replace('/','_')
