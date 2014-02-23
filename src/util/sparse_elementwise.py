@@ -3,8 +3,6 @@ Created on 1 Dec 2013
 
 @author: bryanfeeney
 '''
-from distutils.core import setup
-
 import os
 
 import numpy as np
