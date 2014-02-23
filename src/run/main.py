@@ -174,7 +174,7 @@ def run(args):
                 queryTopics = mdl.newQueryState(W_query, modelState)
                 modelState, queryTopics = mdl.query(W_query, X_query, modelState, queryTopics, queryPlan)
                 
-                querySetLikely = mdl.log_likelihood(modelState, X_query, W_query, queryTopics)
+                querySetLikely = mdl.log_likelihood(W_query, modelState, queryTopics)
                 querySetPerp   = np.exp(-querySetLikely / W_query.data.sum())
                 
                 # Save the query results
