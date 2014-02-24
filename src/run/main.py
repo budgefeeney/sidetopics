@@ -17,6 +17,14 @@ DTYPE=np.float32
 
 
 def run(args):
+    '''
+    Parses the command-line arguments (excluding the application name portion). 
+    Executes a cross-validation run accordingly, saving the output at the end
+    of each run.
+    
+    Returns the list of files created.
+    '''
+    
     #
     # Enumerate all possible arguments
     #
@@ -119,38 +127,34 @@ def run(args):
     queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq)
     
     # things to inspect and store for later use
-    boundItrses   = [] # array of array of iterations where var-bound was measured
-    boundValses   = [] # ditto for the actual values.
-    models        = []
-    trainTopicses = []
-    queryTopicses = []
+    modelFiles = []
 
-    modelFile = "NOT_SAVED" # Altered later if all goes well.
-    try:
-        # Run the model on each fold
-        if folds == 1:
+    # Run the model on each fold
+    if folds == 1:
+        try:
             model = mdl.newModelFromExisting(templateModel)
             query = mdl.newQueryState(W, model)
             
             model, query, (boundItrs, boundVals) = mdl.train (W, X, model, query, trainPlan)
             trainSetLikely = mdl.log_likelihood (W, model, query)
             perp = np.exp (-trainSetLikely / W.data.sum())
-                        
+            
             print("Train-set Likelihood: %12f" % (trainSetLikely))
             print("Train-set Perplexity: %12f" % (perp))
             print("")
-            
-            models.append (model)
-            trainTopicses.append(query)
-            boundItrses.append(boundItrs)
-            boundValses.append(boundVals)
-            queryTopicses.append(None)
-        else:
-            foldSize  = ceil(D / folds)
-            querySize = foldSize
-            trainSize = D - querySize
+        finally:
+            # Write out the end result of the model run.
+            modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
+            modelFiles.append(modelFile)
+            with open(modelFile, 'wb') as f:
+                pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
+    else:
+        foldSize  = ceil(D / folds)
+        querySize = foldSize
+        trainSize = D - querySize
         
-            for fold in range(folds):
+        for fold in range(folds):
+            try:
                 # Split the datasets up for the current fold
                 start = fold * foldSize
                 end   = start + trainSize
@@ -172,12 +176,6 @@ def run(args):
                     
                 trainSetLikely = mdl.log_likelihood (W_train, modelState, trainTopics)
                 trainSetPerp   = np.exp(-trainSetLikely / W_train.data.sum())
-                        
-                # Save the training results
-                models.append (modelState)
-                trainTopicses.append(trainTopics)
-                boundItrses.append(boundItrs)
-                boundValses.append(boundVals)
                 
                 # Query the model - if there are no features we need to split the text
                 W_query_train, W_query_eval = splitInput(X, W_query)
@@ -187,25 +185,24 @@ def run(args):
                 querySetLikely = mdl.log_likelihood(W_query_eval, modelState, queryTopics)
                 querySetPerp   = np.exp(-querySetLikely / W_query_eval.data.sum())
                 
-                # Save the query results
-                queryTopicses.append(queryTopics)
-                
                 # Write out the output
                 print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
                 print("")
-    finally:
-        # Write out the end result of the model run.
-        modelFile = newModelFile(args.model, args.K, args.P, args.out_model)
-        with open(modelFile, 'wb') as f:
-            pkl.dump ((order, boundItrses, boundValses, models, trainTopicses, queryTopicses), f)
+            finally:
+                # Write out the end result of the model run.
+                modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
+                modelFiles.append(modelFile)
+                with open(modelFile, 'wb') as f:
+                    pkl.dump ((order, boundItrs, boundVals, modelState, trainTopics, queryTopics), f)
     
-    return modelFile
+    return modelFiles
 
-def newModelFileFromModel(model, prefix="/Users/bryanfeeney/Desktop"):
+def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
     return newModelFile (\
                 model.name, \
                 model.K, \
                 None if model[:3] == "ctm" else model.P, \
+                fold, \
                 prefix)
 
 def splitInput(X, W):
@@ -234,8 +231,10 @@ def splitInput(X, W):
     if X is not None:
         return W, W
     
+    rng = rd.RandomState(0xBADB055)
+    
     dat    = W.data
-    jitter = rd.normal(scale=0.3, size=len(dat)).astype(dtype=W.dtype)
+    jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=W.dtype)
     evl    = dat + jitter
     est    = np.around(evl / 2.0)
     evl    = dat - est
@@ -244,7 +243,7 @@ def splitInput(X, W):
         ssp.csr_matrix((est, W.indices, W.indptr)), \
         ssp.csr_matrix((evl, W.indices, W.indptr))
 
-def newModelFile(modelName, K, P, prefix="/Users/bryanfeeney/Desktop"):
+def newModelFile(modelName, K, P, fold=None, prefix="/Users/bryanfeeney/Desktop"):
     modelName = modelName.replace('/','_')
     modelName = modelName.replace('-','_')
     timestamp = time.strftime("%Y%m%d_%H%M", time.gmtime())
@@ -253,9 +252,12 @@ def newModelFile(modelName, K, P, prefix="/Users/bryanfeeney/Desktop"):
     if P is not None:
         cfg += "_p_" + str(P)
     
+    foldDesc = "" if fold is None else "fold_" + str(fold) + "_"
+    
     return prefix + '/' \
          + modelName + '_' \
          + cfg + '_' \
+         + foldDesc  \
          + timestamp + '.pkl'
 
 if __name__ == '__main__':
