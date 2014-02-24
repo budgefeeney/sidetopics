@@ -277,7 +277,7 @@ def train (W, X, modelState, queryState, trainPlan):
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
             boundIters[bvIdx]  = itr
-            print ("\n" + time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
+            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
