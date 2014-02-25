@@ -240,8 +240,8 @@ def splitInput(X, W):
     evl    = dat - est
     
     return \
-        ssp.csr_matrix((est, W.indices, W.indptr)), \
-        ssp.csr_matrix((evl, W.indices, W.indptr))
+        ssp.csr_matrix((est, W.indices, W.indptr), shape=W.shape), \
+        ssp.csr_matrix((evl, W.indices, W.indptr), shape=W.shape)
 
 def newModelFile(modelName, K, P, fold=None, prefix="/Users/bryanfeeney/Desktop"):
     modelName = modelName.replace('/','_')

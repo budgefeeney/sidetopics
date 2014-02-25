@@ -61,9 +61,9 @@ class Test(unittest.TestCase):
                         + ' --folds '          + '5'       \
                         + ' --words '          + wordsFile \
                         + ' --feats '          + featsFile 
-        #                + ' --words '          + '/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed/words-by-author.pkl'
-        #                + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed/side.pkl' \
-                
+#                        + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl'
+#                        + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed/side.pkl' \
+      
                 modelFileses.append (run(cmdline.strip().split(' ')))
         
         modelFileses.insert(0, wordsFile)
