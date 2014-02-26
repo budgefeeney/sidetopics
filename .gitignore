@@ -60,8 +60,13 @@ src/notebooks/.texpadtmp
 src/notebooks/*_files
 src/notebooks/*.pdf
 src/notebooks/*.tex
+src/notebooks/*.tex-e
 src/notebooks/*.html
 src/notebooks/*.zip
+src/notebooks/*.idx
+src/notebooks/*.aux
+src/notebooks/*.log
+src/notebooks/*.out
 
 # The notebooks copy
 src/notebooks-imac
@@ -71,3 +76,5 @@ src/notebooks/Local Mathjax.ipynb
 # The compiled library files
 src/util/lib.macosx-10.9-x86_64-3.3
 src/util/temp.macosx-10.9-x86_64-3.3
+src/se_fast.so.reload1
+src/sig_fast.so.reload1
