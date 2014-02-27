@@ -114,18 +114,18 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
         stderr.write("Only " + str(len(fnames)) + " folds were written out for report " + reportFile)
     
     # Load the template and use it to create the report
-    with open(templateDir + sep + CtmTemplateFileName, 'rb') as f:
+    with open(templateDir + sep + CtmTemplateFileName, 'r') as f:
         templateStr = f.read()
     
     template = Template(templateStr)
     report = template.substitute( \
         codePath = CodeDir, \
         outFilesPrefix = rawOutDir + sep, \
-        outputFiles = ", ".join("outFilesPrefix + " + fname in fnames), \
+        outputFiles = ", ".join("outFilesPrefix + " + fname for fname in fnames), \
         implName = implNames[modelType][bound])
     
     # Save the report
-    with open(reportFile, 'wb') as f:
+    with open(reportFile, 'w') as f:
         f.write(report)
     print("Wrote report to " + reportFile)
     
