@@ -30,7 +30,7 @@ def run(args):
     #
     parser = ap.ArgumentParser(description='Execute a topic-modeling run.')
     parser.add_argument('--model', '-m', dest='model', metavar=' ', \
-                    help='The type of mode to use, options are uy, uyv and uv_vec_y')
+                    help='The type of mode to use, options are ctm_bouchard, ctm_bohning, stm_yv_bouchard, stm_yv_bohning')
     parser.add_argument('--num-topics', '-k', dest='K', type=int, metavar=' ', \
                     help='The number of topics to fit')
     parser.add_argument('--num-lat-topics', '-q', dest='Q', type=int, metavar=' ', \
