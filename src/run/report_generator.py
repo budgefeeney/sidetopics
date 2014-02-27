@@ -19,7 +19,7 @@ StmTemplateFileName = "StmResultsSheet-Template.ipynb"
 TemplateDir = os.path.dirname (os.path.dirname (__file__)) + os.path.sep + 'notebooks'
 CodeDir     = os.path.dirname(TemplateDir)
 CtmOutFileNameFormat = r"ctm_%s_k_%d_fold_\d_\d{8}_\d{4}.pkl"
-StmOutFileNameFormat = r"stm_%s_k_%d_p_%d_fold_\d_\d{8}_\d{4}.pkl"
+StmOutFileNameFormat = r"stm_yv_%s_k_%d_p_%d_fold_\d_\d{8}_\d{4}.pkl"
 
 CtmReportFileFormat = "ctm_%s_k_%d.ipynb"
 StmReportFileFormat = "stm_yv_%s_k_%d_p_%d.ipynb"
@@ -109,12 +109,14 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     folds  = len(fnames)
     
     if folds == 0:
+        stderr.write("No output to process for report " + reportFile)
         return 0
     elif folds < ExpectedFoldCount:
         stderr.write("Only " + str(len(fnames)) + " folds were written out for report " + reportFile)
     
     # Load the template and use it to create the report
-    with open(templateDir + sep + CtmTemplateFileName, 'r') as f:
+    templateName = CtmTemplateFileName if modelType == 'ctm' else StmTemplateFileName
+    with open(templateDir + sep + templateName, 'r') as f:
         templateStr = f.read()
     
     template = Template(templateStr)
@@ -206,11 +208,11 @@ def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, report
     results = dict()
     for bound in bounds:
         for topicCount in topicCounts:
-            for latentSizes in latentSizes:
-                reportFile = reportDir + sep + CtmReportFileFormat % (bound, topicCount)
-                fnameRegex = CtmOutFileNameFormat % (bound, topicCount)
+            for latentSize in latentSizes:
+                reportFile = reportDir + sep + StmReportFileFormat % (bound, topicCount, latentSize)
+                fnameRegex = StmOutFileNameFormat % (bound, topicCount, latentSize)
                 
-                foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'ctm', bound)
+                foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'stm_yv', bound)
                 results[reportFile] = foldCount
     
     _copyPdfConversionFiles(reportDir, templateDir)
