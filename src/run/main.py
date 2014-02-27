@@ -118,7 +118,7 @@ def run(args):
         import model.stm_yv as mdl 
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     elif args.model == 'stm_yv_bohning':
-        import model.stm_yv as mdl 
+        import model.stm_yv_bohning as mdl 
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
