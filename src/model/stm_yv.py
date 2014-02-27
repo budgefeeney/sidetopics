@@ -351,6 +351,7 @@ def query(W, X, modelState, queryState, queryPlan):
         
     return modelState, QueryState (means, varcs, lxi, s, n)
 
+
 def log_likelihood (W, modelState, queryState):
     ''' 
     Return the log-likelihood of the given data W according to the model
@@ -364,6 +365,19 @@ def log_likelihood (W, modelState, queryState):
             modelState.vocab \
         ).data \
     )
+
+
+def perplexity (W, modelState, queryState):
+    '''
+    Return the perplexity of this model.
+    
+    Perplexity is a sort of normalized likelihood, applicable to textual
+    data. Specifically it's the reciprocal of the geometric mean of the
+    likelihoods of each individual word in the corpus.
+    '''
+    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
+    
+
     
 def var_bound(W, X, modelState, queryState, XTX = None):
     '''
