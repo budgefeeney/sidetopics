@@ -119,9 +119,10 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     
     template = Template(templateStr)
     report = template.substitute( \
-        codePath = CodeDir, \
-        outFilesPrefix = rawOutDir + sep, \
-        outputFiles = ", ".join("outFilesPrefix + " + fname for fname in fnames), \
+        bound = bound, \
+        codePath = "'" + CodeDir + "'", \
+        outFilesPrefix = "'" + rawOutDir + sep + "'", \
+        outputFiles = ", ".join("outputPathPrefix + '" + fname + "'" for fname in fnames), \
         implName = implNames[modelType][bound])
     
     # Save the report
