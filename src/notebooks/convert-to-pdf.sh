@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Runipy is typically located in places like
+# /opt/local/Library/Frameworks/Python.framework/Versions/3.3/bin
+
 IPYTHON=ipython3-3.3
 PDFLATEX=/usr/texbin/pdflatex
 SED=sed
