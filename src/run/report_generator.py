@@ -5,6 +5,7 @@ generates a report for each one.
 @author: bryanfeeney
 '''
 import os
+import sys
 import shutil
 import argparse as ap
 from sys import stderr
@@ -48,9 +49,7 @@ def run(args):
     #
     # Enumerate all possible arguments
     #
-    parser = ap.ArgumentParser(description='Execute a topic-modeling run.')
-    parser.add_argument('--')
-    
+    parser = ap.ArgumentParser(description='Execute a report generation task.')
     parser.add_argument('--model', '-m', dest='model', metavar=' ', \
                     help='The type of mode to use, options are ctm_bouchard, ctm_bohning, stm_yv_bouchard, stm_yv_bohning')
     parser.add_argument('--topic-list', '-k', dest='topic_counts', metavar=' ', \
@@ -230,4 +229,4 @@ def _copyIfAbsent(dst, src, fname):
 
 
 if __name__ == '__main__':
-    pass
+    run(args=sys.argv[1:])
