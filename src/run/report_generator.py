@@ -78,6 +78,7 @@ def run(args):
         model  = args.model[:-len(Bouchard)]
     else:
         bounds = [Bouchard, Bohning]
+        model = args.model
     
     
     topicCounts = [int(countStr) for countStr in args.topic_counts.split(',')]
