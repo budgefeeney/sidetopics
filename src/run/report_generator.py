@@ -58,7 +58,7 @@ def run(args):
                     help='The comma-separated list of latent sizes')
     parser.add_argument('--report-dir', '-o', dest='report_dir', metavar=' ', \
                     help='The directory in which the reports are placed.')
-    parser.add_argument('--template-dir', '-t', dest='template_dir', meatavar=' ', \
+    parser.add_argument('--template-dir', '-t', dest='template_dir', metavar=' ', \
                     help='The directory containing the report templates, if you wish to specify an alternative to the built-ins')
     parser.add_argument('--output-dir', '-i', dest='output_files', metavar=' ', \
                     help='The directory containing the model outputs')
