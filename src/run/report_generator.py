@@ -131,7 +131,7 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     
     return folds
 
-def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir=TemplateDir):
+def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir=None):
     '''
     Using raw outputs in the raw output directory, and
     report templates in the template directory (whose names
@@ -157,6 +157,9 @@ def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir
     A dictionary of report name folds processed. Folds set to
     zero if there was an error.
     '''
+    if templateDir is None:
+        templateDir = TemplateDir
+    
     results = dict()
     for bound in bounds:
         for topicCount in topicCounts:
@@ -169,7 +172,7 @@ def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir
     _copyPdfConversionFiles(reportDir, templateDir)
     return results
 
-def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, reportDir, templateDir=TemplateDir):
+def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, reportDir, templateDir=None):
     '''
     Using raw outputs in the raw output directory, and
     report templates in the template directory (whose names
@@ -196,6 +199,9 @@ def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, report
     A dictionary of report name folds processed. Folds set to
     zero if there was an error.
     '''
+    if templateDir is None:
+        templateDir = TemplateDir
+    
     results = dict()
     for bound in bounds:
         for topicCount in topicCounts:
