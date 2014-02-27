@@ -15,7 +15,7 @@ class Test(unittest.TestCase):
     def testGenerationOnRealCtmOutput(self):
         cmdline = '' \
                 + ' --model '          + 'ctm' \
-                + ' --num-topics '     + '5,10,25,50' \
+                + ' --topic-list '     + '5,10,25,50' \
                 + ' --output-dir '     + k5_results_dir \
                 + ' --report-dir '     + k5_results_dir
         
