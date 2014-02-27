@@ -89,9 +89,9 @@ def run(args):
     # Launch the report
     #
     if model == Ctm:
-        generate_reports_ctm(bounds, topicCounts, args.outut_files, args.report_dir, args.template_dir)
+        generate_reports_ctm(bounds, topicCounts, args.output_files, args.report_dir, args.template_dir)
     elif model == StmYv:
-        generate_reports_ctm(bounds, topicCounts, args.outut_files, args.report_dir, args.template_dir)
+        generate_reports_stm_yv(bounds, topicCounts, latentSizes, args.output_files, args.report_dir, args.template_dir)
     else:
         raise ValueError ("No such model " + model + " (derived from " + args.model + ")")
     
@@ -103,7 +103,8 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     
     Returns the number of folds
     '''
-    
+    # Load the files and check we have the expected number of outputs for a 
+    # n-fold cross validation
     fnames = [fname for fname in os.listdir(rawOutDir) if match(fnameRegex, fname)]
     folds  = len(fnames)
     
@@ -112,14 +113,18 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     elif folds < ExpectedFoldCount:
         stderr.write("Only " + str(len(fnames)) + " folds were written out for report " + reportFile)
     
+    # Load the template and use it to create the report
     with open(templateDir + sep + CtmTemplateFileName, 'rb') as f:
         templateStr = f.read()
-    template = Template(templateStr)
-    report = template.substitute(
-        outFilesPrefix=rawOutDir + sep, 
-        outputFiles=", ".join("outFilesPrefix + " + fname in fnames), 
-        implName=implNames[modelType][bound])
     
+    template = Template(templateStr)
+    report = template.substitute( \
+        codePath = CodeDir, \
+        outFilesPrefix = rawOutDir + sep, \
+        outputFiles = ", ".join("outFilesPrefix + " + fname in fnames), \
+        implName = implNames[modelType][bound])
+    
+    # Save the report
     with open(reportFile, 'wb') as f:
         f.write(report)
     print("Wrote report to " + reportFile)
@@ -138,7 +143,7 @@ def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir
     
     These reports are configured, but not executed, so will
     have stale results in them. To execute them, load them
-    in iPython and "Rull All" or else run on the command-line
+    in iPython and "Run All" or else run on the command-line
     using runipy
     
     Params:
@@ -161,7 +166,7 @@ def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir
             foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'ctm', bound)
             results[reportFile] = foldCount
     
-    copyPdfConversionFiles(reportDir, templateDir)
+    _copyPdfConversionFiles(reportDir, templateDir)
     return results
 
 def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, reportDir, templateDir=TemplateDir):
@@ -176,7 +181,7 @@ def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, report
     
     These reports are configured, but not executed, so will
     have stale results in them. To execute them, load them
-    in iPython and "Rull All" or else run on the command-line
+    in iPython and "Run All" or else run on the command-line
     using runipy
     
     Params:
@@ -201,11 +206,11 @@ def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, report
                 foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'ctm', bound)
                 results[reportFile] = foldCount
     
-    copyPdfConversionFiles(reportDir, templateDir)
+    _copyPdfConversionFiles(reportDir, templateDir)
     return results
 
 
-def copyPdfConversionFiles(reportDir, templateDir):
+def _copyPdfConversionFiles(reportDir, templateDir):
     '''
     Copies across the PDF conversion script and any associated files which 
     are required for that conversion
