@@ -121,7 +121,7 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
     
     template = Template(templateStr)
     report = template.substitute( \
-        bound = bound, \
+        bound = bound.capitalize(), \
         codePath = "'" + CodeDir + "'", \
         outFilesPrefix = "'" + rawOutDir + sep + "'", \
         outputFiles = ", ".join("outputPathPrefix + '" + fname + "'" for fname in fnames), \
