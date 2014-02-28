@@ -18,7 +18,7 @@ $IPYTHON nbconvert --to=latex --template=article_nocode.tplx $inFile
 $SED -i -e 's/Unknown Author/Bryan Feeney/g' $outFileTex
 $SED -i -e 's/max size={\\textwidth}{\\textheight}/max height=13cm,max width=\\textwidth/g'  $outFileTex
 
-$PDFLATEX $outFileTex
+$PDFLATEX --interaction=scrollmode  $outFileTex
 
 
 
