@@ -22,6 +22,8 @@ import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
 
+from util.sigmoid_utils import rowwise_softmax
+
 import time
 
 #mpl.use('Agg')
