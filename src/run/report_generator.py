@@ -29,7 +29,7 @@ PdfConversionScript = "convert-to-pdf.sh"
 
 ExpectedFoldCount = 5
 
-# Names for the model
+# Names for the model
 Bohning  = 'bohning'
 Bouchard = 'bouchard'
 Ctm      = 'ctm'
