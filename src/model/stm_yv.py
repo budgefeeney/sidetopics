@@ -361,7 +361,7 @@ def log_likelihood (W, modelState, queryState):
     return np.sum( \
         sparseScalarProductOfSafeLnDot(\
             W, \
-            queryState.means, \
+            rowwise_softmax(queryState.means), \
             modelState.vocab \
         ).data \
     )
