@@ -201,7 +201,7 @@ def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop")
     return newModelFile (\
                 model.name, \
                 model.K, \
-                None if model[:3] == "ctm" else model.P, \
+                None if model.name[:3] == "ctm" else model.P, \
                 fold, \
                 prefix)
 
