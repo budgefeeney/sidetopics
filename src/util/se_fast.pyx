@@ -71,6 +71,14 @@ def scaledSumOfLnOnePlusExp_f4(float[:] weights, float[:,:] matrix):
             row += 1
     return sum
 
+def safe_log_one_plus_exp_f4(float x):
+    cdef:
+        float result = 0.0
+    with nogil:
+        result = _safe_log_one_plus_exp_f4(x)
+    
+    return result
+
 cdef float _safe_log_one_plus_exp_f4(float x) nogil:
     '''
     Returns log(1+exp(x))
@@ -95,6 +103,14 @@ cdef float _safe_log_one_plus_exp_f4(float x) nogil:
         return x + exp(-x) # avoid overflow by evaluating log e^x + log (1 + e^-x) == log (e^x + 1). Use LOWER trick above to avoid domination by the "1" term
     else:
         return x # difference between 1+e^UPPER and e^UPPER is neglible
+
+def safe_log_one_plus_exp_f8(double x):
+    cdef:
+        double result = 0.0
+    with nogil:
+        result = _safe_log_one_plus_exp_f8(x)
+    
+    return result
     
 cdef double _safe_log_one_plus_exp_f8(double x) nogil:
     '''
