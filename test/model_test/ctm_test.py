@@ -20,10 +20,10 @@ import time
 
 from math import ceil 
 
-from run.main import newModelFile
+from run.main import newModelFileFromModel
 
 
-DTYPE=np.float32
+DTYPE=np.float64
 
 class Test(unittest.TestCase):
 
@@ -205,14 +205,20 @@ class Test(unittest.TestCase):
                 model = ctm.newModelAtRandom(W_train, K, dtype=DTYPE)
                 queryState = ctm.newQueryState(W_train, model)
                 
-                plan  = ctm.newTrainPlan(iterations=50, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
-                model, queryState, (bndItrs, bndVals) = ctm.train (W_train, None, model, queryState, plan)
+                plan  = ctm.newTrainPlan(iterations=40, logFrequency=1, fastButInaccurate=useDiagonalPriorCov, debug=True)
+                model, queryState, (bndItrs, bndVals, likelies) = ctm.train (W_train, None, model, queryState, plan)
                     
-                # Plot the evoluation of the bound during training.
-                plt.plot(bndItrs[5:], bndVals[5:])
-                plt.xlabel("Iterations")
-                plt.ylabel("Variational Bound")
-                plt.show()
+                # Plot the evolution of the bound during training.
+                fig, ax1 = plt.subplots()
+                ax1.plot(bndItrs, bndVals, 'b-')
+                ax1.set_xlabel('Iterations')
+                ax1.set_ylabel('Bound', color='b')
+                
+                ax2 = ax1.twinx()
+                ax2.plot(bndItrs, likelies, 'r-')
+                ax2.set_ylabel('Likelihood', color='r')
+                
+                fig.show()
             
                 # Plot the topic covariance
                 self._plotCov(model)
@@ -299,18 +305,29 @@ class Test(unittest.TestCase):
         K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False)
+        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False, debug=False)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
-        with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query, (bndItrs, bndVals)), f)
-            
-        # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
+#        with open(newModelFileFromModel(model), "wb") as f:
+#            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+        
+        # Plot the evolution of the bound during training.
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+        
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, bndLikes, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+        
+        fig.show()
         plt.show()
+        
+        plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.show()
+                
     
         # Print out the most likely topic words
         topWordCount = 100

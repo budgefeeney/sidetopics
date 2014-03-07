@@ -159,8 +159,10 @@ def train (W, X, modelState, queryState, trainPlan):
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
-    boundIters  = np.zeros(shape=(iterations // logFrequency,))
-    boundValues = np.zeros(shape=(iterations // logFrequency,))
+    boundIters   = np.zeros(shape=(iterations // logFrequency,))
+    boundValues  = np.zeros(shape=(iterations // logFrequency,))
+    likelyValues = np.zeros(shape=(iterations // logFrequency,))
+    
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
@@ -231,8 +233,10 @@ def train (W, X, modelState, queryState, trainPlan):
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, n)
             
-            boundValues[bvIdx] = var_bound(W, modelState, queryState)
-            boundIters[bvIdx]  = itr
+            boundValues[bvIdx]  = var_bound(W, modelState, queryState)
+            likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
+            boundIters[bvIdx]   = itr
+            
             print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
@@ -351,6 +355,7 @@ def var_bound(W, modelState, queryState):
     
     # Distribution over word-topic assignments
     expMeans = np.exp(means, out=means)
+    # ISSUE-1: This is product in CTM/Bouchard
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
     V = expMeans * (R.dot(vocab.T)) # D x K
     means = np.log(expMeans, out=expMeans)

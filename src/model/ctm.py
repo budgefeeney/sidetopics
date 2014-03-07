@@ -22,7 +22,6 @@ import scipy.sparse as ssp
 import numpy.random as rd
 import sys
 
-from util.overflow_safe import safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
@@ -37,7 +36,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-DEBUG=False
+DEBUG=True
 
 MODEL_NAME="ctm/bouchard"
 
@@ -164,9 +163,11 @@ def train (W, X, modelState, queryState, trainPlan):
     K, topicMean, sigT, vocab, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
-    boundIters  = np.zeros(shape=(iterations // logFrequency,))
-    boundValues = np.zeros(shape=(iterations // logFrequency,))
+    boundIters   = np.zeros(shape=(iterations // logFrequency,))
+    boundValues  = np.zeros(shape=(iterations // logFrequency,))
+    likelyValues = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
+    
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
@@ -178,6 +179,7 @@ def train (W, X, modelState, queryState, trainPlan):
     priorSigt_diag.fill (0.001)
     
     # Iterate over parameters
+    I_K = np.eye(K)
     for itr in range(iterations):
         
         # We start with the M-Step, so the parameters are consistent with our
@@ -189,19 +191,37 @@ def train (W, X, modelState, queryState, trainPlan):
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
+#        
+#        chigT = sum((means[d,:] - topicMean).dot((means[d,:] - topicMean).T) + np.diag(varcs[d,:]) for d in range(means.shape[0]))
+#        chigT /= means.shape[0]
+#        
+#        cchigT  = sum((means[d,:] - topicMean).dot((means[d,:] - topicMean).T) for d in range(means.shape[0]))
+#        cchigT += sum(np.diag(varcs[d,:]) for d in range(means.shape[0]))
+#        cchigT /= means.shape[0]
+#        
+#        ccchigT = (means - topicMean[np.newaxis,:]).T.dot(means - topicMean[np.newaxis,:]) + np.diag(varcs.sum(axis=0))
+#        ccchigT /= means.shape[0]
+        
+        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
+        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
+#        sigT = I_K
+        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
+        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
+        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
             isigT = np.diag(1./ diag)
         else:
             isigT = la.inv(sigT)
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         
-        # Building Blocks - termporarily replaces means with exp(means)
+        
+        # Building Blocks - temporarily replace means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
+        S = expMeans * R.dot(vocab.T)
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
@@ -220,15 +240,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Means
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
-        rhsMat = vMat + isigT.dot(topicMean)
-        if diagonalPriorCov:
-            means = varcs * rhsMat
-        else:
-            for d in range(D):
-                means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-        
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + V
+        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
@@ -248,9 +260,11 @@ def train (W, X, modelState, queryState, trainPlan):
             modelState = ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, lxi, s, n)
             
-            boundValues[bvIdx] = var_bound(W, modelState, queryState)
-            boundIters[bvIdx]  = itr
-            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
+            boundValues[bvIdx]  = var_bound(W, modelState, queryState)
+            likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
+            boundIters[bvIdx]   = itr
+            
+            print (time.strftime('%X') + " : Iteration %5d: bound %10.2f  likely %10.2f" % (itr, boundValues[bvIdx], likelyValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
@@ -259,7 +273,7 @@ def train (W, X, modelState, queryState, trainPlan):
     return \
         ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n), \
-        (boundIters, boundValues)
+        (boundIters, boundValues, likelyValues)
     
 
 def query(W, X, modelState, queryState, queryPlan):
@@ -382,7 +396,7 @@ def var_bound(W, modelState, queryState):
     bound -= D/2. * la.det(sigT)
     diff   = means - topicMean[np.newaxis,:]
     bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
-    bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
+    bound -= 0.5 * np.sum (varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
        
     # And its entropy
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
@@ -391,15 +405,17 @@ def var_bound(W, modelState, queryState):
     # This also takes into account all the variables that 
     # constitute the bound on log(sum_j exp(mean_j)) and
     # also incorporates the implicit entropy of Z_dvk
-    bound -= np.sum((means*means + varcs*varcs) * docLens[:,np.newaxis] * lxi)
+    bound -= np.sum((means*means + varcs) * docLens[:,np.newaxis] * lxi)
     bound += np.sum(means * 2 * docLens[:,np.newaxis] * s[:,np.newaxis] * lxi)
     bound += np.sum(means * -0.5 * docLens[:,np.newaxis])
     # The last term of line 1 gets cancelled out by part of the first term in line 2
     # so neither are included here
     
     expMeans = np.exp(means, out=means)
+    # ISSUE-1: This is quotient in CTM/Bohning
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
+    # ISSUE-2: Where is V in all this? It appears in Bohning
     bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
     bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
 #    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
@@ -517,13 +533,24 @@ def _deriveXi (means, varcs, s):
     '''
     return np.sqrt(means**2 - 2 * means * s[:,np.newaxis] + (s**2)[:,np.newaxis] + varcs**2)   
 
+last = 0
 def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
         printStderr ("WARNING: " + var_name + " contains INFs")
+    global last
         
-    print ("Iter %3d Update %s Bound %f" % (itr, var_name, var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)))) 
+    bound = var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n))
+    dif = 0 if last == 0 else last - bound
+    if dif > 0:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        sys.stderr.write("Iter %3d Update %s Bound %.3f (%+.3f)\n" % (itr, var_name, bound, dif))
+        sys.stderr.flush()
+    else:
+        print ("Iter %3d Update %s Bound %.3f (%+.3f)" % (itr, var_name, bound, dif))
+    last = bound
 
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n):   

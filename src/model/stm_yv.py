@@ -440,7 +440,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     # This also takes into account all the variables that 
     # constitute the bound on log(sum_j exp(mean_j)) and
     # also incorporates the implicit entropy of Z_dvk
-    bound -= np.sum((means*means + varcs*varcs) * docLens[:,np.newaxis] * lxi)
+    bound -= np.sum((means*means + varcs) * docLens[:,np.newaxis] * lxi)
     bound += np.sum(means * 2 * docLens[:,np.newaxis] * s[:,np.newaxis] * lxi)
     bound += np.sum(means * -0.5 * docLens[:,np.newaxis])
     # The last term of line 1 gets cancelled out by part of the first term in line 2
