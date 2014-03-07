@@ -135,7 +135,7 @@ def run(args):
             model = mdl.newModelFromExisting(templateModel)
             query = mdl.newQueryState(W, model)
             
-            model, query, (boundItrs, boundVals) = mdl.train (W, X, model, query, trainPlan)
+            model, query, (boundItrs, boundVals, boundLikes) = mdl.train (W, X, model, query, trainPlan)
             trainSetLikely = mdl.log_likelihood (W, model, query)
             perp = np.exp (-trainSetLikely / W.data.sum())
             
