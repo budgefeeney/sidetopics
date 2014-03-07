@@ -78,3 +78,7 @@ src/util/lib.macosx-10.9-x86_64-3.3
 src/util/temp.macosx-10.9-x86_64-3.3
 src/se_fast.so.reload1
 src/sig_fast.so.reload1
+
+src/util/se_fast.c
+
+src/util/sig_fast.c
