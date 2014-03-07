@@ -191,24 +191,11 @@ def train (W, X, modelState, queryState, trainPlan):
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-#        
-#        chigT = sum((means[d,:] - topicMean).dot((means[d,:] - topicMean).T) + np.diag(varcs[d,:]) for d in range(means.shape[0]))
-#        chigT /= means.shape[0]
-#        
-#        cchigT  = sum((means[d,:] - topicMean).dot((means[d,:] - topicMean).T) for d in range(means.shape[0]))
-#        cchigT += sum(np.diag(varcs[d,:]) for d in range(means.shape[0]))
-#        cchigT /= means.shape[0]
-#        
-#        ccchigT = (means - topicMean[np.newaxis,:]).T.dot(means - topicMean[np.newaxis,:]) + np.diag(varcs.sum(axis=0))
-#        ccchigT /= means.shape[0]
         
-        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
-        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
-#        sigT = I_K
-        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
-        # DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG DEBUG
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
+        # Building blocks...
+        # 1/4 Create the precision matrix from the covariance
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
@@ -217,18 +204,17 @@ def train (W, X, modelState, queryState, trainPlan):
             isigT = la.inv(sigT)
         
         
-        
-        # Building Blocks - temporarily replace means with exp(means)
+        # 2/4 temporarily replace means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
         
-        # Update the vocabulary
+        # 3/4 Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
         vocab += 1E-30 if dtype == np.float32 else 1E-300
         
-        # Reset the means to their original form, and log effect of vocab update
+        # 4/4 Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
         debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
@@ -251,7 +237,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
-        # Follow Bouchard's suggested approach of fixing it at zero
+        # If so Bouchard's suggested approach of fixing it at zero
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
         debugFn (itr, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
