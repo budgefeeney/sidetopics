@@ -100,7 +100,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, X, W
         
-    def testLikelihoodOnModelDerivedExample(self):
+    def _testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -140,12 +140,19 @@ class Test(unittest.TestCase):
             queryState = stm.newQueryState(W_train, model)
             
             plan  = stm.newTrainPlan(iterations=1000, logFrequency=1)
-            model, query, (bndItrs, bndVals) = stm.train (W_train, X_train, model, queryState, plan)
+            model, query, (bndItrs, bndVals, bndLikes) = stm.train (W_train, X_train, model, queryState, plan)
                 
-            # Plot the evoluation of the bound during training.
-            plt.plot(bndItrs[5:], bndVals[5:])
-            plt.xlabel("Iterations")
-            plt.ylabel("Variational Bound")
+            # Plot the evolution of the bound during training.
+            fig, ax1 = plt.subplots()
+            ax1.plot(bndItrs, bndVals, 'b-')
+            ax1.set_xlabel('Iterations')
+            ax1.set_ylabel('Bound', color='b')
+            
+            ax2 = ax1.twinx()
+            ax2.plot(bndItrs, bndLikes, 'r-')
+            ax2.set_ylabel('Likelihood', color='r')
+            
+            fig.show()
             plt.show()
         
             # Plot the topic covariance
@@ -197,12 +204,19 @@ class Test(unittest.TestCase):
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
-        model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
             
-        # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        # Plot the evolution of the bound during training.
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+        
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, bndLikes, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+        
+        fig.show()
         plt.show()
         
         # Plot the vocabulary
@@ -217,11 +231,11 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
         
 
-    def _testOnRealData(self):
+    def testOnRealData(self):
         rd.seed(0xDAFF0D12)
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
-        with open(path + "/all-in-one.pkl", "rb") as f:
-            (W, X, dic) = pkl.load(f)
+        path = "/Users/bryanfeeney/Desktop/NIPS"
+        with open(path + "/ar.pkl", "rb") as f:
+            X, W, feats_dict, dic = pkl.load(f)
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
@@ -234,20 +248,27 @@ class Test(unittest.TestCase):
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1. + freq)
         
-        K = 30
-        P = 30
+        K = 10
+        P = 5
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=100, logFrequency=1)
+        trainPlan  = stm.newTrainPlan(iterations=500, logFrequency=10)
         
-        model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
-        with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query, (bndItrs, bndVals)), f)
-            
-        # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
+        with open(newModelFile("stm-yv-bohn-nips-ar", K, None), "wb") as f:
+            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+             
+        # Plot the evolution of the bound during training.
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+        
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, bndLikes, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+        
+        fig.show()
         plt.show()
         
         # Print the top words

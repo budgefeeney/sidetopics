@@ -10,10 +10,7 @@ import matplotlib.pyplot as plt
 import model.ctm_bohning as ctm
 import numpy as np
 import numpy.random as rd
-import scipy as sp
-import scipy.linalg as la
 import scipy.sparse as ssp
-import scipy.sparse.linalg as sla
 import unittest
 import pickle as pkl
 
@@ -163,7 +160,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, W
         
-    def testOnModelDerivedExample(self):
+    def _testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -203,7 +200,7 @@ class Test(unittest.TestCase):
                 model = ctm.newModelAtRandom(W_train, K, dtype=DTYPE)
                 queryState = ctm.newQueryState(W_train, model)
                 
-                plan  = ctm.newTrainPlan(iterations=50, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
+                plan  = ctm.newTrainPlan(iterations=20, logFrequency=1, fastButInaccurate=useDiagonalPriorCov)
                 model, queryState, (bndItrs, bndVals) = ctm.train (W_train, None, model, queryState, plan)
                     
                 # Plot the evoluation of the bound during training.
@@ -265,12 +262,19 @@ class Test(unittest.TestCase):
         print ("Initial bound is %f\n\n" % ctm.var_bound(W, model, queryState))
         print ("Initial reconstruction error is %f\n\n" % reconsErr)
         
-        model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, likelies) = ctm.train (W, None, model, queryState, trainPlan)
         
         # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+         
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, likelies, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+                
+        fig.show()      
         plt.show()
         
         # Plot the inferred vocab
@@ -282,13 +286,13 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
     
 
-    def _testOnRealData(self):
+    def testOnRealData(self):
         rd.seed(0xC0FFEE)
         dtype = np.float64
         
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
-        with open(path + "/words-by-author.pkl", 'rb') as f:
-            user_dict, d, W = pkl.load(f)
+        path = "/Users/bryanfeeney/Desktop/NIPS"
+        with open(path + "/ar.pkl", 'rb') as f:
+            X, W, feats_dict, d = pkl.load(f)
         
         if W.dtype != dtype:
             W = W.astype(dtype)
@@ -299,20 +303,27 @@ class Test(unittest.TestCase):
        
        
         # Initialise the model  
-        K = 20
+        K = 10
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False)
+        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals) = ctm.train (W, None, model, queryState, trainPlan)
-        with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query, (bndItrs, bndVals)), f)
+        model, query, (bndItrs, bndVals, likelies) = ctm.train (W, None, model, queryState, trainPlan)
+        with open(newModelFile("ctm-bohn-nips-ar", K, None), "wb") as f:
+            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
             
         # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+         
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, likelies, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+                
+        fig.show()      
         plt.show()
         
         topWordCount = 100

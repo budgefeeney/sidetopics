@@ -171,6 +171,7 @@ def train (W, X, modelState, queryState, trainPlan):
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
+    likeValues  = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
@@ -278,6 +279,7 @@ def train (W, X, modelState, queryState, trainPlan):
             queryState = QueryState(means, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
+            likeValues[bvIdx]  = log_likelihood(W, modelState, queryState)
             boundIters[bvIdx]  = itr
             print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
@@ -288,7 +290,7 @@ def train (W, X, modelState, queryState, trainPlan):
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n), \
-        (boundIters, boundValues)
+        (boundIters, boundValues, likeValues)
 
 def query(W, X, modelState, queryState, queryPlan):
     '''

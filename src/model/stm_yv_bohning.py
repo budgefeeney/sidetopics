@@ -177,6 +177,7 @@ def train (W, X, modelState, queryState, trainPlan):
     # Book-keeping for logs
     boundIters  = np.zeros(shape=(iterations // logFrequency,))
     boundValues = np.zeros(shape=(iterations // logFrequency,))
+    boundLikes = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
@@ -195,7 +196,6 @@ def train (W, X, modelState, queryState, trainPlan):
     # Initialize some working variables
     isigT = la.inv(sigT)
     R = W.copy()
-    sigT_regularizer = 0.001
     
     aI_P = 1./lfv  * ssp.eye(P, dtype=dtype)
     tI_F = 1./fv * ssp.eye(F, dtype=dtype)
@@ -290,7 +290,7 @@ def train (W, X, modelState, queryState, trainPlan):
             
             means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
          
-        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+#        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -298,6 +298,7 @@ def train (W, X, modelState, queryState, trainPlan):
             queryState = QueryState(means, varcs, n)
             
             boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
+            boundLikes[bvIdx]  = log_likelihood(W, modelState, queryState)
             boundIters[bvIdx]  = itr
             print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
@@ -313,7 +314,7 @@ def train (W, X, modelState, queryState, trainPlan):
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
         QueryState(means, varcs, n), \
-        (boundIters, boundValues)
+        (boundIters, boundValues, boundLikes)
  
 def query(W, X, modelState, queryState, queryPlan):
     '''
