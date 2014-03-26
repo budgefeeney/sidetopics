@@ -164,7 +164,7 @@ class Test(unittest.TestCase):
         # generated observations
         return tpcs, vocab, docLens, W
         
-    def testOnModelDerivedExample(self):
+    def _testOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         useDiagonalPriorCov = True
         
@@ -290,10 +290,10 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
     
 
-    def _testOnRealData(self):
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
-        with open(path + "/words-by-author.pkl", 'rb') as f:
-            user_dict, d, W = pkl.load(f)
+    def testOnRealData(self):
+        path = "/Users/bryanfeeney/Desktop/NIPS"
+        with open(path + "/ar.pkl", 'rb') as f:
+            X, W, feats_dict, d = pkl.load(f)
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
@@ -302,10 +302,10 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 20
+        K = 10
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False, debug=False)
+        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True, debug=False)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
@@ -327,7 +327,7 @@ class Test(unittest.TestCase):
         
         plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
-                
+        
     
         # Print out the most likely topic words
         topWordCount = 100
