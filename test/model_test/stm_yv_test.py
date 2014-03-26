@@ -69,12 +69,19 @@ class Test(unittest.TestCase):
             queryState = stm.newQueryState(W_train, model)
             
             plan  = stm.newTrainPlan(iterations=1000, logFrequency=1)
-            model, query, (bndItrs, bndVals) = stm.train (W_train, X_train, model, queryState, plan)
-                
-            # Plot the evoluation of the bound during training.
-            plt.plot(bndItrs[5:], bndVals[5:])
-            plt.xlabel("Iterations")
-            plt.ylabel("Variational Bound")
+            model, query, (bndItrs, bndVals, bndLikes) = stm.train (W_train, X_train, model, queryState, plan)
+            
+            # Plot the evolution of the bound during training.
+            fig, ax1 = plt.subplots()
+            ax1.plot(bndItrs, bndVals, 'b-')
+            ax1.set_xlabel('Iterations')
+            ax1.set_ylabel('Bound', color='b')
+            
+            ax2 = ax1.twinx()
+            ax2.plot(bndItrs, bndLikes, 'r-')
+            ax2.set_ylabel('Likelihood', color='r')
+            
+            fig.show()
             plt.show()
         
             # Plot the topic covariance
@@ -171,14 +178,21 @@ class Test(unittest.TestCase):
         queryState = stm.newQueryState(W, model)
         trainPlan  = stm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True)
         
-        model, query, (bndItrs, bndVals) = stm.train (W, X, model, queryState, trainPlan)
-        with open(modelFile(model), "wb") as f:
-            pkl.dump ((model, query, (bndItrs, bndVals)), f)
-            
-        # Plot the bound
-        plt.plot(bndItrs[5:], bndVals[5:])
-        plt.xlabel("Iterations")
-        plt.ylabel("Variational Bound")
+        model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
+        with open(newModelFile("stm-yv-bou-nips-ar", K, None), "wb") as f:
+            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+             
+        # Plot the evolution of the bound during training.
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
+        
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, bndLikes, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+        
+        fig.show()
         plt.show()
         
         # Print the top topic words

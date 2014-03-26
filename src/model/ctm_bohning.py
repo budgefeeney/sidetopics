@@ -171,7 +171,7 @@ def train (W, X, modelState, queryState, trainPlan):
     R = W.copy()
     
     priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigT_diag.fill (1)
+    priorSigT_diag.fill (0.1)
     priorSigT = np.diag(priorSigT_diag)
     kappa = K + 2
     
