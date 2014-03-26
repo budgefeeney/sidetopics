@@ -170,21 +170,29 @@ def train (W, X, modelState, queryState, trainPlan):
     isigT = la.inv(sigT)
     R = W.copy()
     
-    priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigt_diag.fill (0.001)
+    priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
+    priorSigT_diag.fill (1)
+    priorSigT = np.diag(priorSigT_diag)
+    kappa = K + 2
     
     # Iterate over parameters
     for itr in range(iterations):
+        
+        if itr == 20:
+            print ("Ruh-ro!")
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
-        topicMean = means.mean(axis = 0)
+        topicMean = means.sum(axis = 0) / (D + kappa)
+#        topicMean = means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
+        sigT += priorSigT
+        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
@@ -193,7 +201,7 @@ def train (W, X, modelState, queryState, trainPlan):
             isigT = la.inv(sigT)
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
-        # Building Blocks - termporarily replaces means with exp(means)
+        # Building Blocks - temporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         V = expMeans * R.dot(vocab.T)
@@ -247,7 +255,7 @@ def train (W, X, modelState, queryState, trainPlan):
     return \
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
         QueryState(means, varcs, n), \
-        (boundIters, boundValues)
+        (boundIters, boundValues, likelyValues)
 
 def query(W, X, modelState, queryState, queryPlan):
     '''
@@ -364,11 +372,15 @@ def var_bound(W, modelState, queryState):
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
     bound -= 2. * scaledSelfSoftDot(means, docLens)
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
-    bound += np.sum(docLens * np.log(np.sum(np.exp(means), axis=1)))
+    
+    expMeans = np.exp(means, out=means)
+    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     
     # And its entropy, and the distribution over words
     bound -= np.sum(means * V) 
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
+    
+    means = np.log(expMeans, out=expMeans)
     
     return bound
         
@@ -406,7 +418,10 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+    if int(bound - old_bound) < 0:
+        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+    else:
+        print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
     pass
