@@ -3,25 +3,25 @@ Created on 17 Jan 2014
 
 @author: bryanfeeney
 '''
+from math import ceil
+from model_test.old.sidetopic_test import matrix_normal
+from run.main import newModelFile
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import model.ctm as ctm
+import model.stm_yv_bohning as stm
 import numpy as np
 import numpy.random as rd
+import pickle as pkl
 import scipy as sp
 import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.sparse.linalg as sla
 import unittest
-import pickle as pkl
 
-import model.stm_yv_bohning as stm
 
-from model_test.old.sidetopic_test import matrix_normal
-from run.main import newModelFile
-from math import ceil
 
 DTYPE=np.float64
 
@@ -139,7 +139,7 @@ class Test(unittest.TestCase):
             model = stm.newModelAtRandom(X_train, W_train, P, K, 0.1, 0.1, dtype=DTYPE)
             queryState = stm.newQueryState(W_train, model)
             
-            plan  = stm.newTrainPlan(iterations=1000, logFrequency=1)
+            plan  = stm.newTrainPlan(iterations=100, logFrequency=1)
             model, query, (bndItrs, bndVals, bndLikes) = stm.train (W_train, X_train, model, queryState, plan)
                 
             # Plot the evolution of the bound during training.
@@ -252,7 +252,7 @@ class Test(unittest.TestCase):
         P = 5
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=500, logFrequency=10)
+        trainPlan  = stm.newTrainPlan(iterations=200, logFrequency=1, debug=True)
         
         model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
         with open(newModelFile("stm-yv-bohn-nips-ar", K, None), "wb") as f:

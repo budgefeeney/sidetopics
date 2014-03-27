@@ -8,7 +8,7 @@ Created on 17 Jan 2014
 @author: bryanfeeney
 '''
 
-from math import log
+from math import log, isnan
 
 import time
 from collections import namedtuple
@@ -460,11 +460,15 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
     bound -= 2. * scaledSelfSoftDot(means, docLens)
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(Ab))[np.newaxis,:])
-    bound += np.sum(docLens * np.log(np.sum(np.exp(means), axis=1)))
+    
+    expMeans = np.exp(means, out=means)
+    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     
     # And its entropy, and the distribution over words
     bound -= np.sum(means * V) 
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
+    
+    means = np.log(expMeans, out=expMeans)
     
     return bound
         
@@ -487,7 +491,10 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     diff = "" if old_bound == 0 else str(bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
+    if isnan(bound) or int(bound - old_bound) < 0:
+        printStderr ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
+    else:
+        print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
 
 def _debug_with_nothing (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     pass
