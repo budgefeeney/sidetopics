@@ -176,23 +176,28 @@ def train (W, X, modelState, queryState, trainPlan):
     
     s.fill(0)
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigt_diag.fill (0.001)
+    priorSigt_diag.fill (0.1)
+    kappa = K + 2
     
     # Iterate over parameters
     I_K = np.eye(K)
     for itr in range(iterations):
+        
+        if itr == 25:
+            print ("Ruh-ro!")
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
         topicMean = means.mean(axis = 0)
+#        topicMean = means.sum(axis=0) / (D + kappa)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
+#        sigT.flat[::K+1] += priorSigt_diag
+#        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
         
         # Building blocks...
         # 1/4 Create the precision matrix from the covariance
@@ -202,6 +207,8 @@ def train (W, X, modelState, queryState, trainPlan):
             isigT = np.diag(1./ diag)
         else:
             isigT = la.inv(sigT)
+        
+        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         
         # 2/4 temporarily replace means with exp(means)
@@ -230,6 +237,7 @@ def train (W, X, modelState, queryState, trainPlan):
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
+#        means = varcs * rhsMat
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
