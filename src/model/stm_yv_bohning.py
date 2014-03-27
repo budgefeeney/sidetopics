@@ -229,6 +229,8 @@ def train (W, X, modelState, queryState, trainPlan):
         sigT.flat[::K+1] += varcs.sum(axis=0)
         sigT /= (P+F+D)
         
+        isigT = la.inv(sigT)
+        
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
