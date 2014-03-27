@@ -233,6 +233,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
+        if np.isnan(expMeans).any() or np.isinf(expMeans).any():
+            print ("Yoinks, Scoob..!")
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
         
@@ -452,10 +454,15 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     # And its entropy
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
         
-    # Distribution over word-topic assignments
+    # Distribution over word-topic assignments, and their entropy
+    # and distribution over words. This is re-arranged as we need 
+    # means for some parts, and exp(means) for other parts
     expMeans = np.exp(means, out=means)
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
     V = expMeans * (R.dot(vocab.T)) # D x K
+    
+    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
+    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
     
     bound += np.sum(means * V)
@@ -463,14 +470,7 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     bound -= 2. * scaledSelfSoftDot(means, docLens)
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(Ab))[np.newaxis,:])
     
-    expMeans = np.exp(means, out=means)
-    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
-    
-    # And its entropy, and the distribution over words
     bound -= np.sum(means * V) 
-    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
-    
-    means = np.log(expMeans, out=expMeans)
     
     return bound
         

@@ -361,11 +361,15 @@ def var_bound(W, modelState, queryState):
     # And its entropy
     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
     
-    # Distribution over word-topic assignments
+    # Distribution over word-topic assignments and words and the formers
+    # entropy. This is somewhat jumbled to avoid repeatedly taking the
+    # exp and log of the means
     expMeans = np.exp(means, out=means)
-    # ISSUE-1: This is product in CTM/Bouchard
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
     V = expMeans * (R.dot(vocab.T)) # D x K
+    
+    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
+    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
     
     bound += np.sum(means * V)
@@ -373,14 +377,8 @@ def var_bound(W, modelState, queryState):
     bound -= 2. * scaledSelfSoftDot(means, docLens)
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
     
-    expMeans = np.exp(means, out=means)
-    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
-    
-    # And its entropy, and the distribution over words
     bound -= np.sum(means * V) 
-    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
-    means = np.log(expMeans, out=expMeans)
     
     return bound
         

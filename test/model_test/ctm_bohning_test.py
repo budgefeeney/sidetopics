@@ -309,7 +309,7 @@ class Test(unittest.TestCase):
         trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals, likelies) = ctm.train (W, None, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
         with open(newModelFile("ctm-bohn-nips-ar", K, None), "wb") as f:
             pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
             
@@ -320,7 +320,7 @@ class Test(unittest.TestCase):
         ax1.set_ylabel('Bound', color='b')
          
         ax2 = ax1.twinx()
-        ax2.plot(bndItrs, likelies, 'r-')
+        ax2.plot(bndItrs, bndLikes, 'r-')
         ax2.set_ylabel('Likelihood', color='r')
                 
         fig.show()      
