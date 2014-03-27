@@ -29,7 +29,7 @@ class Test(unittest.TestCase):
     
     
         
-    def testLikelihoodOnModelDerivedExample(self):
+    def _testLikelihoodOnModelDerivedExample(self):
         print("Cross-validated likelihoods on model-derived example")
         
         rd.seed(0xBADB055) # Global init for repeatable test
@@ -155,11 +155,11 @@ class Test(unittest.TestCase):
         print ("Final reconstruction error is %f\n\n" % reconsErr)
         
 
-    def _testOnRealData(self):
+    def testOnRealData(self):
         rd.seed(0xDAFF0D12)
-        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
-        with open(path + "/all-in-one.pkl", "rb") as f:
-            (W, X, dic) = pkl.load(f)
+        path = "/Users/bryanfeeney/Desktop/NIPS"
+        with open(path + "/ar.pkl", "rb") as f:
+            X, W, feats_dict, dic = pkl.load(f)
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
@@ -172,11 +172,11 @@ class Test(unittest.TestCase):
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1. + freq)
         
-        K = 30
+        K = 10
         P = 30
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True)
+        trainPlan  = stm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True, debug=True)
         
         model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
         with open(newModelFile("stm-yv-bou-nips-ar", K, None), "wb") as f:
