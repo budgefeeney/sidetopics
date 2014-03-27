@@ -40,10 +40,12 @@ class Test(unittest.TestCase):
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
+#        K, P = 10, 75
         modelFileses = []
         for algorithm in ["stm_yv", "ctm"]:
             for bound in ["bouchard", "bohning"]:
                 cmdline = '' \
+                        + ' --debug True' \
                         + ' --model '          + algorithm + '_' + bound \
                         + ' --num-topics '     + str(K)    \
                         + ' --num-lat-topics ' + str(Q)    \
@@ -61,10 +63,10 @@ class Test(unittest.TestCase):
                         + ' --folds '          + '5'       \
                         + ' --words '          + wordsFile \
                         + ' --feats '          + featsFile 
-#                        + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl'
-#                        + ' --feats '          + '/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed/side.pkl' \
+#                        + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
+#                        + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
       
-                modelFileses.append (run(cmdline.strip().split(' ')))
+                modelFileses.extend (run(cmdline.strip().split(' ')))
         
         modelFileses.insert(0, wordsFile)
         modelFileses.insert(1, featsFile)
