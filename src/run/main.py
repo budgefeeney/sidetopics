@@ -123,8 +123,8 @@ def run(args):
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     
-    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq)
-    queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq)
+    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, debug=args.debug)
+    queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq, debug=args.debug)
     
     # things to inspect and store for later use
     modelFiles = []
