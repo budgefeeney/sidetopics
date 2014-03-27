@@ -171,7 +171,7 @@ def run(args):
                 # Train the model
                 modelState  = mdl.newModelFromExisting(templateModel)
                 trainTopics = mdl.newQueryState(W_train, modelState)
-                modelState, trainTopics, (boundItrs, boundVals) \
+                modelState, trainTopics, (boundItrs, boundVals, boundLikes) \
                     = mdl.train(W_train, X_train, modelState, trainTopics, trainPlan)
                     
                 trainSetLikely = mdl.log_likelihood (W_train, modelState, trainTopics)
@@ -193,7 +193,7 @@ def run(args):
                 modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
                 modelFiles.append(modelFile)
                 with open(modelFile, 'wb') as f:
-                    pkl.dump ((order, boundItrs, boundVals, modelState, trainTopics, queryTopics), f)
+                    pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
     
     return modelFiles
 
