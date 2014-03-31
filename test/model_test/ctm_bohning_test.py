@@ -306,7 +306,7 @@ class Test(unittest.TestCase):
         K = 10
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=False, debug=True)
+        trainPlan  = ctm.newTrainPlan(iterations=500, logFrequency=1, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)

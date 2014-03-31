@@ -291,6 +291,7 @@ class Test(unittest.TestCase):
     
 
     def testOnRealData(self):
+        rd.seed(0xBADB055)
         path = "/Users/bryanfeeney/Desktop/NIPS"
         with open(path + "/ar.pkl", 'rb') as f:
             X, W, feats_dict, d = pkl.load(f)
@@ -305,7 +306,7 @@ class Test(unittest.TestCase):
         K = 10
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=1, fastButInaccurate=True, debug=False)
+        trainPlan  = ctm.newTrainPlan(iterations=200, logFrequency=1, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)

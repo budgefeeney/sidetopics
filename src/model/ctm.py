@@ -180,36 +180,32 @@ def train (W, X, modelState, queryState, trainPlan):
     kappa = K + 2
     
     # Iterate over parameters
-    I_K = np.eye(K)
     for itr in range(iterations):
-        
-        if itr == 25:
-            print ("Ruh-ro!")
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
-        topicMean = means.mean(axis = 0)
-#        topicMean = means.sum(axis=0) / (D + kappa)
+#        topicMean = means.mean(axis = 0)
+        topicMean = means.sum(axis=0) / (D + kappa)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-#        sigT.flat[::K+1] += priorSigt_diag
-#        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
+        sigT.flat[::K+1] += priorSigt_diag
+        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
         
         # Building blocks...
         # 1/4 Create the precision matrix from the covariance
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
-            isigT = np.diag(1./ diag)
+            isigT = np.diag(1. / diag)
         else:
             isigT = la.inv(sigT)
         
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        
+        print ("         Det sigT = " + str(la.det(sigT)))
         
         # 2/4 temporarily replace means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -406,10 +402,9 @@ def var_bound(W, modelState, queryState):
     # so neither are included here
     
     expMeans = np.exp(means, out=means)
-    # ISSUE-1: This is quotient in CTM/Bohning
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
+    means = np.log(expMeans, out=expMeans)
     
-    # ISSUE-2: Where is V in all this? It appears in Bohning
     bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
     bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
 #    bound -= np.sum(docLens[:,np.newaxis] * safe_log_one_plus_exp_of(xi))
@@ -417,7 +412,6 @@ def var_bound(W, modelState, queryState):
     
     bound -= np.dot(s, docLens)
     
-    means = np.log(expMeans, out=expMeans)
     
     return bound
         
