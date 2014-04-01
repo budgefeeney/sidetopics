@@ -233,9 +233,14 @@ class Test(unittest.TestCase):
 
     def testOnRealData(self):
         rd.seed(0xDAFF0D12)
-        path = "/Users/bryanfeeney/Desktop/NIPS"
-        with open(path + "/ar.pkl", "rb") as f:
-            X, W, feats_dict, dic = pkl.load(f)
+        
+#        path = "/Users/bryanfeeney/Desktop/NIPS"
+#        with open(path + "/ar.pkl", "rb") as f:
+#            X, W, _, dic = pkl.load(f)
+        
+        path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed"
+        with open(path + "/all-in-one.pkl", "rb") as f:
+            W, X, dic = pkl.load(f)
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
@@ -252,7 +257,7 @@ class Test(unittest.TestCase):
         P = 5
         model      = stm.newModelAtRandom(X, W, P, K, 0.1, 0.1, dtype=DTYPE)
         queryState = stm.newQueryState(W, model)
-        trainPlan  = stm.newTrainPlan(iterations=200, logFrequency=1, debug=True)
+        trainPlan  = stm.newTrainPlan(iterations=50, logFrequency=1, debug=True)
         
         model, query, (bndItrs, bndVals, bndLikes) = stm.train (W, X, model, queryState, trainPlan)
         with open(newModelFile("stm-yv-bohn-nips-ar", K, None), "wb") as f:
