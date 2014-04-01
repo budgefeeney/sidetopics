@@ -484,10 +484,10 @@ def safeDet(X, x_name="X"):
     
     detX = la.det(X)
     if detX > -minPositiveValue and detX < minPositiveValue: # i.e. is roughly zero:
-        printStderr ("det(" + x_name + ") == %f ~= 0" % detX)
+#        printStderr ("det(" + x_name + ") == %f ~= 0" % detX)
         detX = minPositiveValue
     if detX <= -minPositiveValue: # i.e. is less than zero
-        printStderr ("det(" + x_name + ") == %f < 0" % detX)
+#        printStderr ("det(" + x_name + ") == %f < 0" % detX)
         detX = minPositiveValue
     
     return detX
