@@ -230,6 +230,8 @@ def train (W, X, modelState, queryState, trainPlan):
         sigT /= (P+F+D)
         
         isigT = la.inv(sigT)
+        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
         
         # Building Blocks - termporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -248,6 +250,11 @@ def train (W, X, modelState, queryState, trainPlan):
 #        S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans)
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
+        # Finally update the parameter V
+        V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
+        debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
         
         #
         # And now this is the E-Step
@@ -459,18 +466,18 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     # means for some parts, and exp(means) for other parts
     expMeans = np.exp(means, out=means)
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    V = expMeans * (R.dot(vocab.T)) # D x K
+    S = expMeans * (R.dot(vocab.T)) # D x K
     
     bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
     
-    bound += np.sum(means * V)
+    bound += np.sum(means * S)
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
     bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(Ab))[np.newaxis,:])
+    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * S * (np.diag(Ab))[np.newaxis,:])
     
-    bound -= np.sum(means * V) 
+    bound -= np.sum(means * S) 
     
     return bound
         
