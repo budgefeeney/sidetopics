@@ -219,6 +219,8 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Building Blocks - temporarily replaces means with exp(means)
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
@@ -230,6 +232,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
+        means += row_maxes[:,np.newaxis]
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Finally update the parameter V
@@ -315,10 +318,13 @@ def query(W, X, modelState, queryState, queryPlan):
     # Necessary temp variables (notably the count of topic to word assignments
     # per topic per doc)
     isigT = la.inv(sigT)
+    row_maxes = means.max(axis=1)
+    means -= row_maxes[:,np.newaxis]
     expMeans = np.exp(means, out=means) # Do in-place to save memory
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)
     S = expMeans * R.dot(vocab.T)
     means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+    means += row_maxes[:,np.newaxis]
         
     # Enable logging or not. If enabled, we need the inner product of the feat matrix
     if debug:
@@ -450,6 +456,8 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     # The last term of line 1 gets cancelled out by part of the first term in line 2
     # so neither are included here.
     
+    row_maxes = means.max(axis=1)
+    means -= row_maxes[:,np.newaxis]
     expMeans = np.exp(means, out=means)
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
@@ -461,6 +469,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= np.dot(s, docLens)
     
     means = np.log(expMeans, out=expMeans)
+    means += row_maxes[:,np.newaxis]
     
     return bound
         
