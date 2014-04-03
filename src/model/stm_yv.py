@@ -173,7 +173,10 @@ def train (W, X, modelState, queryState, trainPlan):
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     likeValues  = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
+    
+    _debug_with_bound.old_bound = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
+    
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -325,6 +328,7 @@ def query(W, X, modelState, queryState, queryPlan):
     if debug:
         XTX = X.T.dot(X)
         debugFn = _debug_with_bound
+        _debug_with_bound.old_bound=0
     else:
         XTX = None
         debugFn = _debug_with_nothing
@@ -347,21 +351,21 @@ def query(W, X, modelState, queryState, queryPlan):
         
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
-        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, means, "query-means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, varcs, "query-varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, lxi, "query-lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
-        debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, s, "query-s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
     return modelState, QueryState (means, varcs, lxi, s, n)
 

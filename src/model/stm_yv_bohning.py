@@ -177,6 +177,7 @@ def train (W, X, modelState, queryState, trainPlan):
     boundLikes = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
+    _debug_with_bound.old_bound = 0
     
     # For efficient inference, we need a separate covariance for every unique
     # document length. For products to execute quickly, the doc-term matrix
@@ -350,6 +351,10 @@ def query(W, X, modelState, queryState, queryPlan):
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
+    # Debugging
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
+    _debug_with_bound.old_bound = 0
+    
     # Necessary values
     isigT = la.inv(sigT)
     
@@ -365,6 +370,7 @@ def query(W, X, modelState, queryState, queryPlan):
         
         # the variance
         varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        debugFn (itr, varcs, "query-varcs", W, X, None, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Update the Means
         rhs = X.dot(A.T).dot(isigT)
@@ -379,6 +385,8 @@ def query(W, X, modelState, queryState, queryPlan):
                 inverses[n[d]] = la.inv(isigT + n[d] * Ab)
             lhs = inverses[n[d]]
             means[d,:] = lhs.dot(rhs[d,:])
+        debugFn (itr, means, "query-means", W, X, None, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
     
     return modelState, queryState # query vars altered in-place
    
