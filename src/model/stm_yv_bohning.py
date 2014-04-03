@@ -107,9 +107,6 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
-    A[:,0] = 0
-    Y[:,0] = 0
-    
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype, MODEL_NAME)
 
 
@@ -124,7 +121,7 @@ def newQueryState(W, modelState):
         querying.
     modelState - the model state object
     
-    REturn:
+    Return:
     A CtmQueryState object
     '''
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
@@ -134,7 +131,7 @@ def newQueryState(W, modelState):
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
     means = rd.random((D,K)).astype(dtype)
-    means[:,0] = 0
+    np.log(means, out=means) # Try to start with a system where taking the exp makes sense
     varcs = np.ones((D,K), dtype=dtype)
     
     return QueryState(means, varcs, docLens)
@@ -234,6 +231,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         
         # Building Blocks - termporarily replaces means with exp(means)
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means)
         if np.isnan(expMeans).any() or np.isinf(expMeans).any():
             print ("Yoinks, Scoob..!")
@@ -249,6 +248,7 @@ def train (W, X, modelState, queryState, trainPlan):
 #        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
 #        S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans)
+        means += row_maxes[:,np.newaxis]
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Finally update the parameter V
@@ -355,10 +355,13 @@ def query(W, X, modelState, queryState, queryPlan):
     
     for itr in range(iterations):
         # Counts of topic assignments
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means) # Do exp in-place to avoid allocating memory
         R = sparseScalarQuotientOfDot(W, expMeans, vocab)
         S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans) # undo inplace exp
+        means += row_maxes[:,np.newaxis]
         
         # the variance
         varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
@@ -464,6 +467,8 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     # Distribution over word-topic assignments, and their entropy
     # and distribution over words. This is re-arranged as we need 
     # means for some parts, and exp(means) for other parts
+    row_maxes = means.max(axis=1)
+    means -= row_maxes[:,np.newaxis]
     expMeans = np.exp(means, out=means)
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
     S = expMeans * (R.dot(vocab.T)) # D x K
@@ -471,6 +476,7 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
+    means += row_maxes[:,np.newaxis]
     
     bound += np.sum(means * S)
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
