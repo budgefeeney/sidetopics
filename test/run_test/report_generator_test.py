@@ -7,8 +7,8 @@ import unittest
 
 import run.report_generator as rep_gen
 
-k5_results_dir = '/Users/bryanfeeney/Desktop/k5_results'
-k5_reports_dir = '/Users/bryanfeeney/Desktop/k5_reports'
+ResultsDir = '/Users/bryanfeeney/Desktop/nips-out/out'
+ReportsDir = '/Users/bryanfeeney/Desktop/nips-out/reports'
 
 class Test(unittest.TestCase):
 
@@ -16,10 +16,11 @@ class Test(unittest.TestCase):
     def testGenerationOnRealCtmOutput(self):
         cmdline = '' \
                 + ' --model '          + 'stm_yv' \
-                + ' --output-dir '     + k5_results_dir \
-                + ' --report-dir '     + k5_reports_dir \
-                + ' --topic-list '     + '5,10,25,50' \
-                + ' --lat-sizes '      + '5,10,25,50'
+                + ' --output-dir '     + ResultsDir \
+                + ' --report-dir '     + ReportsDir \
+                + ' --topic-list '     + '5,10,25' \
+                + ' --lat-sizes '      + '5,10,25,50,75,100' \
+                + ' --dataset '        + rep_gen.NIPS
         
         argv = cmdline.strip().split(' ')
         rep_gen.run(argv)
