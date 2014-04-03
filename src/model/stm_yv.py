@@ -318,13 +318,8 @@ def query(W, X, modelState, queryState, queryPlan):
     # Necessary temp variables (notably the count of topic to word assignments
     # per topic per doc)
     isigT = la.inv(sigT)
-    row_maxes = means.max(axis=1)
-    means -= row_maxes[:,np.newaxis]
-    expMeans = np.exp(means, out=means) # Do in-place to save memory
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)
-    S = expMeans * R.dot(vocab.T)
-    means = np.log(expMeans, out=expMeans) # Revert in-place exp()
-    means += row_maxes[:,np.newaxis]
+        
+    
         
     # Enable logging or not. If enabled, we need the inner product of the feat matrix
     if debug:
@@ -336,6 +331,15 @@ def query(W, X, modelState, queryState, queryPlan):
     
     # Iterate over parameters
     for itr in range(iterations):
+        # Estimate Z_dvk
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
+        expMeans = np.exp(means, out=means) # Do in-place to save memory
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+        S = expMeans * R.dot(vocab.T)
+        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        means += row_maxes[:,np.newaxis] 
+        
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
