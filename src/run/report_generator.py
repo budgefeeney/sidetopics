@@ -16,7 +16,7 @@ from os.path import sep
 
 CtmTemplateFileName = "CtmResultsSheet-Template.ipynb"
 StmTemplateFileName = "StmResultsSheet-Template.ipynb"
-StmTemplateFileNameNips = "StmResultsSheet-Template.ipynb"
+StmTemplateFileNameNips = "StmResultsSheet-Nips-Template.ipynb"
 TemplateDir = os.path.dirname (os.path.dirname (__file__)) + os.path.sep + 'notebooks'
 CodeDir     = os.path.dirname(TemplateDir)
 CtmOutFileNameFormat = r"ctm_%s_k_%d_fold_\d_\d{8}_\d{4}.pkl"
@@ -65,7 +65,7 @@ def run(args):
                     help='The directory containing the report templates, if you wish to specify an alternative to the built-ins')
     parser.add_argument('--output-dir', '-i', dest='output_files', metavar=' ', \
                     help='The directory containing the model outputs')
-    parser.add_argument('--dataset', '-d', dest='dataset', metavar=' ', \
+    parser.add_argument('--dataset', '-d', dest='dataset', default=Tweets, metavar=' ', \
                     help='The dataset used to generate the outputs, defaults to tweets')
     
     
