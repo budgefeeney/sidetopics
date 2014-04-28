@@ -7,22 +7,23 @@ import unittest
 
 import run.report_generator as rep_gen
 
-k5_results_dir = '/Users/bryanfeeney/Desktop/k5_results'
-k5_reports_dir = '/Users/bryanfeeney/Desktop/k5_reports'
+ResultsDir = '/Users/bryanfeeney/Desktop/tweets-dow/out'
+ReportsDir = '/Users/bryanfeeney/Desktop/tweets-dow/reports'
 
 class Test(unittest.TestCase):
 
 
-    def testGenerationOnRealCtmOutput(self):
-        cmdline = '' \
-                + ' --model '          + 'stm_yv' \
-                + ' --output-dir '     + k5_results_dir \
-                + ' --report-dir '     + k5_reports_dir \
-                + ' --topic-list '     + '5,10,25,50' \
-                + ' --lat-sizes '      + '5,10,25,50'
+    def testGenerationOnRealOutput(self):
+        for algor in [ 'ctm', 'stm_yv' ]:
+            cmdline = '' \
+                + ' --model '          + algor \
+                + ' --output-dir '     + ResultsDir \
+                + ' --report-dir '     + ReportsDir \
+                + ' --topic-list '     + '5,10,25,50,100,150,250' \
+                + ' --lat-sizes '      + '5,10,25,50,75,100'
         
-        argv = cmdline.strip().split(' ')
-        rep_gen.run(argv)
+            argv = cmdline.strip().split(' ')
+            rep_gen.run(argv)
 
 
 if __name__ == "__main__":
