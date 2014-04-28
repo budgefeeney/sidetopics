@@ -24,6 +24,7 @@ def selfSoftDot_f8(double[:,:] mat):
         double total  = 0.0
         double lse    = 0.0
         double expSum = 0.0
+        double max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -31,12 +32,17 @@ def selfSoftDot_f8(double[:,:] mat):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 
@@ -53,6 +59,7 @@ def selfSoftDot_f4(float[:,:] mat):
         float total  = 0.0
         float lse    = 0.0
         float expSum = 0.0
+        float max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -60,12 +67,17 @@ def selfSoftDot_f4(float[:,:] mat):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 
@@ -83,6 +95,7 @@ def selfSoftDot_f8_i8(double[:,:] mat, long[:] scale):
         double total  = 0.0
         double lse    = 0.0
         double expSum = 0.0
+        double max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -90,12 +103,17 @@ def selfSoftDot_f8_i8(double[:,:] mat, long[:] scale):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += scale[row] * exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 
@@ -112,6 +130,7 @@ def selfSoftDot_f4_i8(float[:,:] mat, long[:] scale):
         float total  = 0.0
         float lse    = 0.0
         float expSum = 0.0
+        float max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -119,12 +138,17 @@ def selfSoftDot_f4_i8(float[:,:] mat, long[:] scale):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += scale[row] * exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 
@@ -142,6 +166,7 @@ def selfSoftDot_f8_f8(double[:,:] mat, double[:] scale):
         double total  = 0.0
         double lse    = 0.0
         double expSum = 0.0
+        double max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -149,12 +174,17 @@ def selfSoftDot_f8_f8(double[:,:] mat, double[:] scale):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += scale[row] * exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 
@@ -171,6 +201,7 @@ def selfSoftDot_f4_f4(float[:,:] mat, float[:] scale):
         float total  = 0.0
         float lse    = 0.0
         float expSum = 0.0
+        float max    = 0.0
         int rows = mat.shape[0]
         int cols = mat.shape[1]
         int row = 0
@@ -178,12 +209,17 @@ def selfSoftDot_f4_f4(float[:,:] mat, float[:] scale):
     
     with nogil:
         for row in range(rows):
+            max = mat[row,0]
+            for col in range(cols):
+                if mat[row,col] > max:
+                    max = mat[row,col]
+            
             expSum = 0.0
             for col in range(cols):
-                expSum += exp(mat[row,col])
+                expSum += exp(mat[row,col] - max)
         
             for col in range(cols):
-                total += scale[row] * exp(mat[row,col]) * mat[row,col] / expSum
+                total += exp(mat[row,col] - max) * mat[row,col] / expSum
     
     return total
 

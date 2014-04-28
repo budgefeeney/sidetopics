@@ -173,7 +173,10 @@ def train (W, X, modelState, queryState, trainPlan):
     boundValues = np.zeros(shape=(iterations // logFrequency,))
     likeValues  = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
+    
+    _debug_with_bound.old_bound = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
+    
     
     # Initialize some working variables
     isigT = la.inv(sigT)
@@ -219,6 +222,8 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Building Blocks - temporarily replaces means with exp(means)
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
@@ -230,6 +235,7 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
+        means += row_maxes[:,np.newaxis]
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Finally update the parameter V
@@ -315,21 +321,29 @@ def query(W, X, modelState, queryState, queryPlan):
     # Necessary temp variables (notably the count of topic to word assignments
     # per topic per doc)
     isigT = la.inv(sigT)
-    expMeans = np.exp(means, out=means) # Do in-place to save memory
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)
-    S = expMeans * R.dot(vocab.T)
-    means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        
+    
         
     # Enable logging or not. If enabled, we need the inner product of the feat matrix
     if debug:
         XTX = X.T.dot(X)
         debugFn = _debug_with_bound
+        _debug_with_bound.old_bound=0
     else:
         XTX = None
         debugFn = _debug_with_nothing
     
     # Iterate over parameters
     for itr in range(iterations):
+        # Estimate Z_dvk
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
+        expMeans = np.exp(means, out=means) # Do in-place to save memory
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
+        S = expMeans * R.dot(vocab.T)
+        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
+        means += row_maxes[:,np.newaxis] 
+        
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
@@ -337,15 +351,15 @@ def query(W, X, modelState, queryState, queryPlan):
         
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
-        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, means, "query-means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
         varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, varcs, "query-varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
         lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
-        debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
+        debugFn (itr, lxi, "query-lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
         # Follow Bouchard's suggested approach of fixing it at zero
@@ -450,6 +464,8 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     # The last term of line 1 gets cancelled out by part of the first term in line 2
     # so neither are included here.
     
+    row_maxes = means.max(axis=1)
+    means -= row_maxes[:,np.newaxis]
     expMeans = np.exp(means, out=means)
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     
@@ -461,6 +477,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     bound -= np.dot(s, docLens)
     
     means = np.log(expMeans, out=expMeans)
+    means += row_maxes[:,np.newaxis]
     
     return bound
         

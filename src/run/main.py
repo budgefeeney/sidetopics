@@ -74,6 +74,9 @@ def run(args):
     print ("Args are : " + str(args))
     args = parser.parse_args(args)
     
+    print ("Random seed is 0xC0FFEE")
+    rd.seed(0xC0FFEE)
+    
     
     #
     # Load in the files. As the cross-validation slices aren't randomized, we

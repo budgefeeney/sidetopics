@@ -16,6 +16,7 @@ from os.path import sep
 
 CtmTemplateFileName = "CtmResultsSheet-Template.ipynb"
 StmTemplateFileName = "StmResultsSheet-Template.ipynb"
+StmTemplateFileNameNips = "StmResultsSheet-Nips-Template.ipynb"
 TemplateDir = os.path.dirname (os.path.dirname (__file__)) + os.path.sep + 'notebooks'
 CodeDir     = os.path.dirname(TemplateDir)
 CtmOutFileNameFormat = r"ctm_%s_k_%d_fold_\d_\d{8}_\d{4}.pkl"
@@ -34,6 +35,8 @@ Bohning  = 'bohning'
 Bouchard = 'bouchard'
 Ctm      = 'ctm'
 StmYv    = 'stm_yv'
+Tweets   = 'tweets'
+NIPS     = 'nips'
 
 implNames = {'ctm':    {'bouchard': 'ctm', 'bohning':'ctm_bohning'}, \
              'stm_yv': {'bouchard': 'stm_yv', 'bohning':'stm_yv_bohning'}}
@@ -62,6 +65,8 @@ def run(args):
                     help='The directory containing the report templates, if you wish to specify an alternative to the built-ins')
     parser.add_argument('--output-dir', '-i', dest='output_files', metavar=' ', \
                     help='The directory containing the model outputs')
+    parser.add_argument('--dataset', '-d', dest='dataset', default=Tweets, metavar=' ', \
+                    help='The dataset used to generate the outputs, defaults to tweets')
     
     
     #
@@ -89,15 +94,17 @@ def run(args):
     # Launch the report
     #
     if model == Ctm:
+        if args.dataset != Tweets:
+            raise ValueError ("No report template for CTM run on datasets other than Tweets (you specified " + args.dataset + ")")
         generate_reports_ctm(bounds, topicCounts, args.output_files, args.report_dir, args.template_dir)
     elif model == StmYv:
-        generate_reports_stm_yv(bounds, topicCounts, latentSizes, args.output_files, args.report_dir, args.template_dir)
+        generate_reports_stm_yv(bounds, topicCounts, latentSizes, args.output_files, args.report_dir, args.template_dir, args.dataset)
     else:
         raise ValueError ("No such model " + model + " (derived from " + args.model + ")")
     
     
 
-def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, bound):
+def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, bound, dataset=Tweets):
     '''
     Generates a single report with the given configuration.
     
@@ -115,7 +122,8 @@ def _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, modelType, 
         stderr.write("Only " + str(len(fnames)) + " folds were written out for report " + reportFile)
     
     # Load the template and use it to create the report
-    templateName = CtmTemplateFileName if modelType == 'ctm' else StmTemplateFileName
+    templateName = CtmTemplateFileName if modelType == 'ctm' else \
+        (StmTemplateFileName if dataset == Tweets else StmTemplateFileNameNips)
     with open(templateDir + sep + templateName, 'r') as f:
         templateStr = f.read()
     
@@ -175,7 +183,7 @@ def generate_reports_ctm (bounds, topicCounts, rawOutDir, reportDir, templateDir
     _copyPdfConversionFiles(reportDir, templateDir)
     return results
 
-def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, reportDir, templateDir=None):
+def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, reportDir, templateDir=None, dataset=Tweets):
     '''
     Using raw outputs in the raw output directory, and
     report templates in the template directory (whose names
@@ -212,7 +220,7 @@ def generate_reports_stm_yv (bounds, topicCounts, latentSizes, rawOutDir, report
                 reportFile = reportDir + sep + StmReportFileFormat % (bound, topicCount, latentSize)
                 fnameRegex = StmOutFileNameFormat % (bound, topicCount, latentSize)
                 
-                foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'stm_yv', bound)
+                foldCount = _generate_report(fnameRegex, rawOutDir, reportFile, templateDir, 'stm_yv', bound, dataset)
                 results[reportFile] = foldCount
     
     _copyPdfConversionFiles(reportDir, templateDir)

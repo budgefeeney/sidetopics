@@ -103,7 +103,7 @@ class Test(unittest.TestCase):
             queryLikely.append(stm.log_likelihood(W_query, model, queryState))
             queryWordCount.append(W_query.data.sum())
             
-        # Check and print results.
+        # Check and print results.
         for fold in range(folds):
             trainPerp = np.exp(-trainLikely[fold]/trainWordCount[fold])
             queryPerp = np.exp(-queryLikely[fold]/queryWordCount[fold])

@@ -107,9 +107,6 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
-    A[:,0] = 0
-    Y[:,0] = 0
-    
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype, MODEL_NAME)
 
 
@@ -124,7 +121,7 @@ def newQueryState(W, modelState):
         querying.
     modelState - the model state object
     
-    REturn:
+    Return:
     A CtmQueryState object
     '''
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
@@ -134,7 +131,7 @@ def newQueryState(W, modelState):
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
     means = rd.random((D,K)).astype(dtype)
-    means[:,0] = 0
+    np.log(means, out=means) # Try to start with a system where taking the exp makes sense
     varcs = np.ones((D,K), dtype=dtype)
     
     return QueryState(means, varcs, docLens)
@@ -180,6 +177,7 @@ def train (W, X, modelState, queryState, trainPlan):
     boundLikes = np.zeros(shape=(iterations // logFrequency,))
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
+    _debug_with_bound.old_bound = 0
     
     # For efficient inference, we need a separate covariance for every unique
     # document length. For products to execute quickly, the doc-term matrix
@@ -234,6 +232,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         
         # Building Blocks - termporarily replaces means with exp(means)
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means)
         if np.isnan(expMeans).any() or np.isinf(expMeans).any():
             print ("Yoinks, Scoob..!")
@@ -249,6 +249,7 @@ def train (W, X, modelState, queryState, trainPlan):
 #        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
 #        S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans)
+        means += row_maxes[:,np.newaxis]
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Finally update the parameter V
@@ -350,18 +351,26 @@ def query(W, X, modelState, queryState, queryPlan):
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
+    # Debugging
+    debugFn = _debug_with_bound if debug else _debug_with_nothing
+    _debug_with_bound.old_bound = 0
+    
     # Necessary values
     isigT = la.inv(sigT)
     
     for itr in range(iterations):
         # Counts of topic assignments
+        row_maxes = means.max(axis=1)
+        means -= row_maxes[:,np.newaxis]
         expMeans = np.exp(means, out=means) # Do exp in-place to avoid allocating memory
         R = sparseScalarQuotientOfDot(W, expMeans, vocab)
         S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans) # undo inplace exp
+        means += row_maxes[:,np.newaxis]
         
         # the variance
         varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        debugFn (itr, varcs, "query-varcs", W, X, None, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Update the Means
         rhs = X.dot(A.T).dot(isigT)
@@ -376,6 +385,8 @@ def query(W, X, modelState, queryState, queryPlan):
                 inverses[n[d]] = la.inv(isigT + n[d] * Ab)
             lhs = inverses[n[d]]
             means[d,:] = lhs.dot(rhs[d,:])
+        debugFn (itr, means, "query-means", W, X, None, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        
     
     return modelState, queryState # query vars altered in-place
    
@@ -464,6 +475,8 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     # Distribution over word-topic assignments, and their entropy
     # and distribution over words. This is re-arranged as we need 
     # means for some parts, and exp(means) for other parts
+    row_maxes = means.max(axis=1)
+    means -= row_maxes[:,np.newaxis]
     expMeans = np.exp(means, out=means)
     R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
     S = expMeans * (R.dot(vocab.T)) # D x K
@@ -471,6 +484,7 @@ def var_bound(W, X, modelState, queryState, XTX=None):
     bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
+    means += row_maxes[:,np.newaxis]
     
     bound += np.sum(means * S)
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
@@ -495,16 +509,20 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     if var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
+    modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME)
+    queryState = QueryState(means, varcs, n)
+    
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), QueryState(means, varcs, n), XTX)
-    diff = "" if old_bound == 0 else str(bound - old_bound)
+    bound     = var_bound(W, X, modelState, queryState, XTX)
+    likely    = log_likelihood(W, modelState, queryState)
+    diff = "" if old_bound == 0 else "%11.2f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
     if isnan(bound) or int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
+        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
     else:
-        print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
-
+        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+    
 def _debug_with_nothing (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     pass
 
