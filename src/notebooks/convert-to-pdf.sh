@@ -4,7 +4,7 @@
 # /opt/local/Library/Frameworks/Python.framework/Versions/3.3/bin
 
 IPYTHON=ipython3-3.3
-PDFLATEX=/usr/texbin/pdflatex
+PDFLATEX=/usr/texbin/lualatex
 SED=sed
 
 inFile=$1
