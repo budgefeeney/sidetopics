@@ -21,6 +21,7 @@ import numpy as np
 import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
+from math import isnan
 
 from util.sigmoid_utils import rowwise_softmax
 
@@ -524,12 +525,19 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     if var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
+    modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
+    queryState = QueryState(means, varcs, lxi, s, n)
+    
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n), XTX)
-    diff = "" if old_bound == 0 else str(bound - old_bound)
+    bound     = var_bound(W, X, modelState, queryState, XTX)
+    likely    = log_likelihood(W, modelState, queryState)
+    diff = "" if old_bound == 0 else "%11.2f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    print ("Iter %3d Update %s Bound %f (%s)" % (itr, var_name, bound, diff)) 
+    if isnan(bound) or int(bound - old_bound) < 0:
+        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+    else:
+        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
 
 def _debug_with_nothing (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     pass
