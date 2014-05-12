@@ -428,8 +428,15 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                             
                         for k in range(K):
                             mems[k] /= denom
-                            diff     = mems[k] - z_dnk[d,n,k]
-                        
+                            if is_invalid_prob_f32(mems[k]):
+                                with gil:
+                                    print ("Iteration %d: mems[%d] = " % (d, k, mems[k]))
+                                    print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior, q_n_dk[d,k], z_dnk[d,n,k], topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]))
+                                    print ("vocabPrior + q_n_kt[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (k, t, d, n, k, vocabPrior, q_n_kt[k,t], z_dnk[d,n,k], vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]))
+                                    print ("T * vocabPrior + q_n_k[%d] - z_dnk[%d,%d,%d] = %f * %f + %f - %f = %f" % (k, d, n, k, T, vocabPrior, q_n_k[k], z_dnk[d,n,k], T * vocabPrior + q_n_k[k] - z_dnk[d,n,k]))
+                                    return
+                            
+                            diff         = mems[k] - z_dnk[d,n,k]
                             z_dnk[d,n,k] = mems[k]
                         
                             q_n_dk[d,k] += diff
