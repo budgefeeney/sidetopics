@@ -424,7 +424,7 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                                 * (vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]) \
                                 / (T * vocabPrior + q_n_k[k] - z_dnk[d,n,k])
                         
-                        denom += mems[k]
+                            denom += mems[k]
                             
                         for k in range(K):
                             mems[k] /= denom
@@ -505,7 +505,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                                 * (vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]) \
                                 / (T * vocabPrior + q_n_k[k] - z_dnk[d,n,k])
                         
-                        denom += mems[k]
+                            denom += mems[k]
                             
                         for k in range(K):
                             mems[k] /= denom
@@ -551,7 +551,7 @@ cdef bint is_invalid_prob_f32 (float zdnk) nogil:
     '''
     return isnan(zdnk) \
         or isinf(zdnk) \
-        or zdnk < -0.001 \
-        or zdnk > 1.001
+        or zdnk < -0.1 \
+        or zdnk > 1.1
 
 
