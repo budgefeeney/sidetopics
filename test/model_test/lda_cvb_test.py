@@ -17,6 +17,8 @@ class Test(unittest.TestCase):
 
 
     def testOnRealData(self):
+        dtype = np.float64 # DTYPE
+        
         rd.seed(0xBADB055)
         path = "/Users/bryanfeeney/Desktop/NIPS"
         with open(path + "/ar.pkl", 'rb') as f:
@@ -25,17 +27,17 @@ class Test(unittest.TestCase):
         if len(d) == 1:
             d = d[0]
         
-        if W.dtype != DTYPE:
-            W = W.astype(DTYPE)
+        if W.dtype != dtype:
+            W = W.astype(dtype)
         
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
         K = 10
-        model      = lda.newModelAtRandom(W, K, dtype=DTYPE)
+        model      = lda.newModelAtRandom(W, K, dtype=dtype)
         queryState = lda.newQueryState(W, model)
-        trainPlan  = lda.newTrainPlan(iterations=200, logFrequency=1, fastButInaccurate=False, debug=True)
+        trainPlan  = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = lda.train (W, None, model, queryState, trainPlan)
