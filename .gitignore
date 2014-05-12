@@ -82,3 +82,7 @@ src/sig_fast.so.reload1
 src/util/se_fast.c
 
 src/util/sig_fast.c
+
+*.reload1
+
+src/model/lda_cvb_fast.c
