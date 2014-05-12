@@ -14,6 +14,14 @@ import os
 from math import ceil
 
 DTYPE=np.float32
+    
+CtmBouchard   = 'ctm_bouchard'
+CtmBohning    = 'ctm_bohning'
+StmYvBouchard = 'stm_yv_bouchard'
+StmYvBohning  = 'stm_yv_bohning'
+LdaCvbZero    = 'lda_cvb0'
+
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero])
 
 
 def run(args):
@@ -30,7 +38,7 @@ def run(args):
     #
     parser = ap.ArgumentParser(description='Execute a topic-modeling run.')
     parser.add_argument('--model', '-m', dest='model', metavar=' ', \
-                    help='The type of mode to use, options are ctm_bouchard, ctm_bohning, stm_yv_bouchard, stm_yv_bohning')
+                    help='The type of mode to use, options are ' + ModelNames)
     parser.add_argument('--num-topics', '-k', dest='K', type=int, metavar=' ', \
                     help='The number of topics to fit')
     parser.add_argument('--num-lat-topics', '-q', dest='Q', type=int, metavar=' ', \
@@ -110,19 +118,22 @@ def run(args):
     
     #
     # Instantiate and configure the model
-    #
-    if args.model == 'ctm_bouchard':
+    #    
+    if args.model == CtmBouchard:
         import model.ctm as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
-    elif args.model == 'ctm_bohning':
+    elif args.model == CtmBohning:
         import model.ctm_bohning as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
-    elif args.model == 'stm_yv_bouchard':
+    elif args.model == StmYvBouchard:
         import model.stm_yv as mdl 
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
-    elif args.model == 'stm_yv_bohning':
+    elif args.model == StmYvBohning:
         import model.stm_yv_bohning as mdl 
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
+    elif args.model == LdaCvbZero:
+        import model.lda_cvb as mdl
+        templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     

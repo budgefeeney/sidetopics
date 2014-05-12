@@ -6,8 +6,6 @@ Created on 1 Dec 2013
 
 import os
 import numpy as np
-import pyximport; 
-pyximport.install(build_in_temp=False, inplace=True, build_dir=os.path.dirname(os.path.realpath(__file__)), setup_args={"include_dirs": np.get_include(), "libraries":[('m', dict())]}, reload_support=True)
 import util.sig_fast as compiled
 import sys
 

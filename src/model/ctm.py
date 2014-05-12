@@ -508,7 +508,13 @@ def jakkolaOfDerivedXi(means, varcs, s, d = None):
         mat = _deriveXi(means, varcs, s)
         return 0.5/mat * (0.5 - 1./(1 + np.exp(-mat)))
 
-
+        
+        
+def vocab(modelState):
+    '''
+    Return the vocabulary inferred by this model
+    '''
+    return modelState.vocab  
 
 # ==============================================================
 # PRIVATE HELPERS

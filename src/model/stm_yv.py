@@ -25,6 +25,8 @@ from math import isnan
 
 from util.sigmoid_utils import rowwise_softmax
 
+from model.ctm import vocab
+
 import time
 
 #mpl.use('Agg')

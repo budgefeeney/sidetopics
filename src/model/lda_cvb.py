@@ -9,6 +9,9 @@ Created on 17 Jan 2014
 @author: bryanfeeney
 '''
 
+import os # Configuration for PyxImport later on. Requires GCC
+os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
+
 from math import log
 from math import pi
 from math import e
@@ -21,13 +24,14 @@ import scipy.linalg as la
 import scipy.sparse as ssp
 import numpy.random as rd
 import sys
-import builtins
+
+import model.lda_cvb_fast as compiled
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
-    
+
 # ==============================================================
 # CONSTANTS
 # ==============================================================
@@ -39,7 +43,7 @@ LN_OF_2_PI_E = log(2 * pi * e)
 
 DEBUG=False
 
-MODEL_NAME="ctm/bohning"
+MODEL_NAME="lda/vb/c0"
 
 # ==============================================================
 # TUPLES
@@ -51,12 +55,12 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means docLens'\
+    'W_list docLens n_dk n_kt n_k z_dnk'\
 )
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicPrior vocabPrior vocab dtype name'
+    'K topicPrior vocabPrior n_dk n_kt n_k dtype name'
 )
 
 # ==============================================================
@@ -71,8 +75,10 @@ def newModelFromExisting(model):
         model.K, \
         model.topicPrior.copy(), \
         model.vocabPrior.copy(), \
-        model.vocab.copy(), \
-        model.dtype, \
+        model.n_dk.copy(), \
+        model.n_kt.copy(), \
+        model.n_k.copy(),  \
+        model.dtype,       \
         model.name)
 
 def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
@@ -95,42 +101,17 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     '''
     assert K > 1, "There must be at least two topics"
     
-    _,T = W.shape
-    vocab = normalizerows_ip(rd.random((K,T)).astype(dtype))
-    
     if topicPrior is None:
         topicPrior = 50.0 / K # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.01
-    _ensure_is_vector(topicPrior, K, dtype)
-    _ensure_is_vector(vocabPrior, T, dtype)
+        vocabPrior = 0.01 # Also from G&S
         
-    assert len(topicPrior) == K, "Given topic prior vector has length " + str(len(topicPrior)) + " but K="+  str(K)
-    assert len(vocabPrior) == T, "Given vocab prior vector has length " + str(len(vocabPrior)) + " but W.shape[1]="+  str(T)
+    n_dk = None # These start out at none until we actually
+    n_kv = None # go ahead and train this model.
+    n_k  = None
     
-    return ModelState(K, topicPrior, vocabPrior, vocab, dtype, MODEL_NAME)
+    return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, dtype, MODEL_NAME)
 
-def _ensure_is_vector(var, length, dtype):
-    '''
-    If the given variable is a scalare, convert it to a vector of
-    the given length. If it's a vector already, return it unchanged.
-    '''
-    if '__len__' in dir(var):
-        if len(var) == 1:
-            return _filled_array(length, var[0], dtype)
-        else:
-            return np.squeeze (np.asarray(var).astype(dtype))
-    else:
-        return _filled_array(length, var, dtype)
-    
-def _filled_array(length, fillValue, dtype):
-    '''
-    Creates a one-dimensional array of the given length with the given dtype
-    filled with the given value.
-    '''
-    result = np.ndarray(shape=(length,), dtype=dtype)
-    result.fill (fillValue)
-    return result
 
 def newQueryState(W, modelState):
     '''
@@ -146,18 +127,45 @@ def newQueryState(W, modelState):
     REturn:
     A CtmQueryState object
     '''
-    K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
+    K =  modelState.K
     
-    D,T = W.shape
-    assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
-    docLens = np.squeeze(np.asarray(W.sum(axis=1)))
+    D,_ = W.shape
+    W_list, docLens = toWordList(W)
+    maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
-    means = normalizerows_ip(rd.random((D,K)).astype(dtype))
+    # Initialise the per-token assignments at random according to the dirichlet hyper
+    prior = np.full((K,), modelState.topicPrior)
+    z_dnk = rd.dirichlet(prior, size=D * maxN) \
+          .astype(modelState.dtype) \
+          .reshape((D,maxN,K))
     
-    return QueryState(means, docLens)
+    # The following method zeros z[d,n,k] where no word n > word-count for document
+    # d emulated a jagged array. It also
+    #
+    n_dk, n_kt, n_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
+    
+    # Lastly, convert the memory-views returned from Cython into numpy arrays
+    W_list, docLens = np.asarray(W_list), np.asarray(docLens)
+    n_dk = np.asarray(n_dk)
+    n_kt = np.asarray(n_kt)
+    n_k  = np.asarray(n_k)
+    
+    return QueryState(W_list, docLens, n_dk, n_kt, n_k, z_dnk)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def toWordList (w_csr):
+    docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
+    
+    if w_csr.dtype == np.int32:
+        return compiled.toWordList_i32 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
+    elif w_csr.dtype == np.float32:
+        return compiled.toWordList_f32 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
+    elif w_csr.dtype == np.float64:
+        return compiled.toWordList_f64 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
+    else:
+        raise ValueError("No implementation defined for dtype = " + str(w_csr.dtype))
+
+def newTrainPlan(iterations=100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -165,257 +173,163 @@ def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccur
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
-def train (W, X, modelState, queryState, trainPlan):
+def train (W, X, modelState, queryState, trainPlan, query=False):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
-    
+
     Params:
     W - the DxT document-term matrix
     X - The DxF document-feature matrix, which is IGNORED in this case
-    modelState - the actual LDA model
+    modelState - the actual LDA model. In a training run (query = False) this
+                 will be mutated in place, and then returned.
     queryState - the query results - essentially all the "local" variables
-                 matched to the given observations
+                 matched to the given observations. This will be mutated in-place
+                 and then returned.
     trainPlan  - how to execute the training process (e.g. iterations,
                  log-interval etc.)
-                 
+    query      - 
+
     Return:
-    A new model object with the updated model (note parameters are
-    updated in place, so make a defensive copy if you want it)
-    A new query object with the update query parameters
-    ''' 
-    D,_ = W.shape
+    The updated model object (note parameters are updated in place, so make a 
+    defensive copy if you want it)
+    The query object with the update query parameters
+    '''
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = \
+        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug           
+    W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk = \
+        queryState.W_list, queryState.docLens, queryState.n_dk, queryState.n_kt, queryState.n_k, queryState.z_dnk
+    K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k = \
+        modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.n_dk, modelState.n_kt, modelState.n_k
     
-    # Unpack the the structs, for ease of access and efficiency
-    iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
-    means, n = queryState.means, queryState.docLens
-    K, topicPrior, vocabPrior, vocab, dtype, name = modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.vocab, modelState.dtype, modelState.name
+    D_train = 0 if m_n_dk is None else m_n_dk.shape[0]
+    D_query = q_n_dk.shape[0]
+    T = W.shape[1]
     
-    # Book-keeping for logs
-    boundIters   = np.zeros(shape=(iterations // logFrequency,))
-    boundValues  = np.zeros(shape=(iterations // logFrequency,))
-    likelyValues = np.zeros(shape=(iterations // logFrequency,))
+    # Add the model counts (essentially the learnt model parameters) to those for
+    # the query, assuming the model has been trained previously
+    if m_n_dk is not None:
+        np.add (q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt += m_n_kt
+        np.add (q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  += m_n_k
     
-    bvIdx = 0
-    debugFn = _debug_with_bound if debug else _debug_with_nothing
+    # Now iterate
+    if modelState.dtype == np.float32:
+        compiled.iterate_f32 (iterations, D_query, D_train, K, T, \
+                              W_list, docLens, \
+                              q_n_dk, q_n_kt, q_n_k, z_dnk,\
+                              topicPrior, vocabPrior)
+    elif modelState.dtype == np.float64:
+        compiled.iterate_f64 (iterations, D_query, D_train, K, T, \
+                              W_list, docLens, \
+                              q_n_dk, q_n_kt, q_n_k, z_dnk,\
+                              topicPrior, vocabPrior)
+    else:
+        raise ValueError("No implementation defined for dtype " + str(modelState.dtype))
     
-    # Initialize some working variables
-    isigT = la.inv(sigT)
-    R = W.copy()
-    
-    priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigT_diag.fill (0.1)
-    priorSigT = np.diag(priorSigT_diag)
-    kappa = K + 2
-    
-    # Iterate over parameters
-    for itr in range(iterations):
-        
-        # We start with the M-Step, so the parameters are consistent with our
-        # initialisation of the RVs when we do the E-Step
-        
-        # Update the mean and covariance of the prior
-        topicMean = means.sum(axis = 0) / (D + kappa)
-#        topicMean = means.mean(axis=0)
-        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
-        
-        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-        sigT.flat[::K+1] += varcs.mean(axis=0)
-        sigT += priorSigT
-        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
-        if diagonalPriorCov:
-            diag = np.diag(sigT)
-            sigT = np.diag(diag)
-            isigT = np.diag(1./ diag)
-        else:
-            isigT = la.inv(sigT)
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
-        print("                sigT.det = " + str(la.det(sigT)))
-        
-        # Building Blocks - temporarily replaces means with exp(means)
-        expMeans = np.exp(means, out=means)
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
-        
-        # Update the vocabulary
-        vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
-        vocab = normalizerows_ip(vocab)
-        vocab += 1E-30 if dtype == np.float32 else 1E-300
-        
-        # Reset the means to their original form, and log effect of vocab update
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
-        
-        means = np.log(expMeans, out=expMeans)
-        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
-        
-        # And now this is the E-Step, though itr's followed by updates for the
-        # parameters also that handle the log-sum-exp approximation.
-        
-        # Update the Variances
-        varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
-        
-        # Update the Means
-        rhs = V.copy()
-        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
-        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if diagonalPriorCov:
-            means = varcs * rhs
-        else:
-            for d in range(D):
-                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
-        
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
-        
-        if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, n)
+    # Now return the results
+    if query: # Model is unchanged, query is changed
+        if m_n_dk is not None:
+            np.subtract(q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt -= m_n_kt
+            np.subtract(q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  -= m_n_k
+    else: # train # Model is changed (or flat-out created). Query is changed
+        if m_n_dk is not None: # Amend existing
+            m_n_dk = np.vstack((m_n_dk, q_n_dk))
+            m_n_kt[:,:] = q_n_kt
+            m_n_k[:]    = q_n_k
+        else:                  # Create from scratch
+            m_n_dk = q_n_dk.copy()
+            m_n_kt = q_n_kt.copy()
+            m_n_k  = q_n_k.copy()
             
-            boundValues[bvIdx]  = var_bound(W, modelState, queryState)
-            likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
-            boundIters[bvIdx]   = itr
-            
-            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
-            if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
-                printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
-#             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
-            bvIdx += 1
-        
+    return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
+           QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
+           (np.zeros(1), np.zeros(1), np.zeros(1))
+#           iteration    var_bound    ln_likely
     
-    return \
-        ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n), \
-        (boundIters, boundValues, likelyValues)
 
 def query(W, X, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
-    
+
     Params:
     W - The query words to which we assign topics
     X - This is ignored, and can be omitted
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
     queryPlan  - used in this case as we need to tighten up the approx
-    
+
     Returns:
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
-    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
-    
-    debugFn = _debug_with_bound if debug else _debug_with_nothing
-    D = W.shape[0]
-    
-    # Necessary temp variables (notably the count of topic to word assignments
-    # per topic per doc)
-    isigT = la.inv(sigT)
-    
-    for itr in range(iterations):
-        expMeans = np.exp(means, out=means) # Do in-place to save memory
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
-        S = expMeans * R.dot(vocab.T)
-        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
-            
-        # Update the Variances
-        varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
-        
-        # Update the Means
-        rhs = S.copy()
-        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
-        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if fastButInaccurate:
-            means[:] = varcs * rhs
-        else:
-            for d in range(D):
-                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
-        
+    modelState, queryState, _ = train(W, X, modelState, queryState, queryPlan, query=True)
     return modelState, queryState
 
-   
 
 def perplexity (W, modelState, queryState):
     '''
     Return the perplexity of this model.
-    
+
     Perplexity is a sort of normalized likelihood, applicable to textual
     data. Specifically it's the reciprocal of the geometric mean of the
     likelihoods of each individual word in the corpus.
     '''
     return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
-    
+
 
 def log_likelihood (W, modelState, queryState):
-    ''' 
+    '''
     Return the log-likelihood of the given data W according to the model
-    and the parameters inferred for the entries in W stored in the 
+    and the parameters inferred for the entries in W stored in the
     queryState object.
     '''
-    return np.sum( \
-        sparseScalarProductOfSafeLnDot(\
-            W, \
-            rowwise_softmax(queryState.means), \
-            modelState.vocab \
-        ).data \
-    )
+    n_dk, n_kt = queryState.n_dk, modelState.n_kt
     
+    # Scale to create distributions over doc-topics and topic-vocabs
+    doc_norm = n_dk.sum(axis = 1)
+    voc_norm = n_kt.sum(axis = 1)
+    
+    n_dk /= doc_norm[:,np.newaxis]
+    n_kt /= voc_norm[:,np.newaxis]
+    
+    # Use distributions to create log-likelihood. This could be made
+    # faster still by not materializing the (admittedly sparse) matrix
+    ln_likely = sparseScalarProductOfSafeLnDot(W, n_dk, n_kt).sum()
+    
+    # Rescale back to word-counts
+    n_dk *= doc_norm
+    n_kt *= voc_norm
+    
+    return ln_likely
+    
+
 def var_bound(W, modelState, queryState):
     '''
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial
     manner.
     '''
-    
+
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A
-    
+
     # Calculate some implicit  variables
     isigT = la.inv(sigT)
-    
+
     bound = 0
-    
-    # Distribution over document topics
-    bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * la.det(sigT)
-    diff   = means - topicMean[np.newaxis,:]
-    bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
-    bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
-       
-    # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
-    
-    # Distribution over word-topic assignments and words and the formers
-    # entropy. This is somewhat jumbled to avoid repeatedly taking the
-    # exp and log of the means
-    expMeans = np.exp(means, out=means)
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    V = expMeans * (R.dot(vocab.T)) # D x K
-    
-    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
-    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
-    means = np.log(expMeans, out=expMeans)
-    
-    bound += np.sum(means * V)
-    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
-    bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
-    
-    bound -= np.sum(means * V) 
-    
-    
+
     return bound
-        
-        
-        
-        
+
+def vocab(modelState):
+    '''
+    Return the vocabulary inferred by this model
+    '''
+    return modelState.n_dk / (modelState.n_dk.sum(axis=1))[:,np.newaxis]
+
+
 
 # ==============================================================
 # PUBLIC HELPERS
@@ -425,7 +339,7 @@ def printStderr(msg):
     sys.stdout.flush()
     sys.stderr.write(msg + '\n')
     sys.stderr.flush()
-    
+
 
 def static_var(varname, value):
     def decorate(func):
@@ -441,17 +355,16 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         printStderr ("WARNING: " + var_name + " contains INFs")
     if var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
-    
+
     old_bound = _debug_with_bound.old_bound
     bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
-    
+
     if int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff))
     else:
-        print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+        print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff))
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
     pass
-

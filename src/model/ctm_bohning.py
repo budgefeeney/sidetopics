@@ -27,6 +27,8 @@ from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
     
+from model.ctm import vocab
+    
 # ==============================================================
 # CONSTANTS
 # ==============================================================
@@ -379,9 +381,6 @@ def var_bound(W, modelState, queryState):
     
     
     return bound
-        
-        
-        
         
 
 # ==============================================================

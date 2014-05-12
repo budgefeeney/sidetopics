@@ -24,7 +24,7 @@ from util.sparse_elementwise import sparseScalarQuotientOfDot, \
 from model.stm_yv import lnDetOfDiagMat, safeDet, static_var
 from model.ctm_bohning import printStderr, LN_OF_2_PI, \
     LN_OF_2_PI_E, newModelAtRandom as newCtmModelAtRandom
-from model.ctm import verifyProper
+from model.ctm import verifyProper, vocab
     
 # ==============================================================
 # CONSTANTS
