@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 import numpy.random as rd
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import pickle as pkl
 
 import model.lda_cvb as lda
@@ -20,6 +21,9 @@ class Test(unittest.TestCase):
         path = "/Users/bryanfeeney/Desktop/NIPS"
         with open(path + "/ar.pkl", 'rb') as f:
             _, W, _, d = pkl.load(f)
+            
+        if len(d) == 1:
+            d = d[0]
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
@@ -51,18 +55,19 @@ class Test(unittest.TestCase):
         fig.show()
         plt.show()
         
-        plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
+        vocab = lda.vocab(model)
+        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
         
     
         # Print out the most likely topic words
         topWordCount = 100
-        kTopWordInds = [self.topWordInds(d, model.vocab[k,:] * scale, topWordCount) \
+        kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
         
         print ("Perplexity: %f\n\n" % lda.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
-        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % model.vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
+        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         
     def topWords (self, wordDict, vocab, count=10):
         return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]
