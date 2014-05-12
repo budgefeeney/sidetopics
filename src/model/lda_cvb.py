@@ -283,6 +283,8 @@ def log_likelihood (W, modelState, queryState):
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
     queryState object.
+    
+    Actually returns a vector of D document specific log likelihoods
     '''
     n_dk, n_kt = queryState.n_dk, modelState.n_kt
     
@@ -298,8 +300,8 @@ def log_likelihood (W, modelState, queryState):
     ln_likely = sparseScalarProductOfSafeLnDot(W, n_dk, n_kt).sum()
     
     # Rescale back to word-counts
-    n_dk *= doc_norm
-    n_kt *= voc_norm
+    n_dk *= doc_norm[:,np.newaxis]
+    n_kt *= voc_norm[:,np.newaxis]
     
     return ln_likely
     
@@ -325,9 +327,10 @@ def var_bound(W, modelState, queryState):
 
 def vocab(modelState):
     '''
-    Return the vocabulary inferred by this model
+    Return the vocabulary inferred by this model as a KxT matrix of T
+    terms for each of the K topics
     '''
-    return modelState.n_dk / (modelState.n_dk.sum(axis=1))[:,np.newaxis]
+    return modelState.n_kt / (modelState.n_kt.sum(axis=1))[:,np.newaxis]
 
 
 
