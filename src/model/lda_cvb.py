@@ -206,25 +206,47 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
     D_query = q_n_dk.shape[0]
     T = W.shape[1]
     
+    # Book-keeping for logs
+    logPoints    = iterations // logFrequency
+    boundIters   = np.zeros(shape=(logPoints,))
+    boundValues  = np.zeros(shape=(logPoints,))
+    likelyValues = np.zeros(shape=(logPoints,))
+    bvIdx = 0
+    
     # Add the model counts (essentially the learnt model parameters) to those for
     # the query, assuming the model has been trained previously
     if m_n_dk is not None:
         np.add (q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt += m_n_kt
         np.add (q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  += m_n_k
     
-    # Now iterate
-    if modelState.dtype == np.float32:
-        compiled.iterate_f32 (iterations, D_query, D_train, K, T, \
-                              W_list, docLens, \
-                              q_n_dk, q_n_kt, q_n_k, z_dnk,\
-                              topicPrior, vocabPrior)
-    elif modelState.dtype == np.float64:
-        compiled.iterate_f64 (iterations, D_query, D_train, K, T, \
-                              W_list, docLens, \
-                              q_n_dk, q_n_kt, q_n_k, z_dnk,\
-                              topicPrior, vocabPrior)
-    else:
-        raise ValueError("No implementation defined for dtype " + str(modelState.dtype))
+    # Select the training iterations function appropriate for the dtype
+    do_iterations = compiled.iterate_f32 \
+                    if modelState.dtype == np.float32 \
+                    else compiled.iterate_f64
+    
+    # Iterate in segments, pausing to take measures of the bound / likelihood
+    segIters  = logFrequency
+    remainder = iterations - segIters * (logPoints - 1)
+    for segment in range(logPoints - 1):
+        do_iterations (segIters, D_query, D_train, K, T, \
+                       W_list, docLens, \
+                       q_n_dk, q_n_kt, q_n_k, z_dnk,\
+                       topicPrior, vocabPrior)
+    
+        boundIters[bvIdx]   = segment * segIters
+        boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        bvIdx += 1
+    
+    # Final batch of iterations.
+    do_iterations (remainder, D_query, D_train, K, T, \
+                   W_list, docLens, \
+                   q_n_dk, q_n_kt, q_n_k, z_dnk,\
+                   topicPrior, vocabPrior)
+    
+    boundIters[bvIdx]   = iterations - 1
+    boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+    likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
     
     # Now return the results
     if query: # Model is unchanged, query is changed
@@ -243,9 +265,34 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
             
     return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
-           (np.zeros(1), np.zeros(1), np.zeros(1))
-#           iteration    var_bound    ln_likely
+           (boundIters, boundValues, likelyValues)
+  
+  
+def var_bound_intermediate (W, model, query, n_kt, n_k):
+    model = ModelState(\
+        model.K, \
+        model.topicPrior, \
+        model.vocabPrior, \
+        model.n_dk, \
+        n_kt, \
+        n_k, \
+        model.dtype, \
+        model.name)
     
+    return var_bound (W, model, query)
+
+def log_likely_intermediate (W, model, query, n_kt, n_k):
+    model = ModelState(\
+        model.K, \
+        model.topicPrior, \
+        model.vocabPrior, \
+        model.n_dk, \
+        n_kt, \
+        n_k, \
+        model.dtype, \
+        model.name)
+    
+    return log_likelihood (W, model, query)
 
 def query(W, X, modelState, queryState, queryPlan):
     '''
@@ -315,12 +362,7 @@ def var_bound(W, modelState, queryState):
 
     # Unpack the the structs, for ease of access and efficiency
     D,_ = W.shape
-    means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A
-
-    # Calculate some implicit  variables
-    isigT = la.inv(sigT)
-
+    
     bound = 0
 
     return bound
