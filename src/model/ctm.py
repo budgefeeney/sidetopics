@@ -512,7 +512,8 @@ def jakkolaOfDerivedXi(means, varcs, s, d = None):
         
 def vocab(modelState):
     '''
-    Return the vocabulary inferred by this model
+    Return the vocabulary inferred by this model as a KxT matrix of T
+    terms for each of the K topics
     '''
     return modelState.vocab  
 
