@@ -12,7 +12,7 @@ Created on 17 Jan 2014
 import os # Configuration for PyxImport later on. Requires GCC
 os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
-from math import log
+from math import log, gamma
 from math import pi
 from math import e
 
@@ -22,6 +22,7 @@ from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
+import scipy.special as fns
 import numpy.random as rd
 import sys
 
@@ -206,8 +207,12 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
     D_query = q_n_dk.shape[0]
     T = W.shape[1]
     
+    # Quick sanity check
+    if np.any(docLens < 1):
+        raise ValueError ("Input document-term matrix contains at least one document with no words")
+    
     # Book-keeping for logs
-    logPoints    = iterations // logFrequency
+    logPoints    = 1 if logFrequency == 0 else iterations // logFrequency
     boundIters   = np.zeros(shape=(logPoints,))
     boundValues  = np.zeros(shape=(logPoints,))
     likelyValues = np.zeros(shape=(logPoints,))
@@ -247,7 +252,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
     boundIters[bvIdx]   = iterations - 1
     boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
     likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
-    
+        
     # Now return the results
     if query: # Model is unchanged, query is changed
         if m_n_dk is not None:
@@ -361,10 +366,39 @@ def var_bound(W, modelState, queryState):
     '''
 
     # Unpack the the structs, for ease of access and efficiency
-    D,_ = W.shape
+    D,T   = W.shape
+    K     = modelState.K
+    n_kt  = modelState.n_kt
+    n_dk  = queryState.n_dk
+    n_k   = queryState.n_k
+    z_dnk = queryState.z_dnk
+    a     = modelState.topicPrior
+    b     = modelState.vocabPrior
+    
+    docLens = queryState.docLens
     
     bound = 0
-
+    
+    # Expected value of the p(W,Z). Note everything else marginalized out, and
+    # we're using a 0-th order Taylor expansion.
+    bound += D * (log (gamma(K * a)) - K * log (gamma(a)))
+    bound += K * (log (gamma(T * b)) - T * log (gamma(b)))
+    
+    bound -= np.sum (fns.gammaln(K * a + docLens))
+    bound += np.sum (fns.gammaln(a + n_dk))
+    
+    bound -= np.sum (fns.gammaln(T * b + n_k))
+    bound += np.sum (fns.gammaln(b + n_kt))
+    
+    # The entropy of z_dnk. Have to do this in a loop as z_dnk is
+    # is jagged in it's third dimension.
+    if modelState.dtype == np.float32:
+        bound -= compiled.jagged_entropy_f32 (z_dnk, docLens)
+    elif modelState.dtype == np.float64:
+        bound -= compiled.jagged_entropy_f64 (z_dnk, docLens)
+    else:
+        raise ValueError ("No implementation defined for dtype " + str(modelState.dtype))
+    
     return bound
 
 def vocab(modelState):

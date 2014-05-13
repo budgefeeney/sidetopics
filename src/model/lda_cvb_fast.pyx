@@ -34,7 +34,7 @@ cimport numpy as np
 
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free
-from libc.math cimport isnan, isinf
+from libc.math cimport isnan, isinf, log
 #from openmp cimport omp_set_num_threads
 
 @cython.boundscheck(False)
@@ -501,9 +501,9 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                         denom = 0.0
                         for k in range(K):
                             mems[k] = \
-                                  (topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]) \
-                                * (vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]) \
-                                / (T * vocabPrior + q_n_k[k] - z_dnk[d,n,k])
+                                  (topicPrior     + q_n_dk[d,k]  -  z_dnk[d,n,k]) \
+                                * (vocabPrior     + q_n_kt[k,t]  -  z_dnk[d,n,k]) \
+                                / (T * vocabPrior + q_n_k[k]     -  z_dnk[d,n,k])
                         
                             denom += mems[k]
                             
@@ -561,4 +561,56 @@ cdef bint is_invalid_prob_f32 (float zdnk) nogil:
         or zdnk < -0.1 \
         or zdnk > 1.1
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def jagged_entropy_f32 (float[:,:,:] z_dnk, int[:] docLens):
+    '''
+    Calculates the entropy of distribution over all topics for
+    all words for all documents. This is a jagged 3-dim array
+    stored as a matrix for convenience. Being jagged, we have to
+    do a manual loop instead of vectorizing (for the benefit of
+    counts the "non-existent" values are set to zero, but this
+    clearly doesn't work when logging elements
+    '''
+    cdef:
+        float entropy = 0.0
+        int D = z_dnk.shape[0]
+        int K = z_dnk.shape[2]
+        int d,n,k
+    
+    with nogil:
+        for d in range(D):
+            for n in range(docLens[d]):
+                for k in range(K):
+                    entropy -= z_dnk[d,n,k] * log(z_dnk[d,n,k])
+
+    return entropy
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def jagged_entropy_f64 (double[:,:,:] z_dnk, int[:] docLens):
+    '''
+    Calculates the entropy of distribution over all topics for
+    all words for all documents. This is a jagged 3-dim array
+    stored as a matrix for convenience. Being jagged, we have to
+    do a manual loop instead of vectorizing (for the benefit of
+    counts the "non-existent" values are set to zero, but this
+    clearly doesn't work when logging elements
+    '''
+    cdef:
+        double entropy = 0.0
+        int D = z_dnk.shape[0]
+        int K = z_dnk.shape[2]
+        int d,n,k
+    
+    with nogil:
+        for d in range(D):
+            for n in range(docLens[d]):
+                for k in range(K):
+                    entropy -= z_dnk[d,n,k] * log(z_dnk[d,n,k])
+
+    return entropy
 
