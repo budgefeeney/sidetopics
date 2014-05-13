@@ -93,9 +93,17 @@ def run(args):
     #
     with open(args.words, 'rb') as f:
         W = pkl.load(f)
-        D,T = W.shape
         
-        order = np.linspace(0, D - 1, D)
+        docLens = np.squeeze(np.asarray(W.sum(axis=1)))
+        if docLens.min() < 0.5: # docLens should be integers, but in case it's floats which don't add up accurately use 0.5
+            print("Input doc-term matrix contains some empty rows. These have been removed.")
+            good_rows = (np.where(docLens > 0.5))[0]
+            D = len(good_rows)
+            order = good_rows
+        else:
+            D = W.shape[0]
+            order = np.linspace(0, D - 1, D)
+        
         rd.shuffle(order)
         
         W = W[order,:].astype(DTYPE)
