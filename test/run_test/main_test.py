@@ -8,7 +8,7 @@ import pickle as pkl
 import tempfile as tmp
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run
+from run.main import run, ModelNames, LdaCvbZero
 
 def tmpFiles():
     '''
@@ -40,33 +40,31 @@ class Test(unittest.TestCase):
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
-#        K, P = 10, 75
         modelFileses = []
-        for algorithm in ["stm_yv", "ctm"]:
-            for bound in ["bouchard", "bohning"]:
-                cmdline = '' \
-                        + ' --debug True' \
-                        + ' --model '          + algorithm + '_' + bound \
-                        + ' --num-topics '     + str(K)    \
-                        + ' --num-lat-topics ' + str(Q)    \
-                        + ' --num-lat-feats '  + str(P)    \
-                        + ' --eval '           + 'likely'  \
-                        + ' --out-model '      + modelFileDir \
-                        + ' --log-freq '       + '10'     \
-                        + ' --iters '          + '50'     \
-                        + ' --query-iters '    + '10'      \
-                        + ' --min-vb-change '  + '0.00001' \
-                        + ' --topic-var '      + '0.01'    \
-                        + ' --feat-var '       + '0.01'    \
-                        + ' --lat-topic-var '  + '0.1'       \
-                        + ' --lat-feat-var '   + '0.1'       \
-                        + ' --folds '          + '5'       \
-                        + ' --words '          + wordsFile \
-                        + ' --feats '          + featsFile 
-#                        + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
-#                        + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
+        for modelName in [ LdaCvbZero ]: #ModelNames:
+            cmdline = '' \
+                    + ' --debug True' \
+                    + ' --model '          + modelName \
+                    + ' --num-topics '     + str(K)    \
+                    + ' --num-lat-topics ' + str(Q)    \
+                    + ' --num-lat-feats '  + str(P)    \
+                    + ' --eval '           + 'likely'  \
+                    + ' --out-model '      + modelFileDir \
+                    + ' --log-freq '       + '10'     \
+                    + ' --iters '          + '50'     \
+                    + ' --query-iters '    + '10'      \
+                    + ' --min-vb-change '  + '0.00001' \
+                    + ' --topic-var '      + '0.01'    \
+                    + ' --feat-var '       + '0.01'    \
+                    + ' --lat-topic-var '  + '0.1'       \
+                    + ' --lat-feat-var '   + '0.1'       \
+                    + ' --folds '          + '5'       \
+                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
+                    + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
+#                    + ' --words '          + wordsFile \
+#                    + ' --feats '          + featsFile 
       
-                modelFileses.extend (run(cmdline.strip().split(' ')))
+            modelFileses.extend (run(cmdline.strip().split(' ')))
         
         modelFileses.insert(0, wordsFile)
         modelFileses.insert(1, featsFile)
