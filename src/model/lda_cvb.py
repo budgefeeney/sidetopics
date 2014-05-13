@@ -74,11 +74,11 @@ def newModelFromExisting(model):
     '''
     return ModelState(\
         model.K, \
-        model.topicPrior.copy(), \
-        model.vocabPrior.copy(), \
-        model.n_dk.copy(), \
-        model.n_kt.copy(), \
-        model.n_k.copy(),  \
+        model.topicPrior, \
+        model.vocabPrior, \
+        None if model.n_dk is None else model.n_dk.copy(), \
+        None if model.n_kt is None else model.n_kt.copy(), \
+        None if model.n_k  is None else model.n_k.copy(),  \
         model.dtype,       \
         model.name)
 
