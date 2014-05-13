@@ -294,19 +294,29 @@ class Test(unittest.TestCase):
         rd.seed(0xBADB055)
         path = "/Users/bryanfeeney/Desktop/NIPS"
         with open(path + "/ar.pkl", 'rb') as f:
-            X, W, feats_dict, d = pkl.load(f)
+            _, W, _, d = pkl.load(f)
+        
+        if len(d) == 1:
+            d = d[0]
         
         if W.dtype != DTYPE:
             W = W.astype(DTYPE)
-        D,T = W.shape
+            
+        docLens   = np.squeeze(np.asarray(W.sum(axis=1)))
+        good_rows = (np.where(docLens > 0.5))[0]
+        if len(good_rows) < W.shape[0]:
+            print ("Some rows in the doc-term matrix are empty. These have been removed.")
+        W = W[good_rows, :]
+        
+        # IDF frequency for when we print out the vocab later
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 10
+        K = 50
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=200, logFrequency=1, fastButInaccurate=False, debug=True)
+        trainPlan  = ctm.newTrainPlan(iterations=300, logFrequency=10, fastButInaccurate=False, debug=False)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
@@ -328,7 +338,6 @@ class Test(unittest.TestCase):
         
         plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
-        
     
         # Print out the most likely topic words
         topWordCount = 100

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 '''
 Created on 12 May 2014
 
@@ -30,11 +32,18 @@ class Test(unittest.TestCase):
         if W.dtype != dtype:
             W = W.astype(dtype)
         
+        docLens   = np.squeeze(np.asarray(W.sum(axis=1)))
+        good_rows = (np.where(docLens > 0.5))[0]
+        if len(good_rows) < W.shape[0]:
+            print ("Some rows in the doc-term matrix are empty. These have been removed.")
+        W = W[good_rows, :]
+        
+        # IDF frequency for when we print out the vocab later
         freq = np.squeeze(np.asarray(W.sum(axis=0)))
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 10
+        K = 50
         model      = lda.newModelAtRandom(W, K, dtype=dtype)
         queryState = lda.newQueryState(W, model)
         trainPlan  = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=True)
@@ -60,8 +69,7 @@ class Test(unittest.TestCase):
         vocab = lda.vocab(model)
         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
-        
-    
+            
         # Print out the most likely topic words
         topWordCount = 100
         kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
