@@ -34,7 +34,8 @@ cimport numpy as np
 
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free
-from libc.math cimport isnan, isinf, log
+from libc.math cimport log
+from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
 
 @cython.boundscheck(False)
@@ -546,20 +547,20 @@ cdef bint is_invalid_prob_f64 (double zdnk) nogil:
     Return true if the given probability is NaN, and INF, or not in the
     range -0.001..1.001 inclusive.
     '''
-    return isnan(zdnk) \
-        or isinf(zdnk) \
-        or zdnk < -0.001 \
-        or zdnk > 1.001
+    return not \
+        (is_real_number_f64(zdnk) \
+        and zdnk >= -0.1 \
+        and zdnk <= 1.1)
         
 cdef bint is_invalid_prob_f32 (float zdnk) nogil:
     '''
     Return true if the given probability is NaN, and INF, or not in the
     range -0.001..1.001 inclusive.
     '''
-    return isnan(zdnk) \
-        or isinf(zdnk) \
-        or zdnk < -0.1 \
-        or zdnk > 1.1
+    return not \
+        (is_real_number_f32(zdnk) \
+        and zdnk >= -0.1 \
+        and zdnk <= 1.1)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -614,3 +615,12 @@ def jagged_entropy_f64 (double[:,:,:] z_dnk, int[:] docLens):
 
     return entropy
 
+cdef bint is_real_number_f64 (double x)
+{
+  return  -DBL_MAX <= x && x <= +DBL_MAX;
+}
+
+cdef bint is_real_number_f32 (float x)
+{
+  return  -FLT_MAX <= x && x <= +FLT_MAX;
+}
