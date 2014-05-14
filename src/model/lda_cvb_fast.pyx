@@ -615,12 +615,9 @@ def jagged_entropy_f64 (double[:,:,:] z_dnk, int[:] docLens):
 
     return entropy
 
-cdef bint is_real_number_f64 (double x)
-{
-  return  -DBL_MAX <= x && x <= +DBL_MAX;
-}
+cdef bint is_real_number_f64 (double x):
+    return  -DBL_MAX <= x and x <= +DBL_MAX
 
-cdef bint is_real_number_f32 (float x)
-{
-  return  -FLT_MAX <= x && x <= +FLT_MAX;
-}
+cdef bint is_real_number_f32 (float x):
+    return  -FLT_MAX <= x and x <= +FLT_MAX
+
