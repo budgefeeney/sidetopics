@@ -369,7 +369,6 @@ def var_bound(W, modelState, queryState):
     reset afterwards to their initial values. So it's safe to call in a serial
     manner.
     '''
-
     # Unpack the the structs, for ease of access and efficiency
     D,T   = W.shape
     K     = modelState.K
@@ -386,23 +385,27 @@ def var_bound(W, modelState, queryState):
     
     # Expected value of the p(W,Z). Note everything else marginalized out, and
     # we're using a 0-th order Taylor expansion.
-    bound += D * (log (gamma(K * a)) - K * log (gamma(a)))
-    bound += K * (log (gamma(T * b)) - T * log (gamma(b)))
+    try:
+        bound += D * (fns.gammaln(K * a) - K * fns.gammaln(a))
+        bound += K * (fns.gammaln(T * b) - T * fns.gammaln(b))
     
-    bound -= np.sum (fns.gammaln(K * a + docLens))
-    bound += np.sum (fns.gammaln(a + n_dk))
+        bound -= np.sum (fns.gammaln(K * a + docLens))
+        bound += np.sum (fns.gammaln(a + n_dk))
     
-    bound -= np.sum (fns.gammaln(T * b + n_k))
-    bound += np.sum (fns.gammaln(b + n_kt))
+        bound -= np.sum (fns.gammaln(T * b + n_k))
+        bound += np.sum (fns.gammaln(b + n_kt))
     
-    # The entropy of z_dnk. Have to do this in a loop as z_dnk is
-    # is jagged in it's third dimension.
-    if modelState.dtype == np.float32:
-        bound -= compiled.jagged_entropy_f32 (z_dnk, docLens)
-    elif modelState.dtype == np.float64:
-        bound -= compiled.jagged_entropy_f64 (z_dnk, docLens)
-    else:
-        raise ValueError ("No implementation defined for dtype " + str(modelState.dtype))
+        # The entropy of z_dnk. Have to do this in a loop as z_dnk is
+        # is jagged in it's third dimension.
+        if modelState.dtype == np.float32:
+            bound -= compiled.jagged_entropy_f32 (z_dnk, docLens)
+        elif modelState.dtype == np.float64:
+            bound -= compiled.jagged_entropy_f64 (z_dnk, docLens)
+        else:
+            raise ValueError ("No implementation defined for dtype " + str(modelState.dtype))
+    except OverflowError:
+        print("Overflow error encountered, returning zero")
+        return 0
     
     return bound
 
