@@ -135,7 +135,7 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = np.full((K,), modelState.topicPrior)
+    prior = contantVector((K,), modelState.topicPrior)
     z_dnk = rd.dirichlet(prior, size=D * maxN) \
           .astype(modelState.dtype) \
           .reshape((D,maxN,K))
@@ -153,6 +153,11 @@ def newQueryState(W, modelState):
     
     return QueryState(W_list, docLens, n_dk, n_kt, n_k, z_dnk)
 
+def contantVector(shape, defaultValue):
+    # return np.full(shape, defaultValue)
+    result = np.ndarray(shape=shape)
+    result.fill(defaultValue)
+    return result
 
 def toWordList (w_csr):
     docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
