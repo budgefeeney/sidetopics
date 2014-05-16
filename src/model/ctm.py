@@ -33,6 +33,8 @@ from util.sparse_elementwise import sparseScalarQuotientOfDot, \
 
 DTYPE=np.float32 # A default, generally we should specify this in the model setup
 
+USE_NIW_PRIOR=False
+
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
@@ -187,13 +189,16 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Update the mean and covariance of the prior
 #        topicMean = means.mean(axis = 0)
-        topicMean = means.sum(axis=0) / (D + kappa)
+        topicMean = means.sum(axis=0) / (D + kappa) \
+                    if USE_NIW_PRIOR \
+                    else means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        sigT.flat[::K+1] += priorSigt_diag
-        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
+        if USE_NIW_PRIOR:
+            sigT.flat[::K+1] += priorSigt_diag
+            sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
         
         # Building blocks...
         # 1/4 Create the precision matrix from the covariance
@@ -205,7 +210,7 @@ def train (W, X, modelState, queryState, trainPlan):
             isigT = la.inv(sigT)
         
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        print ("         Det sigT = " + str(la.det(sigT)))
+#        print ("         Det sigT = " + str(la.det(sigT)))
         
         # 2/4 temporarily replace means with exp(means)
         expMeans = np.exp(means, out=means)

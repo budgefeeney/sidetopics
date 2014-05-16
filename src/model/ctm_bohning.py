@@ -38,6 +38,8 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
+USE_NIW_PRIOR=False
+
 DEBUG=False
 
 MODEL_NAME="ctm/bohning"
@@ -184,22 +186,27 @@ def train (W, X, modelState, queryState, trainPlan):
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
-        topicMean = means.sum(axis = 0) / (D + kappa)
+        topicMean = means.sum(axis = 0) / (D + kappa) \
+                  if USE_NIW_PRIOR \
+                  else means.mean(axis=0)
 #        topicMean = means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
         sigT.flat[::K+1] += varcs.mean(axis=0)
-        sigT += priorSigT
-        sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
+        if USE_NIW_PRIOR:
+            sigT += priorSigT
+            sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
+        
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
             isigT = np.diag(1./ diag)
         else:
             isigT = la.inv(sigT)
+        
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
-        print("                sigT.det = " + str(la.det(sigT)))
+#        print("                sigT.det = " + str(la.det(sigT)))
         
         # Building Blocks - temporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
