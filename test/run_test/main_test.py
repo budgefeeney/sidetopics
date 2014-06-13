@@ -59,8 +59,9 @@ class Test(unittest.TestCase):
                     + ' --lat-topic-var '  + '0.1'       \
                     + ' --lat-feat-var '   + '0.1'       \
                     + ' --folds '          + '5'       \
-                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
-                    + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
+                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
+#                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
+#                     + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
 #                    + ' --words '          + wordsFile \
 #                    + ' --feats '          + featsFile 
       
