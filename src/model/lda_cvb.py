@@ -12,26 +12,20 @@ Created on 17 Jan 2014
 import os # Configuration for PyxImport later on. Requires GCC
 os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
-from math import log, gamma
+from math import log
 from math import pi
 from math import e
 
-import time
 
 from collections import namedtuple
 import numpy as np
-import scipy.linalg as la
-import scipy.sparse as ssp
 import scipy.special as fns
 import numpy.random as rd
 import sys
 
 import model.lda_cvb_fast as compiled
 
-from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
-from util.sparse_elementwise import sparseScalarQuotientOfDot, \
-    sparseScalarProductOfSafeLnDot
+from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 
 # ==============================================================
 # CONSTANTS
