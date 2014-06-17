@@ -82,7 +82,7 @@ def iterate_f32(int iterations, int D, int K, int T, \
         totalItrs = 0
         for itr in range(iterations):
             oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
-            newVocabDist[:,:] = 0
+            newVocabDists[:,:] = 0.0
             
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
@@ -102,15 +102,10 @@ def iterate_f32(int iterations, int D, int K, int T, \
                             z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(gsl_sf_psi(topicDists[d,k]))
                             if is_invalid(z_dnk[n,k]):
                                 with gil:
-                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k]))
+                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %f, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], gsl_sf_psi(topicDists[d,k]), exp(gsl_sf_psi(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
                                 z_dnk[n,k] = 0
                                 
                             norm += z_dnk[n,k]
-
-                        if is_invalid(norm):
-                            with gil:
-                                print ("Invalid norm value at i=%d:%d, d=%d, n=%d = %f" % (itr, totalItrs, d, n, norm))
-                            norm = 1.0
                             
                         for k in range(K):
                             z_dnk[n,k] /= norm
@@ -217,6 +212,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
         totalItrs = 0
         for itr in range(iterations):
             oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
+            newVocabDists[:,:] = 0.0
             
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
@@ -236,7 +232,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                             z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(gsl_sf_psi(topicDists[d,k]))
                             if is_invalid(z_dnk[n,k]):
                                 with gil:
-                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k]))
+                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %f, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], gsl_sf_psi(topicDists[d,k]), exp(gsl_sf_psi(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
                                 z_dnk[n,k] = 0
                                 
                             norm += z_dnk[n,k]
