@@ -13,7 +13,7 @@ pyximport.install( \
     build_dir=dirname(dirname(realpath(__file__))) + '/lib', \
     setup_args={ \
         'include_dirs':       np.get_include(), \
-        'libraries':          [('m', dict()), ('gomp', dict())], \
+        'libraries':          [('m', dict()), ('gomp', dict()), ('gsl', dict())], \
         'extra_compile_args': '-fopenmp'
     }, \
     reload_support=True)

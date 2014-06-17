@@ -50,7 +50,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'W_list docLens topicPriorPost topicDists'\
+    'W_list docLens topicDists'\
 )
 
 ModelState = namedtuple ( \
@@ -99,8 +99,9 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
         topicPrior = 50.0 / K # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.01 # Also from G&S
-        
-    wordDists = np.empty((K,T), dtype=dtype)
+    
+    vocabPriorVec = constantVector((T,), vocabPrior)
+    wordDists = rd.dirichlet(vocabPriorVec, size=K)
     
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
 
@@ -126,13 +127,12 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = contantVector((K,), modelState.topicPrior)
+    prior = constantVector((K,), modelState.topicPrior)
     topicDists = rd.dirichlet(prior, size=D)
-    topicPosterior = modelState.topicPrior.copy()
 
-    return QueryState(W_list, docLens, topicPosterior, topicDists)
+    return QueryState(W_list, docLens, topicDists)
 
-def contantVector(shape, defaultValue):
+def constantVector(shape, defaultValue):
     # return np.full(shape, defaultValue)
     result = np.ndarray(shape=shape)
     result.fill(defaultValue)
@@ -182,10 +182,10 @@ def train (W, X, modelState, queryState, trainPlan):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug           
-    W_list, docLens, topicPosterior, topicDists = \
-        queryState.W_list, queryState.docLens, queryState.topicPosterior, queryState.topicDists
+    W_list, docLens, topicDists = \
+        queryState.W_list, queryState.docLens, queryState.topicDists
     K, topicPrior, vocabPrior, wordDists, dtype = \
-        modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.vocabDists, modelState.dtype
+        modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.wordDists, modelState.dtype
     
     D,T = W.shape
     
@@ -208,21 +208,24 @@ def train (W, X, modelState, queryState, trainPlan):
     # Select the training iterations function appropriate for the dtype
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
-                    else compiled.iterate_f32 # fixme...
+                    else compiled.iterate_f64
     
     # Iterate in segments, pausing to take measures of the bound / likelihood
     segIters  = logFrequency
     remainder = iterations - segIters * (logPoints - 1)
+    totalItrs = 0
     for segment in range(logPoints - 1):
-        do_iterations (segIters, D, K, T, \
+        totalItrs += do_iterations (segIters, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
     
         boundIters[bvIdx]   = segment * segIters
-        boundValues[bvIdx]  = 0
-        likelyValues[bvIdx] = 0
+        boundValues[bvIdx]  = var_bound(W, modelState, queryState)
+        likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
+        
+        print ("Segment %d Total Iterations %d" % (segment, totalItrs))
     
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \
@@ -231,40 +234,14 @@ def train (W, X, modelState, queryState, trainPlan):
                  z_dnk, topicDists, wordDists)
     
     boundIters[bvIdx]   = iterations - 1
-    boundValues[bvIdx]  = 0
-    likelyValues[bvIdx] = 0
+    boundValues[bvIdx]  = var_bound(W, modelState, queryState)
+    likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
    
             
     return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, topicDists), \
            (boundIters, boundValues, likelyValues)
-  
-  
-def var_bound_intermediate (W, model, query, n_kt, n_k):
-    model = ModelState(\
-        model.K, \
-        model.topicPrior, \
-        model.vocabPrior, \
-        model.n_dk, \
-        n_kt, \
-        n_k, \
-        model.dtype, \
-        model.name)
-    
-    return var_bound (W, model, query)
 
-def log_likely_intermediate (W, model, query, n_kt, n_k):
-    model = ModelState(\
-        model.K, \
-        model.topicPrior, \
-        model.vocabPrior, \
-        model.n_dk, \
-        n_kt, \
-        n_k, \
-        model.dtype, \
-        model.name)
-    
-    return log_likelihood (W, model, query)
 
 def query(W, X, modelState, queryState, queryPlan):
     '''
@@ -315,42 +292,13 @@ def var_bound(W, modelState, queryState):
     manner.
     '''
     # Unpack the the structs, for ease of access and efficiency
-    D,T   = W.shape
-    K     = modelState.K
-    n_kt  = modelState.n_kt
-    n_dk  = queryState.n_dk
-    n_k   = queryState.n_k
-    z_dnk = queryState.z_dnk
-    a     = modelState.topicPrior
-    b     = modelState.vocabPrior
-    
-    docLens = queryState.docLens
+
     
     bound = 0
     
     # Expected value of the p(W,Z). Note everything else marginalized out, and
     # we're using a 0-th order Taylor expansion.
-    try:
-        bound += D * (fns.gammaln(K * a) - K * fns.gammaln(a))
-        bound += K * (fns.gammaln(T * b) - T * fns.gammaln(b))
-    
-        bound -= np.sum (fns.gammaln(K * a + docLens))
-        bound += np.sum (fns.gammaln(a + n_dk))
-    
-        bound -= np.sum (fns.gammaln(T * b + n_k))
-        bound += np.sum (fns.gammaln(b + n_kt))
-    
-        # The entropy of z_dnk. Have to do this in a loop as z_dnk is
-        # is jagged in it's third dimension.
-        if modelState.dtype == np.float32:
-            bound -= compiled.jagged_entropy_f32 (z_dnk, docLens)
-        elif modelState.dtype == np.float64:
-            bound -= compiled.jagged_entropy_f64 (z_dnk, docLens)
-        else:
-            raise ValueError ("No implementation defined for dtype " + str(modelState.dtype))
-    except OverflowError:
-        print("Overflow error encountered, returning zero")
-        return 0
+   
     
     return bound
 
@@ -359,7 +307,7 @@ def vocab(modelState):
     Return the vocabulary inferred by this model as a KxT matrix of T
     terms for each of the K topics
     '''
-    return modelState.vocabDists
+    return modelState.wordDists
 
 
 
