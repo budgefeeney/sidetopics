@@ -231,13 +231,15 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double[:,:] newVocabDists = vocabDists
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
         double      max
-        double      norm    = 0.0
+        double      norm = 0.0
+        double[:]   vocabNorm
         double      epsilon = 0.01 / K
         
     with nogil:
         totalItrs = 0
         for itr in range(iterations):
             oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
+            vocabNorm[:]       = vocabPrior * T
             newVocabDists[:,:] = vocabPrior
             
             for d in range(D):
@@ -256,16 +258,19 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     for n in range(docLens[d]):
                         norm = 0.0
                         max  = 1E-311
+                        
+                        # Work in log-space to avoid underflow
                         for k in range(K):
                             z_dnk[n,k] = log(oldVocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
                             if z_dnk[n,k] > max:
                                 max = z_dnk[n,k]
 
-                        # Scale up so inference is tractable
+                        # Scale before converting to standard space so inference is feasible
                         for k in range(K):
                             z_dnk[n,k] = exp(z_dnk[n,k] - max)
                             norm += z_dnk[n,k]
                             
+                        # Normalize the token probability
                         for k in range(K):
                             z_dnk[n,k] /= norm
                             if is_invalid(z_dnk[n,k]):
@@ -273,7 +278,9 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                     print ("Iteration %d:%d z_dnk[%d,%d] = %f, norm = %g" \
                                            % (itr, totalItrs, n, k, z_dnk[n,k], norm))
 
-                    topicDists[:,:] = topicPrior
+                    # Use all the individual word topic assignments to determine
+                    # the topic mixture exhibited by this document
+                    topicDists[d,:] = topicPrior
                     for n in range(docLens[d]):
                         norm = 0.0
                         for k in range(K):
@@ -284,25 +291,24 @@ def iterate_f64(int iterations, int D, int K, int T, \
                             topicDists[d,k] /= norm
                             
                 
-                # Once converged, update the vocabulary distribution
+                # Once we've found document d's topic distribution, we
+                # use that to build the new vocabulary distribution
                 for k in range(K):
-                    norm = 0.0
+                    norm = vocabPrior * T
                     for n in range(docLens[d]):
                         t = W_list[d,n]
-                        if is_invalid(z_dnk[n,k]):
-                            with gil:
-                                print ("Before updating newVocabDist[%d,%d], z_dnk[%d,%d] = %f" \
-                                      % (k, t, n, k, z_dnk[n,k]))
-                        
                         newVocabDists[k,t] += z_dnk[n,k]
-                        norm += z_dnk[n,k]
+                        vocabNorm[k] += z_dnk[n,k]
+                        
                         if is_invalid(newVocabDists[k,t]):
                             with gil:
                                 print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
                             
-                    for t in range(T):
-                        newVocabDists[k,t] /= norm
+            # With all document processes, normalize the vocabulary
+            for k in range(K):
+                for t in range(T):
+                    newVocabDists[k,t] /= vocabNorm[k]
                 
         # Just before we return, make sure the vocabDists memoryview that
         # was passed in has the latest vocabulary distributions
