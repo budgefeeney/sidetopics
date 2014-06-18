@@ -295,11 +295,11 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                       % (k, t, n, k, z_dnk[n,k]))
                         
                         newVocabDists[k,t] += z_dnk[n,k]
+                        norm += z_dnk[n,k]
                         if is_invalid(newVocabDists[k,t]):
                             with gil:
                                 print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
-                        norm += newVocabDists[k,t]
                             
                     for t in range(T):
                         newVocabDists[k,t] /= norm
