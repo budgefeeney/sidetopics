@@ -88,3 +88,6 @@ src/util/sig_fast.c
 src/model/lda_cvb_fast.c
 
 *.c
+/.settings/
+
+**/__pycache__
