@@ -18,7 +18,6 @@ from math import e
 
 from collections import namedtuple
 import numpy as np
-import scipy.special as fns
 import numpy.random as rd
 import sys
 
@@ -102,6 +101,10 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     
     vocabPriorVec = constantVector((T,), vocabPrior)
     wordDists = rd.dirichlet(vocabPriorVec, size=K)
+    
+    # Peturb to avoid zero probabilities
+    wordDists += 1./T
+    wordDists /= (wordDists.sum(axis=1))[:,np.newaxis]
     
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
 

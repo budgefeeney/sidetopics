@@ -32,8 +32,33 @@ from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 
 cdef int MaxInnerItrs = 10
 
+cdef extern from "gsl/gsl_sf_result.h":
+    ctypedef struct gsl_sf_result:
+        double val
+        double err
 cdef extern from "gsl/gsl_sf_psi.h":
     double gsl_sf_psi(double x) nogil
+    int    gsl_sf_psi_e(double x, gsl_sf_result *result) nogil
+    
+cdef double digamma (double value) nogil:
+    if value < 1E-300:
+        value = 1E-300
+    return gsl_sf_psi (value)
+
+#    cdef:
+#        gsl_sf_result result
+#    
+#    result.val = 0.0
+#    result.err = 0.0
+#    
+#    with gil:
+#        print ("Taking digamma of %g" % (value))
+#    if gsl_sf_psi_e (value, &result) != 0:
+#        with gil:
+#            print ("Invalid input value for digamma %g" % (value,))
+#        return 1E-100
+#    return result.val
+  
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -99,10 +124,10 @@ def iterate_f32(int iterations, int D, int K, int T, \
                     for n in range(docLens[d]):
                         norm = 0.0
                         for k in range(K):
-                            z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(gsl_sf_psi(topicDists[d,k]))
+                            z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(digamma(topicDists[d,k]))
                             if is_invalid(z_dnk[n,k]):
                                 with gil:
-                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %f, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], gsl_sf_psi(topicDists[d,k]), exp(gsl_sf_psi(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
+                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %f, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], digamma(topicDists[d,k]), exp(digamma(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
                                 z_dnk[n,k] = 0
                                 
                             norm += z_dnk[n,k]
@@ -160,8 +185,8 @@ cdef float l1_dist_f32 (float[:] left, float[:] right) nogil:
 cdef bint is_invalid (double zdnk) nogil:
     return isnan(zdnk) \
         or isinf(zdnk) \
-        or zdnk < -0.001 \
-        or zdnk > 1.001
+        or zdnk < -0.001
+#        or zdnk > 1.001
 
 
 
@@ -202,9 +227,9 @@ def iterate_f64(int iterations, int D, int K, int T, \
     
     cdef:
         int         itr, innerItrs, totalItrs, d, n, k, t
-        double[:]   oldMems       = np.ndarray(shape=(K,),  dtype=np.float64)
         double[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:,:] newVocabDists = vocabDists
+        double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
         double      norm    = 0.0
         double      epsilon = 0.01 / K
         
@@ -212,43 +237,51 @@ def iterate_f64(int iterations, int D, int K, int T, \
         totalItrs = 0
         for itr in range(iterations):
             oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
-            newVocabDists[:,:] = 0.0
+            newVocabDists[:,:] = vocabPrior
             
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
                 # convergence. This means we don't have to store the per-token
                 # topic probabilties z_dnk for all documents, which is a huge structure
-                oldMems[:]      = topicDists[d,:]
                 topicDists[d,:] = 1./K
-
                 innerItrs = 0
-                while (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon) and (innerItrs < MaxInnerItrs):
+                
+                while ((innerItrs < 5) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
+                and (innerItrs < MaxInnerItrs):
+                    oldMems = topicDists[d,:]
                     totalItrs += 1
                     innerItrs += 1
                     
                     for n in range(docLens[d]):
                         norm = 0.0
                         for k in range(K):
-                            z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(gsl_sf_psi(topicDists[d,k]))
+                            z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(digamma(topicDists[d,k]))
                             if is_invalid(z_dnk[n,k]):
                                 with gil:
-                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %f. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %f, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], gsl_sf_psi(topicDists[d,k]), exp(gsl_sf_psi(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
-                                z_dnk[n,k] = 0
+                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %g. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %g, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" \
+                                      % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], digamma(topicDists[d,k]), exp(digamma(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
+                                z_dnk[n,k] = 1E-100
                                 
                             norm += z_dnk[n,k]
 
-                        if is_invalid(norm):
+                        if is_invalid(norm) or norm < 1E-100:
                             with gil:
-                                print ("Invalid norm value at i=%d:%d, d=%d, n=%d = %f" % (itr, totalItrs, d, n, norm))
+                                print ("Invalid norm value at i=%d:%d, d=%d, n=%d norm = %g" 
+                                      % (itr, totalItrs, d, n, norm))
                             norm = 1.0
                             
                         for k in range(K):
                             z_dnk[n,k] /= norm
+                            if is_invalid(z_dnk[n,k]):
+                                with gil:
+                                    print ("Iteration %d:%d z_dnk[%d,%d] = %f, norm = %g" \
+                                           % (itr, totalItrs, n, k, z_dnk[n,k], norm))
 
+                    topicDists[:,:] = topicPrior
                     for n in range(docLens[d]):
                         norm = 0.0
                         for k in range(K):
-                            topicDists[d,k] = topicPrior + z_dnk[n,k]
+                            topicDists[d,k] += z_dnk[n,k]
                             norm += topicDists[d,k]
                             
                         for k in range(K):
@@ -260,7 +293,16 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     norm = 0.0
                     for n in range(docLens[d]):
                         t = W_list[d,n]
+                        if is_invalid(z_dnk[n,k]):
+                            with gil:
+                                print ("Before updating newVocabDist[%d,%d], z_dnk[%d,%d] = %f" \
+                                      % (k, t, n, k, z_dnk[n,k]))
+                        
                         newVocabDists[k,t] += z_dnk[n,k]
+                        if is_invalid(newVocabDists[k,t]):
+                            with gil:
+                                print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
+                                      % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
                         norm += newVocabDists[k,t]
                             
                     for t in range(T):
