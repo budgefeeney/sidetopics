@@ -245,7 +245,8 @@ def iterate_f64(int iterations, int D, int K, int T, \
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
                 # convergence. This means we don't have to store the per-token
-                # topic probabilties z_dnk for all documents, which is a huge structure
+                # topic probabilties z_dnk for all documents, which is a huge saving
+                oldMems[:]      = topicDists[d,:]
                 topicDists[d,:] = 1./K
                 innerItrs = 0
                 
@@ -255,6 +256,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     totalItrs += 1
                     innerItrs += 1
                     
+                    # Determine the topic assignment for each individual token...
                     for n in range(docLens[d]):
                         norm = 0.0
                         max  = 1E-311
@@ -270,7 +272,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                             z_dnk[n,k] = exp(z_dnk[n,k] - max)
                             norm += z_dnk[n,k]
                             
-                        # Normalize the token probability
+                        # Normalize the token probability, and check it's valid
                         for k in range(K):
                             z_dnk[n,k] /= norm
                             if is_invalid(z_dnk[n,k]):
@@ -281,20 +283,19 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     # Use all the individual word topic assignments to determine
                     # the topic mixture exhibited by this document
                     topicDists[d,:] = topicPrior
+                    norm = topicPrior * K
                     for n in range(docLens[d]):
-                        norm = 0.0
                         for k in range(K):
                             topicDists[d,k] += z_dnk[n,k]
-                            norm += topicDists[d,k]
+                            norm += z_dnk[n,k]
                             
-                        for k in range(K):
-                            topicDists[d,k] /= norm
+                    for k in range(K):
+                        topicDists[d,k] /= norm
                             
                 
                 # Once we've found document d's topic distribution, we
                 # use that to build the new vocabulary distribution
                 for k in range(K):
-                    norm = vocabPrior * T
                     for n in range(docLens[d]):
                         t = W_list[d,n]
                         newVocabDists[k,t] += z_dnk[n,k]
@@ -305,7 +306,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                 print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
                             
-            # With all document processes, normalize the vocabulary
+            # With all document processed, normalize the vocabulary
             for k in range(K):
                 for t in range(T):
                     newVocabDists[k,t] /= vocabNorm[k]
