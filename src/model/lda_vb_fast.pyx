@@ -230,6 +230,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:,:] newVocabDists = vocabDists
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
+        double      max
         double      norm    = 0.0
         double      epsilon = 0.01 / K
         
@@ -248,27 +249,22 @@ def iterate_f64(int iterations, int D, int K, int T, \
                 
                 while ((innerItrs < 5) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
                 and (innerItrs < MaxInnerItrs):
-                    oldMems = topicDists[d,:]
+                    oldMems[:] = topicDists[d,:]
                     totalItrs += 1
                     innerItrs += 1
                     
                     for n in range(docLens[d]):
                         norm = 0.0
+                        max  = 1E-311
                         for k in range(K):
-                            z_dnk[n,k] = oldVocabDists[k,W_list[d,n]] * exp(digamma(topicDists[d,k]))
-                            if is_invalid(z_dnk[n,k]):
-                                with gil:
-                                    print ("Invalid probability value: i=%d:%d z[%d,%d,%d] = %g. exp(Psi(topicDists[%d,%d])) = exp(Psi(%f)) = exp(%f) = %g, oldVocabDists[k,W_list[d,n]] = oldVocabDists[%d,%d] = %f" \
-                                      % (itr, totalItrs, d, n, k, z_dnk[n,k], d, k, topicDists[d,k], digamma(topicDists[d,k]), exp(digamma(topicDists[d,k])), k, W_list[d,n], oldVocabDists[k,W_list[d,n]]))
-                                z_dnk[n,k] = 1E-100
-                                
-                            norm += z_dnk[n,k]
+                            z_dnk[n,k] = log(oldVocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
+                            if z_dnk[n,k] > max:
+                                max = z_dnk[n,k]
 
-                        if is_invalid(norm) or norm < 1E-100:
-                            with gil:
-                                print ("Invalid norm value at i=%d:%d, d=%d, n=%d norm = %g" 
-                                      % (itr, totalItrs, d, n, norm))
-                            norm = 1.0
+                        # Scale up so inference is tractable
+                        for k in range(K):
+                            z_dnk[n,k] = exp(z_dnk[n,k] - max)
+                            norm += z_dnk[n,k]
                             
                         for k in range(K):
                             z_dnk[n,k] /= norm
