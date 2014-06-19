@@ -30,7 +30,8 @@ from libc.math cimport log, exp, sqrt, fabs, isnan, isinf
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
 
-cdef int MaxInnerItrs = 10
+cdef int MaxInnerItrs = 40
+cdef int MinInnerIters = 3
 
 cdef extern from "gsl/gsl_sf_result.h":
     ctypedef struct gsl_sf_result:
@@ -101,7 +102,7 @@ def iterate_f32(int iterations, int D, int K, int T, \
         float[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float32)
         float[:,:] newVocabDists = vocabDists
         float      norm    = 0.0
-        float      epsilon = 0.01 / K
+        float      epsilon = 0.01
         
     with nogil:
         totalItrs = 0
@@ -226,22 +227,25 @@ def iterate_f64(int iterations, int D, int K, int T, \
     '''
     
     cdef:
-        int         itr, innerItrs, totalItrs, d, n, k, t
+        int         d, n, k, t
+        int         itr, innerItrs, totalItrs
         double[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:,:] newVocabDists = vocabDists
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
-        double      max
+        double      max  = 1E-311
         double      norm = 0.0
-        double[:]   vocabNorm
+        double[:]   vocabNorm = np.ndarray(shape=(K,), dtype=np.float64)
         double      epsilon = 0.01 / K
         
-    with nogil:
-        totalItrs = 0
-        for itr in range(iterations):
-            oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
-            vocabNorm[:]       = vocabPrior * T
-            newVocabDists[:,:] = vocabPrior
-            
+    totalItrs = 0
+    for itr in range(iterations):
+        oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
+        
+        vocabNorm[:]       = vocabPrior * T
+        newVocabDists[:,:] = vocabPrior
+        
+        with nogil:
+        
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
                 # convergence. This means we don't have to store the per-token
@@ -250,7 +254,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                 topicDists[d,:] = 1./K
                 innerItrs = 0
                 
-                while ((innerItrs < 5) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
+                while ((innerItrs < MinInnerIters) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
                 and (innerItrs < MaxInnerItrs):
                     oldMems[:] = topicDists[d,:]
                     totalItrs += 1
@@ -271,7 +275,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                         for k in range(K):
                             z_dnk[n,k] = exp(z_dnk[n,k] - max)
                             norm += z_dnk[n,k]
-                            
+                     
                         # Normalize the token probability, and check it's valid
                         for k in range(K):
                             z_dnk[n,k] /= norm
@@ -290,8 +294,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                             norm += z_dnk[n,k]
                             
                     for k in range(K):
-                        topicDists[d,k] /= norm
-                            
+                        topicDists[d,k] /= norm        
                 
                 # Once we've found document d's topic distribution, we
                 # use that to build the new vocabulary distribution
@@ -307,7 +310,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                       % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
                             
             # With all document processed, normalize the vocabulary
-            for k in range(K):
+            for k in prange(K):
                 for t in range(T):
                     newVocabDists[k,t] /= vocabNorm[k]
                 
@@ -316,6 +319,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
         if iterations % 2 == 0:
             vocabDists[:,:] = newVocabDists
             
+    print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     return totalItrs                        
 
 @cython.boundscheck(False)

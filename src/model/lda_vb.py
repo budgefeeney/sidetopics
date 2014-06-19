@@ -206,7 +206,7 @@ def train (W, X, modelState, queryState, trainPlan):
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
     # we only store a 1xNxT = NxT part. 
-    z_dnk = np.empty((docLens.max(), K), dtype=dtype)
+    z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='C')
  
     # Select the training iterations function appropriate for the dtype
     do_iterations = compiled.iterate_f32 \
