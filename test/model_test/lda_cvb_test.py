@@ -43,7 +43,7 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 50
+        K = 10
         model      = lda.newModelAtRandom(W, K, dtype=dtype)
         queryState = lda.newQueryState(W, model)
         trainPlan  = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=True)
