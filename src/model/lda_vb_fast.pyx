@@ -246,6 +246,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
         
         with nogil:
         
+            # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
             for d in range(D):
                 # For each document reset the topic probabilities and iterate to
                 # convergence. This means we don't have to store the per-token
@@ -321,6 +322,8 @@ def iterate_f64(int iterations, int D, int K, int T, \
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     return totalItrs                        
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

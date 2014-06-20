@@ -19,6 +19,7 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import numpy.random as rd
+import scipy.special as fns
 import sys
 
 import model.lda_cvb_fast as lda_cvb
@@ -288,19 +289,70 @@ def log_likelihood (W, modelState, queryState):
     return sparseScalarProductOfSafeLnDot(W, queryState.topicDists, modelState.wordDists).sum()
     
 
-def var_bound(W, modelState, queryState):
+def var_bound(W, modelState, queryState, z_dnk = None):
     '''
-    Determines the variational bounds. Values are mutated in place, but are
-    reset afterwards to their initial values. So it's safe to call in a serial
-    manner.
+    Determines the variational bounds.
+    
+    We don't bother including terms that depend on the priors, on the basis
+    that we're not optimising them. Hence the entropies of the distributions
+    over topics and vocabularies do not appear
     '''
     # Unpack the the structs, for ease of access and efficiency
-
+    W_list, docLens, topicDists = \
+        queryState.W_list, queryState.docLens, queryState.topicDists
+    K, topicPrior, vocabPrior, wordDists, dtype = \
+        modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.wordDists, modelState.dtype
     
+    D,T = W.shape
+    maxN = docLens.max()
+    if z_dnk == None:
+        z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
+        
+    diWordDists = fns.digamma(wordDists.copy()) - fns.digamma(wordDists.sum(axis=1))[:,np.newaxis]
+    lnWordDists = np.log(wordDists, out=wordDists)
+   
     bound = 0
     
-    # Expected value of the p(W,Z). Note everything else marginalized out, and
-    # we're using a 0-th order Taylor expansion.
+    # Expected Probablity
+    #
+    
+    # P(topics|topicPrior)
+    ln_b_topic = fns.gammaln(K * topicPrior) - K * fns.gammaln(topicPrior)
+    bound += D * ln_b_topic \
+           + (fns.gamma(topicPrior) - fns.gamma(K * topicPrior)) * np.sum(topicDists)
+    
+    # and its entropy is skipped as it's dependent on the constant topicPrior only
+    
+    # P(z|topic) is tricky as we don't actually store this. However
+    # we make a single, simple estimate for this case.
+    # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
+    for d in range(D):
+        lnWordProbs = lnWordDists[:,W_list[d,0:docLens[d]]]
+        diTopic     = fns.digamma(topicDists[d,:])
+        z_dnk[0:docLens[d],:] = lnWordProbs.T + diTopic[np.newaxis,:]
+        
+        # We've been working in log-space till now, before we go to true
+        # probability space rescale so we don't underflow everywhere
+        maxes  = z_dnk.max(axis=1)
+        z_dnk -= maxes[:,np.newaxis]
+        np.exp(z_dnk, out=z_dnk)
+        
+        # Now normalize so probabilities sum to one
+        sums   = z_dnk.sum(axis=1)
+        z_dnk /= sums[:,np.newaxis]
+#        z_dnk[docLens[d]:maxN,:] = 0 # zero probablities for words that don't exist
+        
+        # Now use to calculate  E[ln p(Z|topics), E[ln p(W|Z) and H[Z] in that order
+        diTopic -= fns.digamma(np.sum(topicDists[d,:]))
+        bound += np.sum(z_dnk * diTopic[np.newaxis,:])
+        bound += np.sum(z_dnk[0:docLens[d],:].T * diWordDists[:,W_list[d,0:docLens[d]]])
+        bound -= np.sum(z_dnk[0:docLens[d],:] * np.log(z_dnk[0:docLens[d],:]))
+        
+    # p(vocabDists|vocabPrior)
+    wordDists = np.exp(lnWordDists, out=lnWordDists)
+    ln_b_vocab = fns.gammaln(T * vocabPrior) - T * fns.gammaln(vocabPrior)
+    bound += K * ln_b_vocab \
+           + (fns.gamma(vocabPrior) - fns.gamma(T * vocabPrior)) * np.sum(wordDists)
    
     
     return bound
