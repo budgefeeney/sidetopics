@@ -26,6 +26,7 @@ import model.lda_cvb_fast as lda_cvb
 import model.lda_vb_fast as compiled
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+from util.overflow_safe import safe_log
 
 # ==============================================================
 # CONSTANTS
@@ -154,11 +155,15 @@ def toWordList (w_csr):
     else:
         raise ValueError("No implementation defined for dtype = " + str(w_csr.dtype))
 
-def newTrainPlan(iterations=100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
+    
+    epsilon is oddly measured, we just evaluate the angle of the line segment between
+    the last value of the bound and the current, and if it's less than the given angle,
+    then stop.
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
@@ -229,6 +234,12 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
+        if converged (boundIters, boundValues, bvIdx, epsilon):
+            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+            return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
+                QueryState(W_list, docLens, topicDists), \
+                (boundIters, boundValues, likelyValues)
+        
         print ("Segment %d Total Iterations %d" % (segment, totalItrs))
     
     # Final batch of iterations.
@@ -245,6 +256,47 @@ def train (W, X, modelState, queryState, trainPlan):
     return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, topicDists), \
            (boundIters, boundValues, likelyValues)
+
+
+def converged (boundIters, boundValues, bvIdx, epsilon):
+    '''
+    Returns true if we've converged. To measure convergence we consider the angle between
+    the last two bound measurements, and a horizontal plane, and if this angle measured
+    in degrees is less than epsilon, then we've converged
+    
+    Params:
+    boundIters  - the iterations at which the bound was measured each time.
+    boundValues - the list of bound value measurements, as a numpy array
+    bvIdx       - points to the position in which the *next* bound value will be stored
+    epsilon     - the minimum angle, in degrees, that the bound vales must attain
+    
+    Return:
+    True if converged, false otherwise
+    '''
+    if bvIdx < 2:
+        return False
+    
+    opposite = boundValues[bvIdx - 1] - boundValues[bvIdx - 2]
+    adjacent = boundIters[bvIdx - 1] - boundIters[bvIdx - 2]
+    angle = np.degrees (np.arctan(opposite / adjacent))
+    
+    print ("Angle of convergence is %f" % (angle))
+    
+    return angle < epsilon
+    
+
+def clamp (array1, array2, array3, length):
+    '''
+    Clamp the arrays to the given length
+    '''
+    inputs = [array1, array2, array3]
+    outputs = []
+    for inArr in inputs:
+        outArr = np.empty(shape=(length,), dtype=inArr.dtype)
+        outArr[:] = inArr[:length]
+        outputs.append (outArr)
+    
+    return outputs[0], outputs[1], outputs[2]
 
 
 def query(W, X, modelState, queryState, queryPlan):
@@ -347,7 +399,7 @@ def var_bound(W, modelState, queryState, z_dnk = None):
         diTopic -= fns.digamma(np.sum(topicDists[d,:]))
         bound += np.sum(z_dnk * diTopic[np.newaxis,:])
         bound += np.sum(z_dnk[0:docLens[d],:].T * diWordDists[:,W_list[d,0:docLens[d]]])
-        bound -= np.sum(z_dnk[0:docLens[d],:] * np.log(z_dnk[0:docLens[d],:]))
+        bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
         
     # p(vocabDists|vocabPrior)
     wordDists = np.exp(lnWordDists, out=lnWordDists)
