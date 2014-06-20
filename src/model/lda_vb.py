@@ -292,10 +292,6 @@ def log_likelihood (W, modelState, queryState):
 def var_bound(W, modelState, queryState, z_dnk = None):
     '''
     Determines the variational bounds.
-    
-    We don't bother including terms that depend on the priors, on the basis
-    that we're not optimising them. Hence the entropies of the distributions
-    over topics and vocabularies do not appear
     '''
     # Unpack the the structs, for ease of access and efficiency
     W_list, docLens, topicDists = \
@@ -317,11 +313,16 @@ def var_bound(W, modelState, queryState, z_dnk = None):
     #
     
     # P(topics|topicPrior)
+    diTopicDists = fns.digamma(topicDists) - fns.digamma(topicDists.sum(axis=1))[:,np.newaxis]
     ln_b_topic = fns.gammaln(K * topicPrior) - K * fns.gammaln(topicPrior)
     bound += D * ln_b_topic \
-           + (fns.gamma(topicPrior) - fns.gamma(K * topicPrior)) * np.sum(topicDists)
+           + (topicPrior - 1) * np.sum(diTopicDists)
     
-    # and its entropy is skipped as it's dependent on the constant topicPrior only
+    # and its entropy
+    ent = fns.gammaln(topicDists.sum(axis=1)).sum() - fns.gammaln(topicDists).sum() \
+        + np.sum ((topicDists - 1) * diTopicDists)
+    
+    bound -= ent
     
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
@@ -350,10 +351,16 @@ def var_bound(W, modelState, queryState, z_dnk = None):
         
     # p(vocabDists|vocabPrior)
     wordDists = np.exp(lnWordDists, out=lnWordDists)
+    
     ln_b_vocab = fns.gammaln(T * vocabPrior) - T * fns.gammaln(vocabPrior)
     bound += K * ln_b_vocab \
-           + (fns.gamma(vocabPrior) - fns.gamma(T * vocabPrior)) * np.sum(wordDists)
-   
+           + (vocabPrior - 1) * np.sum(diWordDists)
+    
+    # and its entropy
+    ent = fns.gammaln(wordDists.sum(axis=1)).sum() - fns.gammaln(wordDists).sum() \
+        + np.sum ((wordDists - 1) * diWordDists)
+    
+    bound -= ent   
     
     return bound
 
