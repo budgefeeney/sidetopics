@@ -222,6 +222,7 @@ def train (W, X, modelState, queryState, trainPlan):
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
+#    do_iterations = iterate # pure Python
     
     # Iterate in segments, pausing to take measures of the bound / likelihood
     segIters  = logFrequency
@@ -229,7 +230,7 @@ def train (W, X, modelState, queryState, trainPlan):
     totalItrs = 0
     for segment in range(logPoints - 1):
         start = current_micro_time()
-        totalItrs += iterate (segIters, D, K, T, \
+        totalItrs += do_iterations (segIters, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
@@ -250,7 +251,7 @@ def train (W, X, modelState, queryState, trainPlan):
         print ("Segment %d Total Iterations %d Duration %d" % (segment, totalItrs, duration))
     
     # Final batch of iterations.
-    iterate (remainder, D, K, T, \
+    do_iterations (remainder, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
