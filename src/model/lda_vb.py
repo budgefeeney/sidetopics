@@ -21,12 +21,15 @@ import numpy as np
 import numpy.random as rd
 import scipy.special as fns
 import sys
+import time
 
 import model.lda_cvb_fast as lda_cvb
 import model.lda_vb_fast as compiled
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
+
+from numba import jit
 
 # ==============================================================
 # CONSTANTS
@@ -122,7 +125,7 @@ def newQueryState(W, modelState):
         querying.
     modelState - the model state object
     
-    REturn:
+    Return:
     A CtmQueryState object
     '''
     K =  modelState.K
@@ -212,9 +215,10 @@ def train (W, X, modelState, queryState, trainPlan):
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
     # we only store a 1xNxT = NxT part. 
-    z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='C')
+    z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
  
     # Select the training iterations function appropriate for the dtype
+    current_micro_time = lambda: int(time.time())
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
@@ -224,10 +228,13 @@ def train (W, X, modelState, queryState, trainPlan):
     remainder = iterations - segIters * (logPoints - 1)
     totalItrs = 0
     for segment in range(logPoints - 1):
-        totalItrs += do_iterations (segIters, D, K, T, \
+        start = current_micro_time()
+        totalItrs += iterate (segIters, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
+        
+        duration = current_micro_time() - start
     
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound(W, modelState, queryState)
@@ -240,10 +247,10 @@ def train (W, X, modelState, queryState, trainPlan):
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
         
-        print ("Segment %d Total Iterations %d" % (segment, totalItrs))
+        print ("Segment %d Total Iterations %d Duration %d" % (segment, totalItrs, duration))
     
     # Final batch of iterations.
-    do_iterations (remainder, D, K, T, \
+    iterate (remainder, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
@@ -257,6 +264,59 @@ def train (W, X, modelState, queryState, trainPlan):
            QueryState(W_list, docLens, topicDists), \
            (boundIters, boundValues, likelyValues)
 
+MaxInnerItrs = 20
+MinInnerItrs = 3
+@jit
+def iterate (iterations, D, K, T, \
+             W_list, docLens, \
+             topicPrior, vocabPrior, \
+             z_dnk, topicDists, wordDists):
+    
+    totalItrs = 0
+    epsilon = 0.01 / K
+    oldWordDists = np.empty(wordDists.shape, wordDists.dtype)
+    newWordDists = wordDists
+    
+    
+    for _ in range(iterations):
+        oldWordDists, newWordDists = newWordDists, oldWordDists
+        lnWordDists = safe_log(oldWordDists, out=oldWordDists)
+        newWordDists.fill (vocabPrior)
+        
+        for d in range(D):
+            oldTopics = topicDists[d,:].copy()
+            topicDists[d,:]= 1./ K
+            lnWordProbs = lnWordDists[:,W_list[d,0:docLens[d]]]
+            
+            innerItrs = 0
+            while ((innerItrs < MaxInnerItrs) or (np.sum(np.abs(oldTopics - topicDists[d,:])) > epsilon)) \
+            and (innerItrs < MaxInnerItrs):
+                diTopic     = fns.digamma(topicDists[d,:])
+                z_dnk[:docLens[d],:] = lnWordProbs.T + diTopic[np.newaxis,:]
+                
+                # We've been working in log-space till now, before we go to true
+                # probability space rescale so we don't underflow everywhere
+                maxes  = z_dnk.max(axis=1)
+                z_dnk -= maxes[:,np.newaxis]
+                np.exp(z_dnk, out=z_dnk)
+                
+                # Now normalize so probabilities sum to one
+                sums   = z_dnk.sum(axis=1)
+                z_dnk /= sums[:,np.newaxis]            # Update vocabulary: hard to do with a list representation
+
+
+                # Now use it to infer the topic distribution
+                topicDists[d,:] = np.mean(z_dnk[:docLens[d],:], axis=0)
+                
+                innerItrs += 1
+            
+            totalItrs += innerItrs
+            for k in range(K):
+                for n in range(docLens[d]):
+                    newWordDists[k,W_list[d,n]] += z_dnk[n,k]
+            newWordDists /= newWordDists.sum(axis=1)[:,np.newaxis]
+        
+    return totalItrs
 
 def converged (boundIters, boundValues, bvIdx, epsilon):
     '''
