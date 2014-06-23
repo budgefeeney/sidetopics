@@ -258,7 +258,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double      z # These four for the hyperprior update
         double[:]   q = np.ndarray(shape=(K,), dtype=np.float64)
         double[:]   g = np.ndarray(shape=(K,), dtype=np.float64)
-        double[:]   b = np.ndarray(shape=(K,), dtype=np.float64)
+        double      b
         double      topicPriorSum
         
     totalItrs = 0
@@ -343,15 +343,16 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built in numpy is likely faster
-        z = -D * fns.polygamma(1, topicPriorSum)
-        q = +D * fns.polygamma(1, topicPrior)
+        z = D * fns.polygamma(1, topicPriorSum)
+        q = -D * fns.polygamma(1, topicPrior)
         
         g = fns.psi(topicPrior) * -D 
         g += D * fns.psi(topicPriorSum)
         g += np.sum(fns.psi(topicDists), axis=0)
         g -= np.sum (fns.psi(np.sum(topicDists, axis=1)))   
         
-        b = np.divide (g, q) / (1./z + np.sum(np.reciprocal(q)))
+        b = np.sum(np.divide(g, q))
+        b /= (1./z + np.sum(np.reciprocal(q)))
         topicPrior = topicPrior - (np.divide(np.subtract (g, b), q))
                 
     # Just before we return, make sure the vocabDists memoryview that
