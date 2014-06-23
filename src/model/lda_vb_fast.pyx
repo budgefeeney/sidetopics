@@ -24,6 +24,8 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
+import scipy.special as fns
+
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free
 from libc.math cimport log, exp, sqrt, fabs, isnan, isinf
@@ -39,26 +41,17 @@ cdef extern from "gsl/gsl_sf_result.h":
         double err
 cdef extern from "gsl/gsl_sf_psi.h":
     double gsl_sf_psi(double x) nogil
-    int    gsl_sf_psi_e(double x, gsl_sf_result *result) nogil
+    double gsl_sf_psi_1(double x) nogil
     
 cdef double digamma (double value) nogil:
     if value < 1E-300:
         value = 1E-300
     return gsl_sf_psi (value)
 
-#    cdef:
-#        gsl_sf_result result
-#    
-#    result.val = 0.0
-#    result.err = 0.0
-#    
-#    with gil:
-#        print ("Taking digamma of %g" % (value))
-#    if gsl_sf_psi_e (value, &result) != 0:
-#        with gil:
-#            print ("Invalid input value for digamma %g" % (value,))
-#        return 1E-100
-#    return result.val
+cdef double trigamma (double value) nogil:
+    if value < 1E-300:
+        value = 1E-300
+    return gsl_sf_psi_1 (value)
   
 
 @cython.boundscheck(False)
@@ -221,7 +214,7 @@ cdef bint is_invalid (double zdnk) nogil:
 @cython.cdivision(True)
 def iterate_f64(int iterations, int D, int K, int T, \
                  int[:,:] W_list, int[:] docLens, \
-                 double topicPrior, double vocabPrior, \
+                 double[:] topicPrior, double vocabPrior, \
                  double[:,:] z_dnk, double[:,:] topicDists, double[:,:] vocabDists):
     '''
     Performs the given number of iterations as part of the training
@@ -262,12 +255,20 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double[:]   vocabNorm = np.ndarray(shape=(K,), dtype=np.float64)
         double      epsilon = 0.01 / K
         
+        double      z # These four for the hyperprior update
+        double[:]   q = np.ndarray(shape=(K,), dtype=np.float64)
+        double[:]   g = np.ndarray(shape=(K,), dtype=np.float64)
+        double[:]   b = np.ndarray(shape=(K,), dtype=np.float64)
+        double      topicPriorSum
+        
     totalItrs = 0
     for itr in range(iterations):
         oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
         
         vocabNorm[:]       = vocabPrior * T
         newVocabDists[:,:] = vocabPrior
+        
+        topicPriorSum = np.sum(topicPrior)
         
         with nogil:
         
@@ -313,7 +314,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     # Use all the individual word topic assignments to determine
                     # the topic mixture exhibited by this document
                     topicDists[d,:] = topicPrior
-                    norm = topicPrior * K
+                    norm = topicPriorSum
                     for n in range(docLens[d]):
                         for k in range(K):
                             topicDists[d,k] += z_dnk[n,k]
@@ -339,11 +340,24 @@ def iterate_f64(int iterations, int D, int K, int T, \
             for k in prange(K):
                 for t in range(T):
                     newVocabDists[k,t] /= vocabNorm[k]
+                    
+        # And update the prior on the topic distribution. We
+        # do this with the GIL, as built in numpy is likely faster
+        z = -D * fns.polygamma(1, topicPriorSum)
+        q = +D * fns.polygamma(1, topicPrior)
+        
+        g = fns.psi(topicPrior) * -D 
+        g += D * fns.psi(topicPriorSum)
+        g += np.sum(fns.psi(topicDists), axis=0)
+        g -= np.sum (fns.psi(np.sum(topicDists, axis=1)))   
+        
+        b = np.divide (g, q) / (1./z + np.sum(np.reciprocal(q)))
+        topicPrior = topicPrior - (np.divide(np.subtract (g, b), q))
                 
-        # Just before we return, make sure the vocabDists memoryview that
-        # was passed in has the latest vocabulary distributions
-        if iterations % 2 == 0:
-            vocabDists[:,:] = newVocabDists
+    # Just before we return, make sure the vocabDists memoryview that
+    # was passed in has the latest vocabulary distributions
+    if iterations % 2 == 0:
+        vocabDists[:,:] = newVocabDists
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     return totalItrs                        

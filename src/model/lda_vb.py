@@ -72,7 +72,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(\
         model.K, \
-        model.topicPrior, \
+        model.topicPrior.copy(), \
         model.vocabPrior, \
         None if model.wordDists is None else model.wordDists.copy(), \
         model.dtype,       \
@@ -100,7 +100,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     T = W.shape[1]
     
     if topicPrior is None:
-        topicPrior = 50.0 / K # From Griffiths and Steyvers 2004
+        topicPrior = constantVector(K, 50.0 / K) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.01 # Also from G&S
     
@@ -135,8 +135,7 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = constantVector((K,), modelState.topicPrior)
-    topicDists = rd.dirichlet(prior, size=D)
+    topicDists = rd.dirichlet(modelState.topicPrior, size=D)
 
     return QueryState(W_list, docLens, topicDists)
 
@@ -242,11 +241,11 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
-        if converged (boundIters, boundValues, bvIdx, epsilon):
-            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-            return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
-                QueryState(W_list, docLens, topicDists), \
-                (boundIters, boundValues, likelyValues)
+#        if converged (boundIters, boundValues, bvIdx, epsilon):
+#            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+#            return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
+#                QueryState(W_list, docLens, topicDists), \
+#                (boundIters, boundValues, likelyValues)
         
         print ("Segment %d Total Iterations %d Duration %d" % (segment, totalItrs, duration))
     
@@ -305,9 +304,9 @@ def iterate (iterations, D, K, T, \
                 sums   = z_dnk.sum(axis=1)
                 z_dnk /= sums[:,np.newaxis]            # Update vocabulary: hard to do with a list representation
 
-
                 # Now use it to infer the topic distribution
-                topicDists[d,:] = np.mean(z_dnk[:docLens[d],:], axis=0)
+                topicDists[d,:] = topicPrior + np.sum(z_dnk[:docLens[d],:], axis=0)
+                topicDists[d,:] /= np.sum(topicDists[d,:])
                 
                 innerItrs += 1
             
@@ -427,9 +426,9 @@ def var_bound(W, modelState, queryState, z_dnk = None):
     
     # P(topics|topicPrior)
     diTopicDists = fns.digamma(topicDists) - fns.digamma(topicDists.sum(axis=1))[:,np.newaxis]
-    ln_b_topic = fns.gammaln(K * topicPrior) - K * fns.gammaln(topicPrior)
+    ln_b_topic = fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum()
     bound += D * ln_b_topic \
-           + (topicPrior - 1) * np.sum(diTopicDists)
+           + np.sum((topicPrior - 1) * diTopicDists)
     
     # and its entropy
     ent = fns.gammaln(topicDists.sum(axis=1)).sum() - fns.gammaln(topicDists).sum() \
