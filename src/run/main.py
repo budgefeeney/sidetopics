@@ -86,6 +86,7 @@ def run(args):
     print ("Random seed is 0xC0FFEE")
     rd.seed(0xC0FFEE)
     
+    dtype = np.float32 if args.dtype=='f4' else np.float64
     
     #
     # Load in the files. As the cross-validation slices aren't randomized, we
@@ -107,14 +108,14 @@ def run(args):
         
         rd.shuffle(order)
         
-        W = W[order,:].astype(DTYPE)
+        W = W[order,:].astype(dtype)
     if args.feats is None:
         X = None
         F = 0
     else:
         with open(args.feats, 'rb') as f:
             X = pkl.load(f)
-            X = X[order,:].astype(DTYPE)
+            X = X[order,:].astype(dtype)
             F = X.shape[1]
             
     K     = args.K
@@ -123,7 +124,6 @@ def run(args):
     folds = args.folds
     
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
-    dtype = np.float32 if args.dtype=='f4' else np.float64
     
     #
     # Instantiate and configure the model
