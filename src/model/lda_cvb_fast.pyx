@@ -106,7 +106,7 @@ def toWordList_i32 (int[:] w_ptr, int[:] w_indices, int[:] w_data, int[:] docLen
                 result[d,lhs] = result[d,rhs]
                 result[d,rhs] = tmp
     
-    return result
+    return np.array(result)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -176,7 +176,7 @@ def toWordList_f32 (int[:] w_ptr, int[:] w_indices, float[:] w_data, int[:] docL
                 result[d,lhs] = result[d,rhs]
                 result[d,rhs] = tmp
     
-    return result
+    return np.array(result)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -246,7 +246,7 @@ def toWordList_f64 (int[:] w_ptr, int[:] w_indices, double[:] w_data, int[:] doc
                 result[d,lhs] = result[d,rhs]
                 result[d,rhs] = tmp
     
-    return result
+    return np.array(result)
 
 
 def calculateCounts (W_list, docLens, z_dnk, T):
