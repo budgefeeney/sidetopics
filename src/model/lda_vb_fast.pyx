@@ -293,19 +293,20 @@ def iterate_f64(int iterations, int D, int K, int T, \
                 for t in range(T):
                     newVocabDists[k,t] /= vocabNorm[k]
                     
-#        # And update the prior on the topic distribution. We
-#        # do this with the GIL, as built-in numpy is likely faster
-#        z = D * fns.polygamma(1, topicPriorSum)
-#        q = -D * fns.polygamma(1, topicPrior)
-#        
-#        g = fns.psi(topicPrior) * -D 
-#        g += D * fns.psi(topicPriorSum)
-#        g += np.sum(fns.psi(topicDists), axis=0)
-#        g -= np.sum (fns.psi(np.sum(topicDists, axis=1)))   
-#        
-#        b = np.sum(np.divide(g, q))
-#        b /= (1./z + np.sum(np.reciprocal(q)))
-#        topicPrior -= (np.divide(np.subtract (g, b), q))
+        # And update the prior on the topic distribution. We
+        # do this with the GIL, as built-in numpy is likely faster
+#        for _ in range(20):
+#            z = D * fns.polygamma(1, topicPriorSum)
+#            q = -D * fns.polygamma(1, topicPrior)
+#            
+#            g = fns.psi(topicPrior) * -D 
+#            g += D * fns.psi(topicPriorSum)
+#            g += np.sum(fns.psi(topicDists) - fns.psi(np.sum(topicDists, axis=1)), axis=0)
+#            g -= np.sum ()   
+#            
+#            b = np.sum(np.divide(g, q))
+#            b /= (1./z + np.sum(np.reciprocal(q)))
+#            topicPrior -= (np.divide(np.subtract (g, b), q))
                 
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
@@ -314,10 +315,10 @@ def iterate_f64(int iterations, int D, int K, int T, \
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
-    topicPriorStr = str(topicPrior[0])
-    for k in range(1,K):
-        topicPriorStr += ", " + str(topicPrior[k])
-    print ("Topic prior is " + topicPriorStr)
+#    topicPriorStr = str(topicPrior[0])
+#    for k in range(1,K):
+#        topicPriorStr += ", " + str(topicPrior[k])
+#    print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
 
 @cython.boundscheck(False)
@@ -333,10 +334,10 @@ def query_f64(int D, int K, \
         double      topicPriorSum = np.sum(topicPrior)
     
     with nogil:
-        for d in range(D)
+        for d in range(D):
             infer_topics_f64(d, K, \
                  W_list, docLens, \
-                 topicPrior, double topicPriorSum,
+                 topicPrior, topicPriorSum,
                  z_dnk, 
                  oldMems, topicDists, 
                  vocabDists)
