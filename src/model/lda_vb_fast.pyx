@@ -175,7 +175,7 @@ def query_f32(int D, int K, \
                  float[:,:] vocabDists):
     cdef:
         int        d
-        float[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
+        float[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float32)
         float      topicPriorSum = np.sum(topicPrior)
     
     with nogil:
