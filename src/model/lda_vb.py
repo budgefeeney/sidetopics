@@ -241,11 +241,11 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
-#        if converged (boundIters, boundValues, bvIdx, epsilon):
-#            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-#            return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
-#                QueryState(W_list, docLens, topicDists), \
-#                (boundIters, boundValues, likelyValues)
+        if converged (boundIters, boundValues, bvIdx, epsilon):
+            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+            return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
+                QueryState(W_list, docLens, topicDists), \
+                (boundIters, boundValues, likelyValues)
         
         print ("Segment %d Total Iterations %d Duration %d" % (segment, totalItrs, duration))
     
