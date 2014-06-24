@@ -315,7 +315,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
     topicPriorStr = str(topicPrior[0])
-    for k in range(1,K)
+    for k in range(1,K):
         topicPriorStr += ", " + str(topicPrior[k])
     print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
