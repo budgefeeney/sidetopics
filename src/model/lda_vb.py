@@ -383,10 +383,17 @@ def query(W, X, modelState, queryState, queryPlan):
     D,T = W.shape
     z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
     
-    compiled.query_f64 (D, K, \
-                 W_list, docLens, \
-                 topicPrior, z_dnk, topicDists, 
-                 wordDists)
+    
+    if modelState.dtype == np.float32:
+        compiled.query_f32 (D, K, \
+                     W_list, docLens, \
+                     topicPrior, z_dnk, topicDists, 
+                     wordDists)
+    else:
+        compiled.query_f64 (D, K, \
+                     W_list, docLens, \
+                     topicPrior, z_dnk, topicDists, 
+                     wordDists)
         
    
     return modelState, queryState
