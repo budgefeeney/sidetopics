@@ -45,7 +45,7 @@ class Test(unittest.TestCase):
             cmdline = '' \
                     + ' --debug True' \
                     + ' --model '          + modelName \
-                    + ' --dtype '          + 'f8'      \
+                    + ' --dtype '          + 'f4'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-topics ' + str(Q)    \
                     + ' --num-lat-feats '  + str(P)    \

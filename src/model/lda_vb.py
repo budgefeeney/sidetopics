@@ -100,12 +100,12 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     T = W.shape[1]
     
     if topicPrior is None:
-        topicPrior = constantVector(K, 50.0 / K) # From Griffiths and Steyvers 2004
+        topicPrior = constantVector(K, 50.0 / K, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.01 # Also from G&S
     
     vocabPriorVec = constantVector((T,), vocabPrior)
-    wordDists = rd.dirichlet(vocabPriorVec, size=K)
+    wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
     
     # Peturb to avoid zero probabilities
     wordDists += 1./T
@@ -135,13 +135,13 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    topicDists = rd.dirichlet(modelState.topicPrior, size=D)
+    topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)
 
     return QueryState(W_list, docLens, topicDists)
 
-def constantVector(shape, defaultValue):
+def constantVector(shape, defaultValue, dtype=DTYPE):
     # return np.full(shape, defaultValue)
-    result = np.ndarray(shape=shape)
+    result = np.ndarray(shape=shape, dtype=dtype)
     result.fill(defaultValue)
     return result
 
