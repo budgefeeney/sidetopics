@@ -75,6 +75,7 @@ class Test(unittest.TestCase):
         kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
         
+        print ("Prior %s" % (str(model.topicPrior)))
         print ("Perplexity: %f\n\n" % lda.perplexity(W, model, query))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
         print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
