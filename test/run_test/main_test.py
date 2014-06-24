@@ -8,7 +8,7 @@ import pickle as pkl
 import tempfile as tmp
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, LdaCvbZero
+from run.main import run, ModelNames, LdaCvbZero, LdaVb
 
 def tmpFiles():
     '''
@@ -41,23 +41,24 @@ class Test(unittest.TestCase):
             pkl.dump(X, f)
         
         modelFileses = []
-        for modelName in [ LdaCvbZero ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
                     + ' --debug True' \
                     + ' --model '          + modelName \
+                    + ' --dtype '          + 'f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-topics ' + str(Q)    \
                     + ' --num-lat-feats '  + str(P)    \
                     + ' --eval '           + 'likely'  \
                     + ' --out-model '      + modelFileDir \
-                    + ' --log-freq '       + '10'     \
-                    + ' --iters '          + '50'     \
+                    + ' --log-freq '       + '10'      \
+                    + ' --iters '          + '50'      \
                     + ' --query-iters '    + '10'      \
                     + ' --min-vb-change '  + '0.00001' \
                     + ' --topic-var '      + '0.01'    \
                     + ' --feat-var '       + '0.01'    \
-                    + ' --lat-topic-var '  + '0.1'       \
-                    + ' --lat-feat-var '   + '0.1'       \
+                    + ' --lat-topic-var '  + '0.1'     \
+                    + ' --lat-feat-var '   + '0.1'     \
                     + ' --folds '          + '5'       \
                     + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
