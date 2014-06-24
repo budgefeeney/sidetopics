@@ -27,7 +27,7 @@ cimport numpy as np
 import scipy.special as fns
 
 from cython.parallel cimport parallel, prange
-from libc.stdlib cimport rand, srand, malloc, free
+from libc.stdlib cimport rand, srand, malloc, free, RAND_MAX
 from libc.math cimport log, exp, sqrt, fabs, isnan, isinf
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
@@ -229,8 +229,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
     
     Params:
     iterations - the number of iterations to perform
-    D_query    - the number of query documents
-    D_train    - the number of training documents
+    D          - the number of documents
     K          - the number of topics
     T          - the number of possible words
     W_list     - a jagged DxN_d array of word-observations for each document
@@ -246,14 +245,11 @@ def iterate_f64(int iterations, int D, int K, int T, \
     
     cdef:
         int         d, n, k, t
-        int         itr, innerItrs, totalItrs
+        int         itr, totalItrs
         double[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:,:] newVocabDists = vocabDists
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
-        double      max  = 1E-311
-        double      norm = 0.0
-        double[:]   vocabNorm = np.ndarray(shape=(K,), dtype=np.float64)
-        double      epsilon = 0.01 / K
+        double[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float64)
         
         double      z # These four for the hyperprior update
         double[:]   q = np.ndarray(shape=(K,), dtype=np.float64)
@@ -271,60 +267,16 @@ def iterate_f64(int iterations, int D, int K, int T, \
         topicPriorSum = np.sum(topicPrior)
         
         with nogil:
-        
-            # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
             for d in range(D):
-                # For each document reset the topic probabilities and iterate to
-                # convergence. This means we don't have to store the per-token
-                # topic probabilties z_dnk for all documents, which is a huge saving
-                oldMems[:]      = topicDists[d,:]
-                topicDists[d,:] = 1./K
-                innerItrs = 0
+                # Figure out document d's topic distribution, this is
+                # written into topicDists and z_dnk
+                totalItrs += infer_topics_f64(d, K, \
+                                              W_list, docLens, \
+                                              topicPrior, topicPriorSum, \
+                                              z_dnk, oldMems, topicDists, \
+                                              oldVocabDists)
                 
-                while ((innerItrs < MinInnerIters) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
-                and (innerItrs < MaxInnerItrs):
-                    oldMems[:] = topicDists[d,:]
-                    totalItrs += 1
-                    innerItrs += 1
-                    
-                    # Determine the topic assignment for each individual token...
-                    for n in range(docLens[d]):
-                        norm = 0.0
-                        max  = 1E-311
-                        
-                        # Work in log-space to avoid underflow
-                        for k in range(K):
-                            z_dnk[n,k] = log(oldVocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
-                            if z_dnk[n,k] > max:
-                                max = z_dnk[n,k]
-
-                        # Scale before converting to standard space so inference is feasible
-                        for k in range(K):
-                            z_dnk[n,k] = exp(z_dnk[n,k] - max)
-                            norm += z_dnk[n,k]
-                     
-                        # Normalize the token probability, and check it's valid
-                        for k in range(K):
-                            z_dnk[n,k] /= norm
-                            if is_invalid(z_dnk[n,k]):
-                                with gil:
-                                    print ("Iteration %d:%d z_dnk[%d,%d] = %f, norm = %g" \
-                                           % (itr, totalItrs, n, k, z_dnk[n,k], norm))
-
-                    # Use all the individual word topic assignments to determine
-                    # the topic mixture exhibited by this document
-                    topicDists[d,:] = topicPrior
-                    norm = topicPriorSum
-                    for n in range(docLens[d]):
-                        for k in range(K):
-                            topicDists[d,k] += z_dnk[n,k]
-                            norm += z_dnk[n,k]
-                            
-                    for k in range(K):
-                        topicDists[d,k] /= norm        
-                
-                # Once we've found document d's topic distribution, we
-                # use that to build the new vocabulary distribution
+                # Then use that to gradually update our new vocabulary
                 for k in range(K):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
@@ -336,24 +288,24 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                 print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
                             
-            # With all document processed, normalize the vocabulary
+            # With all documents processed, normalize the vocabulary
             for k in prange(K):
                 for t in range(T):
                     newVocabDists[k,t] /= vocabNorm[k]
                     
-        # And update the prior on the topic distribution. We
-        # do this with the GIL, as built in numpy is likely faster
-        z = D * fns.polygamma(1, topicPriorSum)
-        q = -D * fns.polygamma(1, topicPrior)
-        
-        g = fns.psi(topicPrior) * -D 
-        g += D * fns.psi(topicPriorSum)
-        g += np.sum(fns.psi(topicDists), axis=0)
-        g -= np.sum (fns.psi(np.sum(topicDists, axis=1)))   
-        
-        b = np.sum(np.divide(g, q))
-        b /= (1./z + np.sum(np.reciprocal(q)))
-        topicPrior = topicPrior - (np.divide(np.subtract (g, b), q))
+#        # And update the prior on the topic distribution. We
+#        # do this with the GIL, as built-in numpy is likely faster
+#        z = D * fns.polygamma(1, topicPriorSum)
+#        q = -D * fns.polygamma(1, topicPrior)
+#        
+#        g = fns.psi(topicPrior) * -D 
+#        g += D * fns.psi(topicPriorSum)
+#        g += np.sum(fns.psi(topicDists), axis=0)
+#        g -= np.sum (fns.psi(np.sum(topicDists, axis=1)))   
+#        
+#        b = np.sum(np.divide(g, q))
+#        b /= (1./z + np.sum(np.reciprocal(q)))
+#        topicPrior -= (np.divide(np.subtract (g, b), q))
                 
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
@@ -361,9 +313,113 @@ def iterate_f64(int iterations, int D, int K, int T, \
         vocabDists[:,:] = newVocabDists
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
+    
+    topicPriorStr = str(topicPrior[0])
+    for k in range(1,K)
+        topicPriorStr += ", " + str(topicPrior[k])
+    print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef inline int infer_topics_f64(int d, int K, \
+                 int[:,:] W_list, int[:] docLens, \
+                 double[:] topicPrior, double topicPriorSum,
+                 double[:,:] z_dnk, 
+                 double[:] oldMems, double[:,:] topicDists, 
+                 double[:,:] vocabDists) nogil:
+    '''             
+    Infers the topic assignments for a given document d with a fixed vocab and
+    topic prior. The topicDists and z_dnk are mutated in-place. Everything else
+    remains constant.
+    
+    Params:
+    d          - the document to infer topics for.
+    K          - the number of topics
+    W_list     - a jagged DxN_d array of word-observations for each document
+    docLens    - the length of each document d
+    topicPrior - the K dimensional vector with the topic prior
+    z_dnk      - a max_d(N_d) x K dimensional matrix, containing all possible topic
+                 assignments for a single document
+    oldMems    - a previously allocated K-dimensional vector to hold the previous
+                 topic assignments for document d
+    topicDists - the D x K matrix of per-document, topic probabilities. This _must_
+                 be in C (i.e row-major) format.
+    vocabDists - the K x T matrix of per-topic word probabilties
+    '''
+    cdef:
+        int         k
+        int         n
+        int         innerItrs
+        double      max  = 1E-311
+        double      norm = 0.0
+        double      epsilon = 0.01 / K
+    
+    
+    # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
+    
+    # For each document reset the topic probabilities and iterate to
+    # convergence. This means we don't have to store the per-token
+    # topic probabilties z_dnk for all documents, which is a huge saving
+    oldMems[:]      = topicDists[d,:]
+    topicDists[d,:] = 1./K
+#    initAtRandom_f64(topicDists, d, K)
+    innerItrs = 0
+    
+    while ((innerItrs < MinInnerIters) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
+    and (innerItrs < MaxInnerItrs):
+        oldMems[:] = topicDists[d,:]
+        innerItrs += 1
+        
+        # Determine the topic assignment for each individual token...
+        for n in range(docLens[d]):
+            norm = 0.0
+            max  = 1E-311
+            
+            # Work in log-space to avoid underflow
+            for k in range(K):
+                z_dnk[n,k] = log(vocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
+                if z_dnk[n,k] > max:
+                    max = z_dnk[n,k]
 
+            # Scale before converting to standard space so inference is feasible
+            for k in range(K):
+                z_dnk[n,k] = exp(z_dnk[n,k] - max)
+                norm += z_dnk[n,k]
+         
+            # Normalize the token probability, and check it's valid
+            for k in range(K):
+                z_dnk[n,k] /= norm
+                if is_invalid(z_dnk[n,k]):
+                    with gil:
+                        print ("Inner iteration %d z_dnk[%d,%d] = %f, norm = %g" \
+                               % (innerItrs, n, k, z_dnk[n,k], norm))
+
+        # Use all the individual word topic assignments to determine
+        # the topic mixture exhibited by this document
+        topicDists[d,:] = topicPrior
+        norm = topicPriorSum
+        for n in range(docLens[d]):
+            for k in range(K):
+                topicDists[d,k] += z_dnk[n,k]
+                norm += z_dnk[n,k]
+                
+        for k in range(K):
+            topicDists[d,k] /= norm   
+                    
+    return innerItrs
+
+cdef inline void initAtRandom_f64(double[:,:] topicDists, int d, int K) nogil:
+    cdef:
+        double norm = 0.0
+    
+    for k in range(K):
+        topicDists[d,k] = rand()
+        norm += topicDists[d,k]
+    
+    for k in range(K):
+        topicDists[d,k] /= norm
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
