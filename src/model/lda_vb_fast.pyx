@@ -276,7 +276,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                               z_dnk, oldMems, topicDists, \
                                               oldVocabDists)
                 
-                # Then use that to gradually update our new vocabulary
+                # Then use those to gradually update our new vocabulary
                 for k in range(K):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
@@ -319,6 +319,27 @@ def iterate_f64(int iterations, int D, int K, int T, \
         topicPriorStr += ", " + str(topicPrior[k])
     print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def query_f64(int D, int K, \
+                 int[:,:] W_list, int[:] docLens, \
+                 double[:] topicPrior, double[:,:] z_dnk, double[:,:] topicDists, 
+                 double[:,:] vocabDists):
+    cdef:
+        int         d
+        double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
+        double      topicPriorSum = np.sum(topicPrior)
+    
+    with nogil:
+        for d in range(D)
+            infer_topics_f64(d, K, \
+                 W_list, docLens, \
+                 topicPrior, double topicPriorSum,
+                 z_dnk, 
+                 oldMems, topicDists, 
+                 vocabDists)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

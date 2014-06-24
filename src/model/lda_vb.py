@@ -375,7 +375,20 @@ def query(W, X, modelState, queryState, queryPlan):
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    modelState, queryState, _ = train(W, X, modelState, queryState, queryPlan, query=True)
+    W_list, docLens, topicDists = \
+        queryState.W_list, queryState.docLens, queryState.topicDists
+    K, topicPrior, wordDists, dtype = \
+        modelState.K, modelState.topicPrior, modelState.wordDists, modelState.dtype
+   
+    D,T = W.shape
+    z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
+    
+    compiled.query_f64 (D, K, \
+                 W_list, docLens, \
+                 topicPrior, z_dnk, topicDists, 
+                 wordDists)
+        
+   
     return modelState, queryState
 
 
