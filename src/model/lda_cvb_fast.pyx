@@ -64,7 +64,7 @@ def toWordList_i32 (int[:] w_ptr, int[:] w_indices, int[:] w_data, int[:] docLen
         int[:,:] result
         int D = len(w_ptr) - 1
         int maxN = np.max(docLens)
-        #��Loop indices
+        # Loop indices
         int d
         int col = 0
         int colIdx = 0
