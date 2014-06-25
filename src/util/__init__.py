@@ -8,8 +8,8 @@ from distutils.core import setup
 
 os.environ['CC'] = os.environ['HOME'] + '/bin/cc'
 pyximport.install( \
-    build_in_temp=True, \
-    inplace=False, \
+    build_in_temp=False, \
+    inplace=True, \
     build_dir=dirname(dirname(realpath(__file__))) + '/lib', \
     setup_args={ \
         'include_dirs':       np.get_include(), \
