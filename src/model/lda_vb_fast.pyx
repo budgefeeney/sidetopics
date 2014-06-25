@@ -32,7 +32,7 @@ from libc.math cimport log, exp, sqrt, fabs, isnan, isinf
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
 
-cdef int MaxInnerItrs = 40
+cdef int MaxInnerItrs = 100
 cdef int MinInnerIters = 3
 
 cdef extern from "gsl/gsl_sf_result.h":
@@ -277,6 +277,9 @@ cdef inline int infer_topics_f32(int d, int K, \
                     
     return innerItrs
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void initAtRandom_f32(float[:,:] topicDists, int d, int K) nogil:
     cdef:
         float norm = 0.0
@@ -372,7 +375,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
             for d in range(D):
                 # Figure out document d's topic distribution, this is
                 # written into topicDists and z_dnk
-                totalItrs += infer_topics_f64(d, K, \
+                totalItrs += infer_topics_f64(d, D, K, \
                                               W_list, docLens, \
                                               topicPrior, topicPriorSum, \
                                               z_dnk, oldMems, topicDists, \
@@ -437,7 +440,7 @@ def query_f64(int D, int K, \
     
     with nogil:
         for d in range(D):
-            infer_topics_f64(d, K, \
+            infer_topics_f64(d, D, K, \
                  W_list, docLens, \
                  topicPrior, topicPriorSum,
                  z_dnk, 
@@ -447,7 +450,7 @@ def query_f64(int D, int K, \
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef inline int infer_topics_f64(int d, int K, \
+cdef inline int infer_topics_f64(int d, int D, int K, \
                  int[:,:] W_list, int[:] docLens, \
                  double[:] topicPrior, double topicPriorSum,
                  double[:,:] z_dnk, 
@@ -479,6 +482,7 @@ cdef inline int infer_topics_f64(int d, int K, \
         double      max  = 1E-311
         double      norm = 0.0
         double      epsilon = 0.01 / K
+        double      post
     
     
     # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
@@ -486,8 +490,13 @@ cdef inline int infer_topics_f64(int d, int K, \
     # For each document reset the topic probabilities and iterate to
     # convergence. This means we don't have to store the per-token
     # topic probabilties z_dnk for all documents, which is a huge saving
-    oldMems[:]      = topicDists[d,:]
-    topicDists[d,:] = 1./K
+    oldMems[:]      = 1./K
+    topicDists[d,:] = topicPrior
+    
+    post = D
+    post /= K
+    for k in range(K):
+        topicDists[d,k] += post
 #    initAtRandom_f64(topicDists, d, K)
     innerItrs = 0
     
@@ -534,6 +543,9 @@ cdef inline int infer_topics_f64(int d, int K, \
                     
     return innerItrs
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
 cdef inline void initAtRandom_f64(double[:,:] topicDists, int d, int K) nogil:
     cdef:
         double norm = 0.0
