@@ -26,6 +26,7 @@ from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
+from util.misc import clamp, converged
     
 # ==============================================================
 # CONSTANTS
@@ -129,7 +130,7 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, lxi, s, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -264,6 +265,13 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvement in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, likelyValues)
+            
+            
     
     return \
         ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \

@@ -24,8 +24,10 @@ import scipy.sparse as ssp
 from math import isnan
 
 from util.sigmoid_utils import rowwise_softmax
+from util.misc import static_var, converged, clamp
 
 from model.ctm import vocab
+from util.overflow_safe import safeDet, lnDetOfDiagMat
 
 import time
 
@@ -132,7 +134,7 @@ def newQueryState(W, modelState):
     return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -295,6 +297,11 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvment in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likeValues, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, likeValues)
             
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
@@ -483,40 +490,7 @@ def var_bound(W, X, modelState, queryState, XTX = None):
     means += row_maxes[:,np.newaxis]
     
     return bound
-        
 
-def lnDetOfDiagMat(X):
-    '''
-    Returns the log of the determinant of a diagonal matrix
-    '''
-    return np.sum(np.log(np.diag(X)))
-  
-
-def safeDet(X, x_name="X"):
-    '''
-    Returns max(det(X), epsilon) where epsilon is the smallest, **positive**
-    value allowed by the dtype of X
-    
-    Prints a message to stderr if we return epsilon instead of det(X)
-    '''
-    # A Useful constant for determinants
-    minPositiveValue = 1E-35 if X.dtype == np.float32 else 1E-300
-    
-    detX = la.det(X)
-    if detX > -minPositiveValue and detX < minPositiveValue: # i.e. is roughly zero:
-#        printStderr ("det(" + x_name + ") == %f ~= 0" % detX)
-        detX = minPositiveValue
-    if detX <= -minPositiveValue: # i.e. is less than zero
-#        printStderr ("det(" + x_name + ") == %f < 0" % detX)
-        detX = minPositiveValue
-    
-    return detX
-
-def static_var(varname, value):
-    def decorate(func):
-        setattr(func, varname, value)
-        return func
-    return decorate
 
 @static_var("old_bound", 0)
 def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):

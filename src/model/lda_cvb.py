@@ -26,6 +26,7 @@ import sys
 import model.lda_cvb_fast as compiled
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+from util.misc import constantArray, converged, clamp
 
 # ==============================================================
 # CONSTANTS
@@ -129,7 +130,7 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = contantVector((K,), modelState.topicPrior)
+    prior = constantArray((K,), modelState.topicPrior)
     z_dnk = rd.dirichlet(prior, size=D * maxN) \
           .astype(modelState.dtype) \
           .reshape((D,maxN,K))
@@ -147,12 +148,6 @@ def newQueryState(W, modelState):
     
     return QueryState(W_list, docLens, n_dk, n_kt, n_k, z_dnk)
 
-def contantVector(shape, defaultValue):
-    # return np.full(shape, defaultValue)
-    result = np.ndarray(shape=shape)
-    result.fill(defaultValue)
-    return result
-
 def toWordList (w_csr):
     docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
     
@@ -165,7 +160,7 @@ def toWordList (w_csr):
     else:
         raise ValueError("No implementation defined for dtype = " + str(w_csr.dtype))
 
-def newTrainPlan(iterations=100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -237,10 +232,18 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
                        q_n_dk, q_n_kt, q_n_k, z_dnk,\
                        topicPrior, vocabPrior)
     
+        # Measure and record the improvement to the bound and log-likely
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
         likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
         bvIdx += 1
+        
+        # Check to see if the improvment in the bound has fallen below the threshold
+        if converged (boundIters, boundValues, bvIdx, epsilon):
+            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+            return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
+                QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
+                (boundIters, boundValues, likelyValues)
     
     # Final batch of iterations.
     do_iterations (remainder, D_query, D_train, K, T, \

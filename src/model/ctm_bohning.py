@@ -20,12 +20,12 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 import numpy.random as rd
-import sys
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
+from util.misc import printStderr, static_var, converged, clamp
     
 from model.ctm import vocab
     
@@ -128,7 +128,7 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -257,6 +257,11 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvement in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, likelyValues)
         
     
     return \
@@ -394,17 +399,6 @@ def var_bound(W, modelState, queryState):
 # PUBLIC HELPERS
 # ==============================================================
 
-def printStderr(msg):
-    sys.stdout.flush()
-    sys.stderr.write(msg + '\n')
-    sys.stderr.flush()
-    
-
-def static_var(varname, value):
-    def decorate(func):
-        setattr(func, varname, value)
-        return func
-    return decorate
 
 @static_var("old_bound", 0)
 def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
