@@ -239,7 +239,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
         bvIdx += 1
         
         # Check to see if the improvment in the bound has fallen below the threshold
-        if converged (boundIters, boundValues, bvIdx, epsilon):
+        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
