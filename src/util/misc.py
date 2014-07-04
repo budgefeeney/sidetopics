@@ -23,7 +23,7 @@ def constantArray(shape, defaultValue):
     Return an np array with the given shape (any tuple will do) set to the given
     value at every dimension.
     '''
-    result = np.ndarray(shape=shape, defaultValue)
+    result = np.ndarray(shape=shape)
     result.fill(defaultValue)
     return result
 
