@@ -287,6 +287,7 @@ class Test(unittest.TestCase):
     
 
     def testOnRealData(self):
+        print ("CTM/Bohning")
         rd.seed(0xC0FFEE)
         dtype = np.float64
         
@@ -311,10 +312,10 @@ class Test(unittest.TestCase):
        
        
         # Initialise the model  
-        K = 50
+        K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=dtype)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=500, logFrequency=10, fastButInaccurate=False, debug=False)
+        trainPlan  = ctm.newTrainPlan(iterations=750, logFrequency=10, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
@@ -331,7 +332,8 @@ class Test(unittest.TestCase):
         ax2.plot(bndItrs, bndLikes, 'r-')
         ax2.set_ylabel('Likelihood', color='r')
                 
-        fig.show()      
+        fig.show()
+        fig.suptitle("CTM/Bohning (Identity Cov) on NIPS")
         plt.show()
         
         topWordCount = 100
