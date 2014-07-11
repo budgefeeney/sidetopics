@@ -42,7 +42,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-USE_NIW_PRIOR=True
+USE_NIW_PRIOR=False
 NIW_PSI=0.1             # isotropic prior
 NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kappa in the code, go figure
 NIW_PSEUDO_OBS_VAR=+2   # related to K
@@ -200,20 +200,18 @@ def train (W, X, modelState, queryState, trainPlan):
         topicMean = means.sum(axis = 0) / (D + pseudoObsMeans) \
                   if USE_NIW_PRIOR \
                   else means.mean(axis=0)
-#        topicMean = means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
         
         if USE_NIW_PRIOR:
             diff = means - topicMean[np.newaxis,:]
             sigT = diff.T.dot(diff) \
                  + pseudoObsVar * np.outer(topicMean, topicMean)
-            sigT[::K+1] += (varcs.mean(axis=0) + priorSigT_diag)
+            sigT += ssp.diags(varcs.mean(axis=0) + priorSigT_diag, 0)
             sigT /= (D + pseudoObsVar - K)
         else:
             sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-            sigT[::K+1] += varcs.mean(axis=0)
-
-        
+            sigT += ssp.diags(varcs.mean(axis=0), 0)
+         
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
@@ -244,8 +242,8 @@ def train (W, X, modelState, queryState, trainPlan):
         # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
-        # Update the Variances: var_d = (N_d * A + isigT)^{-1}
-        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + isigT.flat[::K+1])
+        # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
+        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + np.diagonal(sigT))
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)    
         
         # Update the Means
@@ -259,6 +257,8 @@ def train (W, X, modelState, queryState, trainPlan):
                 means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
         
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)        
+        
+        print ("\n" + str(varcs.mean()) + "\n")
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
