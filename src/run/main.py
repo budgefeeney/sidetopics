@@ -176,6 +176,10 @@ def run(args):
                 with open(modelFile, 'wb') as f:
                     pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
     else:
+        queryLikelySum = 0 # to calculate the overall likelihood and
+        queryWordsSum  = 0 # perplexity for the whole dataset
+        finishedFolds  = 0 # count of folds that finished successfully
+        
         foldSize  = ceil(D / folds)
         querySize = foldSize
         trainSize = D - querySize
@@ -210,7 +214,13 @@ def run(args):
                 modelState, queryTopics = mdl.query(W_query_train, X_query, modelState, queryTopics, queryPlan)
                 
                 querySetLikely = mdl.log_likelihood(W_query_eval, modelState, queryTopics)
-                querySetPerp   = np.exp(-querySetLikely / W_query_eval.data.sum())
+                queryWords     = W_query_eval.data.sum()
+                querySetPerp   = np.exp(-querySetLikely / queryWords)
+                
+                # Keep a record of the cumulative likelihood and query-set word-count
+                queryLikelySum += querySetLikely
+                queryWordsSum  += queryWords
+                finishedFolds  += 1
                 
                 # Write out the output
                 print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
@@ -222,7 +232,10 @@ def run(args):
                     modelFiles.append(modelFile)
                     with open(modelFile, 'wb') as f:
                         pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
-    
+        
+        print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, np.exp(-queryLikelySum / queryWordsSum)))
+        
+                        
     return modelFiles
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
