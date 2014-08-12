@@ -170,10 +170,11 @@ def run(args):
             print("")
         finally:
             # Write out the end result of the model run.
-            modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
-            modelFiles.append(modelFile)
-            with open(modelFile, 'wb') as f:
-                pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
+            if args.out_model is not None:
+                modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
+                modelFiles.append(modelFile)
+                with open(modelFile, 'wb') as f:
+                    pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
     else:
         foldSize  = ceil(D / folds)
         querySize = foldSize
