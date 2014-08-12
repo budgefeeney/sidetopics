@@ -52,7 +52,7 @@ def run(args):
                     help='The path to the pickle file containing a DxF array or matrix of the features across all D documents')
     parser.add_argument('--eval', '-v', dest='eval', default="perplexity", metavar=' ', \
                     help='Evaluation metric, only available is: perplexity or likelihood')
-    parser.add_argument('--out-model', '-o', dest='out_model', default=os.getcwd(), metavar=' ', \
+    parser.add_argument('--out-model', '-o', dest='out_model', default=None, metavar=' ', \
                     help='Optional output path in which to store the model')
     parser.add_argument('--log-freq', '-l', dest='log_freq', type=int, default=10, metavar=' ', \
                     help='Log frequency - how many times to inspect the bound while running')
@@ -216,10 +216,11 @@ def run(args):
                 print("")
             finally:
                 # Write out the end result of the model run.
-                modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
-                modelFiles.append(modelFile)
-                with open(modelFile, 'wb') as f:
-                    pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
+                if args.out_model is not None:
+                    modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
+                    modelFiles.append(modelFile)
+                    with open(modelFile, 'wb') as f:
+                        pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
     
     return modelFiles
 
