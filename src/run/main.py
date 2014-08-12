@@ -178,6 +178,8 @@ def run(args):
     else:
         queryLikelySum = 0 # to calculate the overall likelihood and
         queryWordsSum  = 0 # perplexity for the whole dataset
+        trainLikelySum = 0
+        trainWordsSum  = 0
         finishedFolds  = 0 # count of folds that finished successfully
         
         foldSize  = ceil(D / folds)
@@ -206,7 +208,8 @@ def run(args):
                     = mdl.train(W_train, X_train, modelState, trainTopics, trainPlan)
                     
                 trainSetLikely = mdl.log_likelihood (W_train, modelState, trainTopics)
-                trainSetPerp   = np.exp(-trainSetLikely / W_train.data.sum())
+                trainWords     = W_train.data.sum()
+                trainSetPerp   = np.exp(-trainSetLikely / trainWords)
                 
                 # Query the model - if there are no features we need to split the text
                 W_query_train, W_query_eval = splitInput(X, W_query)
@@ -218,6 +221,8 @@ def run(args):
                 querySetPerp   = np.exp(-querySetLikely / queryWords)
                 
                 # Keep a record of the cumulative likelihood and query-set word-count
+                trainLikelySum += trainSetLikely
+                trainWordsSum  += trainWords
                 queryLikelySum += querySetLikely
                 queryWordsSum  += queryWords
                 finishedFolds  += 1
@@ -233,6 +238,7 @@ def run(args):
                     with open(modelFile, 'wb') as f:
                         pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
         
+        print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, np.exp(-trainLikelySum / trainWordsSum)))
         print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, np.exp(-queryLikelySum / queryWordsSum)))
         
                         
