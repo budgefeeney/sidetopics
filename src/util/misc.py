@@ -18,12 +18,12 @@ def static_var(varname, value):
         return func
     return decorate
 
-def constantArray(shape, defaultValue):
+def constantArray(shape, defaultValue, dtype):
     '''
     Return an np array with the given shape (any tuple will do) set to the given
     value at every dimension.
     '''
-    result = np.ndarray(shape=shape)
+    result = np.ndarray(shape=shape, dtype=dtype)
     result.fill(defaultValue)
     return result
 
