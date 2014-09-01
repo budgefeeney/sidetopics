@@ -104,7 +104,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     if vocabPrior is None:
         vocabPrior = 0.01 # Also from G&S
     
-    vocabPriorVec = constantArray((T,), vocabPrior)
+    vocabPriorVec = constantArray((T,), vocabPrior, dtype)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
     
     # Peturb to avoid zero probabilities

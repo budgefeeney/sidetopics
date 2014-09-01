@@ -130,7 +130,7 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = constantArray((K,), modelState.topicPrior)
+    prior = constantArray((K,), modelState.topicPrior, modelState.dtype)
     z_dnk = rd.dirichlet(prior, size=D * maxN) \
           .astype(modelState.dtype) \
           .reshape((D,maxN,K))
