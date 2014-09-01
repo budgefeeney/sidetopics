@@ -216,7 +216,7 @@ def train (W, X, modelState, queryState, trainPlan):
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-30 if dtype == np.float32 else 1E-300
+        vocab += 1E-10 #if dtype == np.float32 else 1E-300
         
         # Reset the means to their original form, and log effect of vocab update
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
@@ -280,7 +280,7 @@ def query(W, X, modelState, queryState, queryPlan):
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
+    iterations, epsilon, logFrequency, diagonalPriorCov, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
     means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
@@ -291,27 +291,30 @@ def query(W, X, modelState, queryState, queryPlan):
     # per topic per doc)
     isigT = la.inv(sigT)
     
+    # Update the Variances
+    varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+    debugFn (0, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+    
+    R = W.copy()
     for itr in range(iterations):
-        expMeans = np.exp(means, out=means) # Do in-place to save memory
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab)
-        S = expMeans * R.dot(vocab.T)
-        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
-            
-        # Update the Variances
-        varcs[:] = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        expMeans = np.exp(means, out=means)
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
+        V = expMeans * R.dot(vocab.T)
+        means = np.log(expMeans, out=expMeans)
         
         # Update the Means
-        rhs = S.copy()
+        rhs = V.copy()
         rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
         rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if fastButInaccurate:
-            means[:] = varcs * rhs
+        if diagonalPriorCov:
+            means = varcs * rhs
         else:
             for d in range(D):
                 means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
         
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
+        
+    
     return modelState, queryState
 
    

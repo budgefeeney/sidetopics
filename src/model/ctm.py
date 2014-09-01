@@ -220,7 +220,7 @@ def train (W, X, modelState, queryState, trainPlan):
         # 3/4 Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-30 if dtype == np.float32 else 1E-300
+        vocab += 1E-10 # if dtype == np.float32 else 1E-300
         
         # 4/4 Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
