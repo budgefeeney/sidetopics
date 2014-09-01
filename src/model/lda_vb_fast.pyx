@@ -28,7 +28,7 @@ import scipy.special as fns
 
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free, RAND_MAX
-from libc.math cimport log, exp, sqrt, fabs, isnan, isinf
+from libc.math cimport log, exp, sqrt, fabs
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
 
@@ -307,11 +307,17 @@ cdef float l1_dist_f32 (float[:] left, float[:] right) nogil:
 
 
 cdef bint is_invalid (double zdnk) nogil:
-    return isnan(zdnk) \
-        or isinf(zdnk) \
-        or zdnk < -0.001
+    return is_nan(zdnk) \
+        or zdnk < -0.001 \
+        or zdnk > 1.1
+#         or isinf(zdnk) \
 #        or zdnk > 1.001
 
+cdef bint is_nan(double num) nogil:
+    '''
+    Work around the fact that this isn't defined on the cluster
+    '''
+    return num != num
 
 
 @cython.boundscheck(False)
