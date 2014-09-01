@@ -52,7 +52,7 @@ def run(args):
                     help='The path to the pickle file containing a DxF array or matrix of the features across all D documents')
     parser.add_argument('--eval', '-v', dest='eval', default="perplexity", metavar=' ', \
                     help='Evaluation metric, only available is: perplexity or likelihood')
-    parser.add_argument('--out-model', '-o', dest='out_model', default=os.getcwd(), metavar=' ', \
+    parser.add_argument('--out-model', '-o', dest='out_model', default=None, metavar=' ', \
                     help='Optional output path in which to store the model')
     parser.add_argument('--log-freq', '-l', dest='log_freq', type=int, default=10, metavar=' ', \
                     help='Log frequency - how many times to inspect the bound while running')
@@ -170,11 +170,18 @@ def run(args):
             print("")
         finally:
             # Write out the end result of the model run.
-            modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
-            modelFiles.append(modelFile)
-            with open(modelFile, 'wb') as f:
-                pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
+            if args.out_model is not None:
+                modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
+                modelFiles.append(modelFile)
+                with open(modelFile, 'wb') as f:
+                    pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
     else:
+        queryLikelySum = 0 # to calculate the overall likelihood and
+        queryWordsSum  = 0 # perplexity for the whole dataset
+        trainLikelySum = 0
+        trainWordsSum  = 0
+        finishedFolds  = 0 # count of folds that finished successfully
+        
         foldSize  = ceil(D / folds)
         querySize = foldSize
         trainSize = D - querySize
@@ -201,7 +208,8 @@ def run(args):
                     = mdl.train(W_train, X_train, modelState, trainTopics, trainPlan)
                     
                 trainSetLikely = mdl.log_likelihood (W_train, modelState, trainTopics)
-                trainSetPerp   = np.exp(-trainSetLikely / W_train.data.sum())
+                trainWords     = W_train.data.sum()
+                trainSetPerp   = np.exp(-trainSetLikely / trainWords)
                 
                 # Query the model - if there are no features we need to split the text
                 W_query_train, W_query_eval = splitInput(X, W_query)
@@ -209,18 +217,31 @@ def run(args):
                 modelState, queryTopics = mdl.query(W_query_train, X_query, modelState, queryTopics, queryPlan)
                 
                 querySetLikely = mdl.log_likelihood(W_query_eval, modelState, queryTopics)
-                querySetPerp   = np.exp(-querySetLikely / W_query_eval.data.sum())
+                queryWords     = W_query_eval.data.sum()
+                querySetPerp   = np.exp(-querySetLikely / queryWords)
+                
+                # Keep a record of the cumulative likelihood and query-set word-count
+                trainLikelySum += trainSetLikely
+                trainWordsSum  += trainWords
+                queryLikelySum += querySetLikely
+                queryWordsSum  += queryWords
+                finishedFolds  += 1
                 
                 # Write out the output
                 print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
                 print("")
             finally:
                 # Write out the end result of the model run.
-                modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
-                modelFiles.append(modelFile)
-                with open(modelFile, 'wb') as f:
-                    pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
-    
+                if args.out_model is not None:
+                    modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
+                    modelFiles.append(modelFile)
+                    with open(modelFile, 'wb') as f:
+                        pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
+        
+        print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, np.exp(-trainLikelySum / trainWordsSum)))
+        print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, np.exp(-queryLikelySum / queryWordsSum)))
+        
+                        
     return modelFiles
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):

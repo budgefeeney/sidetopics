@@ -291,6 +291,7 @@ class Test(unittest.TestCase):
     
 
     def testOnRealData(self):
+        print ("CTM/Bouchard")
         rd.seed(0xBADB055)
         path = "/Users/bryanfeeney/Desktop/NIPS"
         with open(path + "/ar.pkl", 'rb') as f:
@@ -313,15 +314,15 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 50
+        K = 20
         model      = ctm.newModelAtRandom(W, K, dtype=DTYPE)
         queryState = ctm.newQueryState(W, model)
-        trainPlan  = ctm.newTrainPlan(iterations=300, logFrequency=10, fastButInaccurate=False, debug=False)
+        trainPlan  = ctm.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = ctm.train (W, None, model, queryState, trainPlan)
-#        with open(newModelFileFromModel(model), "wb") as f:
-#            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+        with open(newModelFileFromModel(model), "wb") as f:
+            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
         
         # Plot the evolution of the bound during training.
         fig, ax1 = plt.subplots()
@@ -334,6 +335,7 @@ class Test(unittest.TestCase):
         ax2.set_ylabel('Likelihood', color='r')
         
         fig.show()
+        fig.suptitle("CTM/Bouchard (Identity Cov) on NIPS")
         plt.show()
         
         plt.imshow(model.vocab, interpolation="none", cmap = cm.Greys_r)

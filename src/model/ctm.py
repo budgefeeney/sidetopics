@@ -26,6 +26,7 @@ from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
+from util.misc import clamp, converged
     
 # ==============================================================
 # CONSTANTS
@@ -129,7 +130,7 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, lxi, s, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -195,7 +196,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-        sigT.flat[::K+1] += varcs.mean(axis=0)
+        sigT += ssp.diags(varcs.mean(axis=0), 0)
         if USE_NIW_PRIOR:
             sigT.flat[::K+1] += priorSigt_diag
             sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
@@ -230,7 +231,7 @@ def train (W, X, modelState, queryState, trainPlan):
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the Variances
-        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        varcs = np.reciprocal(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Means
@@ -264,6 +265,13 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvement in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, likelyValues)
+            
+            
     
     return \
         ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), \
@@ -540,16 +548,23 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
     if np.isinf(var_value).any():
         printStderr ("WARNING: " + var_name + " contains INFs")
     global last
-        
+    
+    addendum = ""
+    if var_name == "sigT":
+        try:
+            addendum = "det(sigT) = %g" % (la.det(sigT))
+        except:
+            addendum = "det(sigT) = <undefined>"
+    
     bound = var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n))
     dif = 0 if last == 0 else last - bound
     if dif > 0:
         sys.stdout.flush()
         sys.stderr.flush()
-        sys.stderr.write("Iter %3d Update %s Bound %.3f (%+.3f)\n" % (itr, var_name, bound, dif))
+        sys.stderr.write("Iter %3d Update %s Bound %.3f (%+.3f)     %s\n" % (itr, var_name, bound, dif, addendum))
         sys.stderr.flush()
     else:
-        print ("Iter %3d Update %s Bound %.3f (%+.3f)" % (itr, var_name, bound, dif))
+        print ("Iter %3d Update %s Bound %.3f (%+.3f)     %s" % (itr, var_name, bound, dif, addendum))
     last = bound
 
 

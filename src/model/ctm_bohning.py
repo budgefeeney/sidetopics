@@ -19,13 +19,17 @@ from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
+import scipy.special as fns
 import numpy.random as rd
-import sys
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
+from util.misc import printStderr, static_var, converged, clamp
+from util.overflow_safe import safe_log_det
+
+from math import isnan
     
 from model.ctm import vocab
     
@@ -39,6 +43,12 @@ LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
 USE_NIW_PRIOR=False
+NIW_PSI=0.1             # isotropic prior
+NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kappa in the code, go figure
+NIW_PSEUDO_OBS_VAR=+2   # related to K
+NIW_MU=0
+
+
 
 DEBUG=False
 
@@ -128,7 +138,7 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -159,7 +169,7 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
-    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
@@ -174,10 +184,11 @@ def train (W, X, modelState, queryState, trainPlan):
     isigT = la.inv(sigT)
     R = W.copy()
     
+    pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
+    pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
     priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigT_diag.fill (0.1)
+    priorSigT_diag.fill (NIW_PSI)
     priorSigT = np.diag(priorSigT_diag)
-    kappa = K + 2
     
     # Iterate over parameters
     for itr in range(iterations):
@@ -186,18 +197,21 @@ def train (W, X, modelState, queryState, trainPlan):
         # initialisation of the RVs when we do the E-Step
         
         # Update the mean and covariance of the prior
-        topicMean = means.sum(axis = 0) / (D + kappa) \
+        topicMean = means.sum(axis = 0) / (D + pseudoObsMeans) \
                   if USE_NIW_PRIOR \
                   else means.mean(axis=0)
-#        topicMean = means.mean(axis=0)
-        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
         
-        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-        sigT.flat[::K+1] += varcs.mean(axis=0)
         if USE_NIW_PRIOR:
-            sigT += priorSigT
-            sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
-        
+            diff = means - topicMean[np.newaxis,:]
+            sigT = diff.T.dot(diff) \
+                 + pseudoObsVar * np.outer(topicMean, topicMean)
+            sigT += ssp.diags(varcs.mean(axis=0) + priorSigT_diag, 0)
+            sigT /= (D + pseudoObsVar - K)
+        else:
+            sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
+            sigT += ssp.diags(varcs.mean(axis=0), 0)
+         
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
@@ -205,7 +219,7 @@ def train (W, X, modelState, queryState, trainPlan):
         else:
             isigT = la.inv(sigT)
         
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
 #        print("                sigT.det = " + str(la.det(sigT)))
         
         # Building Blocks - temporarily replaces means with exp(means)
@@ -223,30 +237,32 @@ def train (W, X, modelState, queryState, trainPlan):
         V = expMeans * R.dot(vocab.T)
         
         means = np.log(expMeans, out=expMeans)
-        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)
+        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
         
         # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
-        # Update the Variances
-        varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+        # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
+        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + np.diagonal(sigT))
+        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)    
         
         # Update the Means
         rhs = V.copy()
-        rhs += n[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
-        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
+        rhs += docLens[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
+        rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
         if diagonalPriorCov:
             means = varcs * rhs
         else:
             for d in range(D):
-                means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
+                means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
         
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)        
+        
+        print ("\n" + str(varcs.mean()) + "\n")
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, n)
+            queryState = QueryState(means, varcs, docLens)
             
             boundValues[bvIdx]  = var_bound(W, modelState, queryState)
             likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
@@ -255,13 +271,18 @@ def train (W, X, modelState, queryState, trainPlan):
             print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
-#             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+#             print ("Means: min=%f, avg=%f, max=%f\docLens\docLens" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvement in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, likelyValues)
         
     
     return \
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n), \
+        QueryState(means, varcs, docLens), \
         (boundIters, boundValues, likelyValues)
 
 def query(W, X, modelState, queryState, queryPlan):
@@ -361,6 +382,28 @@ def var_bound(W, modelState, queryState):
     
     bound = 0
     
+    if USE_NIW_PRIOR:
+        pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
+        pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
+
+        # distribution over topic covariance
+        bound -= 0.5 * K * pseudoObsVar * log(NIW_PSI)
+        bound -= 0.5 * K * pseudoObsVar * log(2)
+        bound -= fns.multigammaln(pseudoObsVar / 2., K)
+        bound -= 0.5 * (pseudoObsVar + K - 1) * safe_log_det(sigT)
+        bound += 0.5 * NIW_PSI * np.trace(isigT)
+
+        # and its entropy
+        # is a constant which we skip
+        
+        # distribution over means
+        bound -= 0.5 * K * log(1./pseudoObsMeans) * safe_log_det(sigT)
+        bound -= 0.5 / pseudoObsMeans * (topicMean).T.dot(isigT).dot(topicMean)
+        
+        # and its entropy
+        bound += 0.5 * safe_log_det(sigT) # +  a constant
+        
+    
     # Distribution over document topics
     bound -= (D*K)/2. * LN_OF_2_PI
     bound -= D/2. * la.det(sigT)
@@ -369,7 +412,7 @@ def var_bound(W, modelState, queryState):
     bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
        
     # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
+#     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
     
     # Distribution over word-topic assignments and words and the formers
     # entropy. This is somewhat jumbled to avoid repeatedly taking the
@@ -397,17 +440,6 @@ def var_bound(W, modelState, queryState):
 # PUBLIC HELPERS
 # ==============================================================
 
-def printStderr(msg):
-    sys.stdout.flush()
-    sys.stderr.write(msg + '\n')
-    sys.stderr.flush()
-    
-
-def static_var(varname, value):
-    def decorate(func):
-        setattr(func, varname, value)
-        return func
-    return decorate
 
 @static_var("old_bound", 0)
 def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
@@ -423,10 +455,19 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
-    if int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+    addendum = ""
+    if var_name == "sigT":
+        try:
+            addendum = "det(sigT) = %g" % (la.det(sigT))
+        except:
+            addendum = "det(sigT) = <undefined>"
+    
+    if isnan(bound):
+        printStderr ("Bound is NaN")
+    elif int(bound - old_bound) < 0:
+        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
     else:
-        print ("Iter %3d Update %-15s Bound %22f (%15s)" % (itr, var_name, bound, diff)) 
+        print ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
     pass

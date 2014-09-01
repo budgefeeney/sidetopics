@@ -21,9 +21,10 @@ from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
-from model.stm_yv import lnDetOfDiagMat, safeDet, static_var
-from model.ctm_bohning import printStderr, LN_OF_2_PI, \
-    LN_OF_2_PI_E, newModelAtRandom as newCtmModelAtRandom
+from model.ctm_bohning import LN_OF_2_PI, LN_OF_2_PI_E,\
+    newModelAtRandom as newCtmModelAtRandom
+from util.misc import printStderr, static_var, converged, clamp
+from util.overflow_safe import safeDet, lnDetOfDiagMat
 from model.ctm import verifyProper, vocab
     
 # ==============================================================
@@ -137,7 +138,7 @@ def newQueryState(W, modelState):
     return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=0.01, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -253,7 +254,7 @@ def train (W, X, modelState, queryState, trainPlan):
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         # Finally update the parameter V
-        V = la.inv(K*R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
+        V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
         debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
         
         
@@ -317,6 +318,11 @@ def train (W, X, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
             bvIdx += 1
+        
+            # Check to see if the improvment in the bound has fallen below the threshold
+            if converged (boundIters, boundValues, bvIdx, epsilon):
+                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
+                return modelState, queryState, (boundIters, boundValues, boundLikes)
         
         
     revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)

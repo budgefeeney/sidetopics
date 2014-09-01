@@ -15,6 +15,33 @@ import scipy.linalg as la
 import sys
 from math import log
 
+def lnDetOfDiagMat(X):
+    '''
+    Returns the log of the determinant of a diagonal matrix
+    '''
+    return np.sum(np.log(np.diag(X)))
+  
+
+def safeDet(X, x_name="X"):
+    '''
+    Returns max(det(X), epsilon) where epsilon is the smallest, **positive**
+    value allowed by the dtype of X
+    
+    Prints a message to stderr if we return epsilon instead of det(X)
+    '''
+    # A Useful constant for determinants
+    minPositiveValue = 1E-35 if X.dtype == np.float32 else 1E-300
+    
+    detX = la.det(X)
+    if detX > -minPositiveValue and detX < minPositiveValue: # i.e. is roughly zero:
+#        printStderr ("det(" + x_name + ") == %f ~= 0" % detX)
+        detX = minPositiveValue
+    if detX <= -minPositiveValue: # i.e. is less than zero
+#        printStderr ("det(" + x_name + ") == %f < 0" % detX)
+        detX = minPositiveValue
+    
+    return detX
+
 def safe_log_det(X):
     '''
     Returns the log of the determinant of a matrix

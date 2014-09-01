@@ -23,11 +23,13 @@ import scipy.special as fns
 import sys
 import time
 
-import model.lda_cvb_fast as lda_cvb
 import model.lda_vb_fast as compiled
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
+from util.misc import constantArray, converged, clamp
+from model.lda_cvb import toWordList
+
 
 # ==============================================================
 # CONSTANTS
@@ -98,11 +100,11 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     T = W.shape[1]
     
     if topicPrior is None:
-        topicPrior = constantVector(K, 50.0 / K, dtype) # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.01 # Also from G&S
     
-    vocabPriorVec = constantVector((T,), vocabPrior)
+    vocabPriorVec = constantArray((T,), vocabPrior)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
     
     # Peturb to avoid zero probabilities
@@ -126,34 +128,14 @@ def newQueryState(W, modelState):
     Return:
     A CtmQueryState object
     '''
-    K =  modelState.K
-    
     D,_ = W.shape
     W_list, docLens = toWordList(W)
-    maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
     topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)
 
     return QueryState(W_list, docLens, topicDists)
 
-def constantVector(shape, defaultValue, dtype=DTYPE):
-    # return np.full(shape, defaultValue)
-    result = np.ndarray(shape=shape, dtype=dtype)
-    result.fill(defaultValue)
-    return result
-
-def toWordList (w_csr):
-    docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
-    
-    if w_csr.dtype == np.int32:
-        return lda_cvb.toWordList_i32 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
-    elif w_csr.dtype == np.float32:
-        return lda_cvb.toWordList_f32 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
-    elif w_csr.dtype == np.float64:
-        return lda_cvb.toWordList_f64 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
-    else:
-        raise ValueError("No implementation defined for dtype = " + str(w_csr.dtype))
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
@@ -239,7 +221,7 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
-        if converged (boundIters, boundValues, bvIdx, epsilon):
+        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, topicDists), \
@@ -264,6 +246,7 @@ def train (W, X, modelState, queryState, trainPlan):
 
 MaxInnerItrs = 20
 MinInnerItrs = 3
+#@jit never really worked very well...
 def iterate (iterations, D, K, T, \
              W_list, docLens, \
              topicPrior, vocabPrior, \
@@ -315,45 +298,6 @@ def iterate (iterations, D, K, T, \
         
     return totalItrs
 
-def converged (boundIters, boundValues, bvIdx, epsilon):
-    '''
-    Returns true if we've converged. To measure convergence we consider the angle between
-    the last two bound measurements, and a horizontal plane, and if this angle measured
-    in degrees is less than epsilon, then we've converged
-    
-    Params:
-    boundIters  - the iterations at which the bound was measured each time.
-    boundValues - the list of bound value measurements, as a numpy array
-    bvIdx       - points to the position in which the *next* bound value will be stored
-    epsilon     - the minimum angle, in degrees, that the bound vales must attain
-    
-    Return:
-    True if converged, false otherwise
-    '''
-    if bvIdx < 2:
-        return False
-    
-    opposite = boundValues[bvIdx - 1] - boundValues[bvIdx - 2]
-    adjacent = boundIters[bvIdx - 1] - boundIters[bvIdx - 2]
-    angle = np.degrees (np.arctan(opposite / adjacent))
-    
-    print ("Angle of convergence is %f" % (angle))
-    
-    return angle < epsilon
-    
-
-def clamp (array1, array2, array3, length):
-    '''
-    Clamp the arrays to the given length
-    '''
-    inputs = [array1, array2, array3]
-    outputs = []
-    for inArr in inputs:
-        outArr = np.empty(shape=(length,), dtype=inArr.dtype)
-        outArr[:] = inArr[:length]
-        outputs.append (outArr)
-    
-    return outputs[0], outputs[1], outputs[2]
 
 
 def query(W, X, modelState, queryState, queryPlan):
