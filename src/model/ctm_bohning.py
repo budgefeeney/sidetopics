@@ -188,7 +188,6 @@ def train (W, X, modelState, queryState, trainPlan):
     pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
     priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigT_diag.fill (NIW_PSI)
-    priorSigT = np.diag(priorSigT_diag)
     
     # Iterate over parameters
     for itr in range(iterations):
@@ -257,8 +256,6 @@ def train (W, X, modelState, queryState, trainPlan):
                 means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
         
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)        
-        
-        print ("\n" + str(varcs.mean()) + "\n")
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
