@@ -29,8 +29,6 @@ import model.lda_vb_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 
-from numba import jit
-
 # ==============================================================
 # CONSTANTS
 # ==============================================================
@@ -266,7 +264,6 @@ def train (W, X, modelState, queryState, trainPlan):
 
 MaxInnerItrs = 20
 MinInnerItrs = 3
-@jit
 def iterate (iterations, D, K, T, \
              W_list, docLens, \
              topicPrior, vocabPrior, \
