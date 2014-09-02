@@ -309,7 +309,7 @@ cdef float l1_dist_f32 (float[:] left, float[:] right) nogil:
 cdef bint is_invalid (double zdnk) nogil:
     return is_nan(zdnk) \
         or zdnk < -0.001 \
-        or zdnk > 1.1
+#        or zdnk > 1.1 \ # Called before normalization
 #         or isinf(zdnk) \
 #        or zdnk > 1.001
 
