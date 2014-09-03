@@ -255,7 +255,7 @@ cdef inline int infer_topics_f32(int d, int K, \
                 z_dnk[n,k] = exp(z_dnk[n,k] - max)
                 norm += z_dnk[n,k]
          
-            # Normalize the token probability, and check it's valid
+            # Normalize the token probability, and check it's valid
             for k in range(K):
                 z_dnk[n,k] /= norm
                 if is_invalid(z_dnk[n,k]):
@@ -527,7 +527,7 @@ cdef inline int infer_topics_f64(int d, int D, int K, \
                 z_dnk[n,k] = exp(z_dnk[n,k] - max)
                 norm += z_dnk[n,k]
          
-            # Normalize the token probability, and check it's valid
+            # Normalize the token probability, and check it's valid
             for k in range(K):
                 z_dnk[n,k] /= norm
                 if is_invalid(z_dnk[n,k]):
