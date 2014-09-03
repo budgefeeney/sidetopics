@@ -129,7 +129,9 @@ def newQueryState(W, modelState):
     A CtmQueryState object
     '''
     D,_ = W.shape
+    print("Converting Bag of Words matrix to List of List representation... ", end="")
     W_list, docLens = toWordList(W)
+    print("Done")
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
     topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)
@@ -227,7 +229,7 @@ def train (W, X, modelState, queryState, trainPlan):
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
         
-        print ("Segment %d Total Iterations %d Duration %d" % (segment, totalItrs, duration))
+        print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, totalItrs, duration))
     
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \

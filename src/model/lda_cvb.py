@@ -126,7 +126,9 @@ def newQueryState(W, modelState):
     K =  modelState.K
     
     D,_ = W.shape
+    print("Converting document-term matrix to list of lists... ", end="")
     W_list, docLens = toWordList(W)
+    print("Done")
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -244,6 +246,8 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
             return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
                 (boundIters, boundValues, likelyValues)
+        
+        print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, -1, -1))
     
     # Final batch of iterations.
     do_iterations (remainder, D_query, D_train, K, T, \
