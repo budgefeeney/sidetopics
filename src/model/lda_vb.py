@@ -223,13 +223,13 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
-        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
+        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=5):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
         
-        print ("Segment %d/%d Total Iterations %d Duration %d Bound %10.2f Likelihood %10.2" % (segment, logPoints, totalItrs, duration, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
+        print ("Segment %d/%d Total Iterations %d Duration %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, duration, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
     
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \
@@ -328,12 +328,14 @@ def query(W, X, modelState, queryState, queryPlan):
     
     
     if modelState.dtype == np.float32:
-        compiled.query_f32 (D, K, \
+        for _ in range(queryPlan.iterations):
+            compiled.query_f32 (D, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
                      wordDists)
     else:
-        compiled.query_f64 (D, K, \
+        for _ in range(queryPlan.iterations):
+            compiled.query_f64 (D, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
                      wordDists)

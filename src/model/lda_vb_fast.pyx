@@ -29,6 +29,8 @@ from libc.stdlib cimport rand, srand, malloc, free, RAND_MAX
 from libc.math cimport log, exp, sqrt, fabs
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 #from openmp cimport omp_set_num_threads
+import scipy.special as fns
+import scipy.linalg as la
 
 cdef int MaxInnerItrs = 100
 cdef int MinInnerIters = 3
@@ -93,13 +95,16 @@ def iterate_f32(int iterations, int D, int K, int T, \
         float[:,:] newVocabDists = vocabDists
         float[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float32)
         float[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float32)
-        
-        float      z # These four for the hyperprior update
-        float[:]   q = np.ndarray(shape=(K,), dtype=np.float32)
-        float[:]   g = np.ndarray(shape=(K,), dtype=np.float32)
-        float      b
+
         float      topicPriorSum
+        float[:]   oldTopicPrior
+        float[:,:] count
+        float[:]   num
+        float      dnm
         
+    count = np.multiply(topicDists, docLens[:,None])
+    countSum = np.sum(count, axis=1)
+    
     totalItrs = 0
     for itr in range(iterations):
         oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
@@ -138,18 +143,18 @@ def iterate_f32(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-#        for _ in range(20):
-#            z = D * fns.polygamma(1, topicPriorSum)
-#            q = -D * fns.polygamma(1, topicPrior)
-#            
-#            g = fns.psi(topicPrior) * -D 
-#            g += D * fns.psi(topicPriorSum)
-#            g += np.sum(fns.psi(topicDists) - fns.psi(np.sum(topicDists, axis=1)), axis=0)
-#            g -= np.sum ()   
-#            
-#            b = np.sum(np.divide(g, q))
-#            b /= (1./z + np.sum(np.reciprocal(q)))
-#            topicPrior -= (np.divide(np.subtract (g, b), q))
+        for iteration in range(1000):
+            oldTopicPrior = np.copy(topicPrior)
+            
+            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+            
+            np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
+            
+            if iteration % 10 == 0:
+                print ("Iteration %4d : %s" % (iteration, str(topicPrior)))
+            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+                break
                 
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
@@ -359,12 +364,15 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double[:,:] newVocabDists = vocabDists
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
         double[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float64)
-        
-        double      z # These four for the hyperprior update
-        double[:]   q = np.ndarray(shape=(K,), dtype=np.float64)
-        double[:]   g = np.ndarray(shape=(K,), dtype=np.float64)
-        double      b
+
         double      topicPriorSum
+        double[:]   oldTopicPrior
+        double[:,:] count
+        double[:]   num
+        double      dnm
+        
+    count = np.multiply(topicDists, docLens[:,None])
+    countSum = np.sum(count, axis=1)
         
     totalItrs = 0
     for itr in range(iterations):
@@ -404,19 +412,19 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-#        for _ in range(20):
-#            z = D * fns.polygamma(1, topicPriorSum)
-#            q = -D * fns.polygamma(1, topicPrior)
-#            
-#            g = fns.psi(topicPrior) * -D 
-#            g += D * fns.psi(topicPriorSum)
-#            g += np.sum(fns.psi(topicDists) - fns.psi(np.sum(topicDists, axis=1)), axis=0)
-#            g -= np.sum ()   
-#            
-#            b = np.sum(np.divide(g, q))
-#            b /= (1./z + np.sum(np.reciprocal(q)))
-#            topicPrior -= (np.divide(np.subtract (g, b), q))
-                
+        for iteration in range(1000):
+            oldTopicPrior = np.copy(topicPrior)
+            
+            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+            
+            np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
+            
+            if iteration % 10 == 0:
+                print ("Iteration %4d : %s" % (iteration, str(topicPrior)))
+            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+                break
+    
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
     if iterations % 2 == 0:
