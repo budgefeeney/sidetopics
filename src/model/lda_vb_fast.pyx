@@ -24,8 +24,6 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
-import scipy.special as fns
-
 from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free, RAND_MAX
 from libc.math cimport log, exp, sqrt, fabs
