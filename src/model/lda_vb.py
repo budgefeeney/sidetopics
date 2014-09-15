@@ -229,7 +229,7 @@ def train (W, X, modelState, queryState, trainPlan):
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
         
-        print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, totalItrs, duration))
+        print ("Segment %d/%d Total Iterations %d Duration %d Bound %10.2f Likelihood %10.2" % (segment, logPoints, totalItrs, duration, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
     
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \
