@@ -96,6 +96,29 @@ def run(args):
     with open(args.words, 'rb') as f:
         W = pkl.load(f)
         
+        #
+        # <Debug>, use bagging to increase the dataset twenty-fold
+        #
+#         BagFactor = 20
+#         base = W
+#         W = np.ndarray(shape=(W.shape[0] * BagFactor, W.shape[1]), dtype=np.int32)
+#         for rowId in range(base.shape[0]):
+#             row = np.squeeze (np.asarray(base[rowId,:].astype(np.float64).todense()))
+#             cnt = row.sum()
+#             row += 0.1
+#             
+#             for offset in range(BagFactor):
+#                 dist = rd.dirichlet(row)
+#                 #dist = row
+#                 newCnt = rd.poisson(cnt)
+#                 W[rowId * BagFactor + offset,:] = rd.multinomial(newCnt, dist).astype(np.int32)
+#                 
+#         W = ssp.csr_matrix(W).astype(dtype)
+#         
+        #
+        # </Debug>
+        #
+        
         docLens = np.squeeze(np.asarray(W.sum(axis=1)))
         if docLens.min() < 0.5: # docLens should be integers, but in case it's floats which don't add up accurately use 0.5
             print("Input doc-term matrix contains some empty rows. These have been removed.")
