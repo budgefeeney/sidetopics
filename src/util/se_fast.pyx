@@ -391,7 +391,7 @@ def sparseScalarProductOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr,
 def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in 
-    mind the sparsity of A, calculate values only when required.
+    mind the sparsity of A, calculating values only when required.
     Moreover if any product of the dot is zero, it's replaced with
     the minimum non-zero value allowed by the datatype, to avoid NaNs
      
