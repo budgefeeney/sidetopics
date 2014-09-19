@@ -235,25 +235,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
                        W_list, docLens, \
                        q_n_dk, q_n_kt, q_n_k, z_dnk,\
                        topicPrior, vocabPrior)
-        
-        if not query:
-            D   = q_n_dk.shape[0]
-            n_d = np.sum(q_n_dk, axis=1) 
-            for k in range(K):
-                topicPrior[k] = 1.0
-            for itr in range(1000):
-                oldTopicPrior = np.copy(topicPrior)
-            
-                num = np.sum(fns.psi(np.add(q_n_dk, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
-                dnm = np.sum(fns.psi(n_d + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-            
-                tmp = np.divide(num, dnm)
-                for k in range(K):
-                    topicPrior[k] *= tmp[k]
-            
-                print ("Iteration %3d :: %s" % (itr, str(topicPrior)))
-                if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
-                    break
+
         
         # Measure and record the improvement to the bound and log-likely
         boundIters[bvIdx]   = segment * segIters
@@ -294,10 +276,6 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
             m_n_dk = q_n_dk.copy()
             m_n_kt = q_n_kt.copy()
             m_n_k  = q_n_k.copy()
-    
-            # Add in smoothing to the parameters of the Dirichlets over vocab and topic
-            m_n_kt += vocabPrior
-            m_n_dk += topicPrior
             
     return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
@@ -370,7 +348,11 @@ def log_likelihood (W, modelState, queryState):
     Actually returns a vector of D document specific log likelihoods
     '''
     n_dk, n_kt = queryState.n_dk, modelState.n_kt
-    
+    a, b       = modelState.topicPrior, modelState.vocabPrior
+   
+    n_dk += a[np.newaxis,:]
+    n_kt += b
+
     # Scale to create distributions over doc-topics and topic-vocabs
     doc_norm = n_dk.sum(axis = 1)
     voc_norm = n_kt.sum(axis = 1)
@@ -385,6 +367,9 @@ def log_likelihood (W, modelState, queryState):
     # Rescale back to word-counts
     n_dk *= doc_norm[:,np.newaxis]
     n_kt *= voc_norm[:,np.newaxis]
+    
+    n_dk -= a[np.newaxis, :]
+    n_kt -= b
     
     return ln_likely
     
