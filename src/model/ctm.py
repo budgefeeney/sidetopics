@@ -39,6 +39,8 @@ USE_NIW_PRIOR=False
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
+VocabPrior=0.1
+
 DEBUG=True
 
 MODEL_NAME="ctm/bouchard"
@@ -220,8 +222,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # 3/4 Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-10 # if dtype == np.float32 else 1E-300
         
         # 4/4 Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
