@@ -36,6 +36,8 @@ from cython.parallel cimport parallel, prange
 from libc.stdlib cimport rand, srand, malloc, free
 from libc.math cimport log
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
+import scipy.linalg as la
+import scipy.special as fns
 #from openmp cimport omp_set_num_threads
 
 @cython.boundscheck(False)
@@ -453,7 +455,7 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
 def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                  int[:,:] W_list, int[:] docLens, \
                  double[:,:] q_n_dk, double[:,:] q_n_kt, double[:] q_n_k, double[:,:,:] z_dnk,\
-                 double topicPrior, double vocabPrior):
+                 double[:] topicPrior, double vocabPrior):
     '''
     Performs the given number of iterations as part of the training
     procedure. There are two corpora, the model corpus of files, whose
@@ -493,16 +495,20 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
         double *mems = new_array_f64(K)
         double denom, diff
         
+        double[:]   oldTopicPrior
+        double[:]   num
+        double      dnm
+        
     try:
-        with nogil:
-            for itr in range(iterations):
+        for itr in range(iterations):
+            with nogil:
                 for d in range(D_query):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
                         denom = 0.0
                         for k in range(K):
                             mems[k] = \
-                                  (topicPrior     + q_n_dk[d,k]  -  z_dnk[d,n,k]) \
+                                  (topicPrior[k]  + q_n_dk[d,k]  -  z_dnk[d,n,k]) \
                                 * (vocabPrior     + q_n_kt[k,t]  -  z_dnk[d,n,k]) \
                                 / (T * vocabPrior + q_n_k[k]     -  z_dnk[d,n,k])
                         
@@ -513,7 +519,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                             if is_invalid_prob_f64(mems[k]):
                                 with gil:
                                     print ("Iteration %d: mems[%d] = %f" % (d, k, mems[k]))
-                                    print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior, q_n_dk[d,k], z_dnk[d,n,k], topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]))
+                                    print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior[k], q_n_dk[d,k], z_dnk[d,n,k], topicPrior[k] + q_n_dk[d,k] - z_dnk[d,n,k]))
                                     print ("vocabPrior + q_n_kt[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (k, t, d, n, k, vocabPrior, q_n_kt[k,t], z_dnk[d,n,k], vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]))
                                     print ("T * vocabPrior + q_n_k[%d] - z_dnk[%d,%d,%d] = %f * %f + %f - %f = %f" % (k, d, n, k, T, vocabPrior, q_n_k[k], z_dnk[d,n,k], T * vocabPrior + q_n_k[k] - z_dnk[d,n,k]))
                                     return
@@ -524,6 +530,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                             q_n_dk[d,k] += diff
                             q_n_kt[k,t] += diff
                             q_n_k[k]    += diff
+        
                         
     finally:
         free(mems)
