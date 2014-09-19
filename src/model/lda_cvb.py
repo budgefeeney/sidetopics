@@ -236,6 +236,25 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
                        q_n_dk, q_n_kt, q_n_k, z_dnk,\
                        topicPrior, vocabPrior)
         
+        if not query:
+            D   = q_n_dk.shape[0]
+            n_d = np.sum(q_n_dk, axis=1) 
+            for k in range(K):
+                topicPrior[k] = 1.0
+            for itr in range(1000):
+                oldTopicPrior = np.copy(topicPrior)
+            
+                num = np.sum(fns.psi(np.add(q_n_dk, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+                dnm = np.sum(fns.psi(n_d + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+            
+                tmp = np.divide(num, dnm)
+                for k in range(K):
+                    topicPrior[k] *= tmp[k]
+            
+                print ("Iteration %3d :: %s" % (itr, str(topicPrior)))
+                if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+                    break
+        
         # Measure and record the improvement to the bound and log-likely
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
