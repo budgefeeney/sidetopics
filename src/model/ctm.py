@@ -27,6 +27,9 @@ from util.sigmoid_utils import rowwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
 from util.misc import clamp, converged
+
+from math import sqrt
+from sklearn.covariance import oas
     
 # ==============================================================
 # CONSTANTS
@@ -195,8 +198,10 @@ def train (W, X, modelState, queryState, trainPlan):
                     else means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
-        sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-        sigT += ssp.diags(varcs.mean(axis=0), 0)
+        sigT, _ = oas(means, assume_centered=False)
+        if dtype is not np.float64:
+            sigT = sigT.astype(dtype)
+        sigT += np.diag(varcs.mean(axis=0))
         if USE_NIW_PRIOR:
             sigT.flat[::K+1] += priorSigt_diag
             sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
@@ -240,6 +245,8 @@ def train (W, X, modelState, queryState, trainPlan):
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
 #        means = varcs * rhsMat
+
+        means -= (means[:,0])[:,np.newaxis]
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
