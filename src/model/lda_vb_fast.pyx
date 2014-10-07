@@ -412,18 +412,20 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-        for iteration in range(1000):
-            oldTopicPrior = np.copy(topicPrior)
-            
-            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
-            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-            
-            np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
-            
-            if iteration % 10 == 0:
-                print ("Iteration %4d : %s" % (iteration, str(topicPrior)))
-            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
-                break
+#         for iteration in range(1000):
+#             oldTopicPrior = np.copy(topicPrior)
+#             
+#             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+#             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+#             
+#             for k in range(K):
+#                 topicPrior[k] *= num[k] / dnm
+# #             np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
+#             
+# #             if iteration % 10 == 0:
+# #                 print ("Iteration %4d : %s" % (iteration, str(np.array(topicPrior))))
+#             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+#                 break
     
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
@@ -437,6 +439,8 @@ def iterate_f64(int iterations, int D, int K, int T, \
 #        topicPriorStr += ", " + str(topicPrior[k])
 #    print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
