@@ -32,6 +32,8 @@ from util.overflow_safe import safe_log_det
 from math import isnan
     
 from model.ctm import vocab
+
+from sklearn.covariance import oas
     
 # ==============================================================
 # CONSTANTS
@@ -205,12 +207,12 @@ def train (W, X, modelState, queryState, trainPlan):
             diff = means - topicMean[np.newaxis,:]
             sigT = diff.T.dot(diff) \
                  + pseudoObsVar * np.outer(topicMean, topicMean)
-            sigT += ssp.diags(varcs.mean(axis=0) + priorSigT_diag, 0)
+            sigT += np.diag(varcs.mean(axis=0) + priorSigT_diag)
             sigT /= (D + pseudoObsVar - K)
         else:
             sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-            sigT += ssp.diags(varcs.mean(axis=0), 0)
-         
+            sigT += np.diag(varcs.mean(axis=0))
+           
         if diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
@@ -254,6 +256,8 @@ def train (W, X, modelState, queryState, trainPlan):
         else:
             for d in range(D):
                 means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
+        
+        means -= (means[:,0])[:,np.newaxis]
         
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)        
         
