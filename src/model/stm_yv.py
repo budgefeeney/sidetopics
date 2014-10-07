@@ -41,6 +41,8 @@ import time
 DEBUG=False
 MODEL_NAME="stm-yv/bouchard"
 
+VocabPrior=0.1
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -235,8 +237,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        vocab += vocabPrior
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-10 # if dtype == np.float32 else 1E-300
         
         # Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)

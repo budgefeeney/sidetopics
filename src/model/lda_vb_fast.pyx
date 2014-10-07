@@ -102,8 +102,6 @@ def iterate_f32(int iterations, int D, int K, int T, \
         float[:]   num
         float      dnm
         
-    count = np.multiply(topicDists, docLens[:,None])
-    countSum = np.sum(count, axis=1)
     
     totalItrs = 0
     for itr in range(iterations):
@@ -143,16 +141,20 @@ def iterate_f32(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-        for iteration in range(1000):
+        count = np.multiply(topicDists, docLens[:,None])
+        countSum = np.sum(count, axis=1)
+        for k in range(K):
+            topicPrior[k] = 1.0
+        for _ in range(1000):
             oldTopicPrior = np.copy(topicPrior)
-            
+             
             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-            
-            np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
-            
-            if iteration % 10 == 0:
-                print ("Iteration %4d : %s" % (iteration, str(topicPrior)))
+             
+            tmp = np.divide(num, dnm)
+            for k in range(K):
+                topicPrior[k] *= tmp[k]
+             
             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
                 break
                 
@@ -163,10 +165,6 @@ def iterate_f32(int iterations, int D, int K, int T, \
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
-#    topicPriorStr = str(topicPrior[0])
-#    for k in range(1,K):
-#        topicPriorStr += ", " + str(topicPrior[k])
-#    print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
 
 @cython.boundscheck(False)
@@ -367,13 +365,12 @@ def iterate_f64(int iterations, int D, int K, int T, \
 
         double      topicPriorSum
         double[:]   oldTopicPrior
+        double[:]   tmp
         double[:,:] count
         double[:]   num
         double      dnm
         
-    count = np.multiply(topicDists, docLens[:,None])
-    countSum = np.sum(count, axis=1)
-        
+    
     totalItrs = 0
     for itr in range(iterations):
         oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
@@ -412,21 +409,23 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-#         for iteration in range(1000):
-#             oldTopicPrior = np.copy(topicPrior)
-#             
-#             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
-#             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-#             
-#             for k in range(K):
-#                 topicPrior[k] *= num[k] / dnm
-# #             np.multiply(topicPrior, np.divide(num, dnm), out=topicPrior)
-#             
-# #             if iteration % 10 == 0:
-# #                 print ("Iteration %4d : %s" % (iteration, str(np.array(topicPrior))))
-#             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
-#                 break
-    
+        count = np.multiply(topicDists, docLens[:,None])
+        countSum = np.sum(count, axis=1)
+        for k in range(K):
+            topicPrior[k] = 1.0
+        for _ in range(1000):
+            oldTopicPrior = np.copy(topicPrior)
+             
+            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+             
+            tmp = np.divide(num, dnm)
+            for k in range(K):
+                topicPrior[k] *= tmp[k]
+             
+            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+                break
+     
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
     if iterations % 2 == 0:
@@ -434,10 +433,6 @@ def iterate_f64(int iterations, int D, int K, int T, \
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
-#    topicPriorStr = str(topicPrior[0])
-#    for k in range(1,K):
-#        topicPriorStr += ", " + str(topicPrior[k])
-#    print ("Topic prior is " + topicPriorStr)
     return totalItrs                        
 
 

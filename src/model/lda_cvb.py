@@ -20,6 +20,7 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import scipy.special as fns
+import scipy.linalg as la
 import numpy.random as rd
 import sys
 
@@ -69,7 +70,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(\
         model.K, \
-        model.topicPrior, \
+        None if model.topicPrior is None else model.topicPrior.copy(), \
         model.vocabPrior, \
         None if model.n_dk is None else model.n_dk.copy(), \
         None if model.n_kt is None else model.n_kt.copy(), \
@@ -98,9 +99,9 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     assert K > 1, "There must be at least two topics"
     
     if topicPrior is None:
-        topicPrior = 50.0 / K # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K,), 50.0 / K, dtype=dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.01 # Also from G&S
+        vocabPrior = 0.1 # Also from G&S
         
     n_dk = None # These start out at none until we actually
     n_kv = None # go ahead and train this model.
@@ -132,14 +133,10 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    prior = constantArray((K,), modelState.topicPrior, modelState.dtype)
-    z_dnk = rd.dirichlet(prior, size=D * maxN) \
+    z_dnk = rd.dirichlet(modelState.topicPrior, size=D * maxN) \
           .astype(modelState.dtype) \
           .reshape((D,maxN,K))
     
-    # The following method zeros z[d,n,k] where no word n > word-count for document
-    # d emulated a jagged array. It also
-    #
     n_dk, n_kt, n_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
     
     # Lastly, convert the memory-views returned from Cython into numpy arrays
@@ -214,11 +211,16 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
     likelyValues = np.zeros(shape=(logPoints,))
     bvIdx = 0
     
+    # Early stopping check
+    finishedTraining = False
+    
     # Add the model counts (essentially the learnt model parameters) to those for
     # the query, assuming the model has been trained previously
     if m_n_dk is not None:
         np.add (q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt += m_n_kt
         np.add (q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  += m_n_k
+    
+#     print ("Topic prior : " + str(topicPrior))
     
     # Select the training iterations function appropriate for the dtype
     do_iterations = compiled.iterate_f32 \
@@ -233,31 +235,32 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
                        W_list, docLens, \
                        q_n_dk, q_n_kt, q_n_k, z_dnk,\
                        topicPrior, vocabPrior)
-    
+
+        
         # Measure and record the improvement to the bound and log-likely
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
         likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
         bvIdx += 1
         
-        # Check to see if the improvment in the bound has fallen below the threshold
+        # Check to see if the improvement in the bound has fallen below the threshold
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-            return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
-                QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
-                (boundIters, boundValues, likelyValues)
+            finishedTraining = True
+            break
         
         print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, -1, -1))
     
-    # Final batch of iterations.
-    do_iterations (remainder, D_query, D_train, K, T, \
+    # Final scheduled batch of iterations if we haven't already converged.
+    if not finishedTraining:
+        do_iterations (remainder, D_query, D_train, K, T, \
                    W_list, docLens, \
                    q_n_dk, q_n_kt, q_n_k, z_dnk,\
                    topicPrior, vocabPrior)
     
-    boundIters[bvIdx]   = iterations - 1
-    boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
-    likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        boundIters[bvIdx]   = iterations - 1
+        boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
         
     # Now return the results
     if query: # Model is unchanged, query is changed
@@ -345,7 +348,11 @@ def log_likelihood (W, modelState, queryState):
     Actually returns a vector of D document specific log likelihoods
     '''
     n_dk, n_kt = queryState.n_dk, modelState.n_kt
-    
+    a, b       = modelState.topicPrior, modelState.vocabPrior
+   
+    n_dk += a[np.newaxis,:]
+    n_kt += b
+
     # Scale to create distributions over doc-topics and topic-vocabs
     doc_norm = n_dk.sum(axis = 1)
     voc_norm = n_kt.sum(axis = 1)
@@ -360,6 +367,9 @@ def log_likelihood (W, modelState, queryState):
     # Rescale back to word-counts
     n_dk *= doc_norm[:,np.newaxis]
     n_kt *= voc_norm[:,np.newaxis]
+    
+    n_dk -= a[np.newaxis, :]
+    n_kt -= b
     
     return ln_likely
     
@@ -387,11 +397,11 @@ def var_bound(W, modelState, queryState):
     # Expected value of the p(W,Z). Note everything else marginalized out, and
     # we're using a 0-th order Taylor expansion.
     try:
-        bound += D * (fns.gammaln(K * a) - K * fns.gammaln(a))
+        bound += D * (fns.gammaln(a.sum()) - fns.gammaln(a).sum())
         bound += K * (fns.gammaln(T * b) - T * fns.gammaln(b))
     
-        bound -= np.sum (fns.gammaln(K * a + docLens))
-        bound += np.sum (fns.gammaln(a + n_dk))
+        bound -= np.sum (fns.gammaln(a.sum() + docLens))
+        bound += np.sum (fns.gammaln(a[np.newaxis,:] + n_dk))
     
         bound -= np.sum (fns.gammaln(T * b + n_k))
         bound += np.sum (fns.gammaln(b + n_kt))

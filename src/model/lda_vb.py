@@ -102,7 +102,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.01 # Also from G&S
+        vocabPrior = 0.1 # Also from G&S
     
     vocabPriorVec = constantArray((T,), vocabPrior, dtype)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
@@ -223,7 +223,7 @@ def train (W, X, modelState, queryState, trainPlan):
         likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
         bvIdx += 1
         
-        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=5):
+        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, topicDists), \

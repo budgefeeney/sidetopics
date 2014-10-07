@@ -35,6 +35,8 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=False
 
+VocabPrior=0.1
+
 MODEL_NAME="stm-yv/bohning"
 
 STABLE_SORT_ALG="mergesort"
@@ -243,8 +245,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-10 # if dtype == np.float32 else 1E-300
         
         # Reset the means to their original form, and log effect of vocab update
 #        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)

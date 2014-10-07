@@ -50,7 +50,7 @@ NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kapp
 NIW_PSEUDO_OBS_VAR=+2   # related to K
 NIW_MU=0
 
-
+VocabPrior = 0.1
 
 DEBUG=False
 
@@ -230,8 +230,8 @@ def train (W, X, modelState, queryState, trainPlan):
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
-        vocab += 1E-10 #if dtype == np.float32 else 1E-300
         
         # Reset the means to their original form, and log effect of vocab update
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
