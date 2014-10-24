@@ -173,9 +173,9 @@ def train (W, X, modelState, queryState, trainPlan):
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
-    boundIters   = np.zeros(shape=(iterations // logFrequency,))
-    boundValues  = np.zeros(shape=(iterations // logFrequency,))
-    likelyValues = np.zeros(shape=(iterations // logFrequency,))
+    boundIters   = np.zeros(shape=(iterations // logFrequency + 1,))
+    boundValues  = np.zeros(shape=(iterations // logFrequency + 1,))
+    likelyValues = np.zeros(shape=(iterations // logFrequency + 1,))
     
     bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
@@ -272,9 +272,9 @@ def train (W, X, modelState, queryState, trainPlan):
             bvIdx += 1
         
             # Check to see if the improvement in the bound has fallen below the threshold
-            if converged (boundIters, boundValues, bvIdx, epsilon):
-                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-                return modelState, queryState, (boundIters, boundValues, likelyValues)
+#             if converged (boundIters, boundValues, bvIdx, epsilon):
+#                 boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+#                 return modelState, queryState, (boundIters, boundValues, likelyValues)
         
     
     return \
