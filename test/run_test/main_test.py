@@ -8,7 +8,7 @@ import pickle as pkl
 import tempfile as tmp
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, LdaCvbZero, LdaVb, StmYvBohning, StmYvBouchard, CtmBouchard, CtmBohning
+from run.main import run, ModelNames, LdaCvbZero, LdaVb, StmYvBohning, CtmBouchard, CtmBohning, LdaCvbZero
 
 def tmpFiles():
     '''
@@ -40,32 +40,30 @@ class Test(unittest.TestCase):
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
-        K,P = 50,50
+        K,P = 20, 75
         modelFileses = []
-        for K in [ 50 ]:
-            for modelName in [ CtmBohning ]: #ModelNames:
-                cmdline = '' \
-                        + ' --model '          + modelName \
-                        + ' --dtype '          + 'f8'      \
-                        + ' --num-topics '     + str(K)    \
-                        + ' --num-lat-topics ' + str(Q)    \
-                        + ' --num-lat-feats '  + str(P)    \
-                        + ' --eval '           + 'perplexity'  \
-                        + ' --log-freq '       + '50'      \
-                        + ' --iters '          + '500'      \
-                        + ' --query-iters '    + '250'      \
-                        + ' --folds '          + '10'       \
-                        + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl' \
-#                         + ' --debug True'
-#                         + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets/AuthorTime/words-by-author.pkl' \
-    #                     + ' --feats '          + '/Users/bryanfeeney/Desktop/Tweets/AuthorTime/side.pkl'
-    #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS/W_ar.pkl' \
-    #                     + ' --feats '          + '/Users/bryanfeeney/Desktop/NIPS/X_ar.pkl'
-    #                     + ' --words '          + wordsFile \
-    #                     + ' --feats '          + featsFile 
-    #                     + ' --out-model '      + modelFileDir \
-          
-                modelFileses.extend (run(cmdline.strip().split(' ')))
+        for modelName in [ LdaCvbZero ]: #ModelNames:
+            cmdline = '' \
+                    + ' --model '          + modelName \
+                    + ' --dtype '          + 'f8'      \
+                    + ' --num-topics '     + str(K)    \
+                    + ' --num-lat-feats '  + str(P)    \
+                    + ' --log-freq '       + '10'       \
+                    + ' --eval '           + 'perplexity'  \
+                    + ' --iters '          + '100'      \
+                    + ' --query-iters '    + '20'      \
+                    + ' --folds '          + '10'      \
+                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+                    + ' --out-model '      + '/Users/Desktop/acl-out'
+#                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+#                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
+#                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
+#                    + ' --words '          + wordsFile \
+#                    + ' --feats '          + featsFile 
+#                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
+#                     + ' --out-model '      + modelFileDir \
+      
+            modelFileses.extend (run(cmdline.strip().split(' ')))
         
             modelFileses.insert(0, wordsFile)
             modelFileses.insert(1, featsFile)
