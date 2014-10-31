@@ -10,6 +10,7 @@ Created on 17 Jan 2014
 '''
 
 import os # Configuration for PyxImport later on. Requires GCC
+import sys
 os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
 from math import log
@@ -133,9 +134,16 @@ def newQueryState(W, modelState):
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    z_dnk = rd.dirichlet(modelState.topicPrior, size=D * maxN) \
-          .astype(modelState.dtype) \
-          .reshape((D,maxN,K))
+    print ("Sampling the " + str(D * maxN * K) + " per-token topic distributions... ", end="")
+    sys.stdout.flush()
+#     z_dnk = rd.dirichlet(modelState.topicPrior, size=D * maxN) \
+#           .astype(modelState.dtype) \
+#           .reshape((D,maxN,K)) # very expensive 
+    z_dnk = rd.rand(D*maxN,K)
+    z_dnk /= (z_dnk.sum(axis=1))[:,np.newaxis]
+    z_dnk = z_dnk.rehape((D,maxN,K))
+    print ("Done")
+    sys.stdout.flush()
     
     n_dk, n_kt, n_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
     
@@ -223,6 +231,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
 #     print ("Topic prior : " + str(topicPrior))
     
     # Select the training iterations function appropriate for the dtype
+    print ("Starting Training")
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
