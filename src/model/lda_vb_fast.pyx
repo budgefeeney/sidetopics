@@ -358,8 +358,9 @@ def iterate_f64(int iterations, int D, int K, int T, \
     cdef:
         int         d, n, k, t
         int         itr, totalItrs
-        double[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float64)
-        double[:,:] newVocabDists = vocabDists
+        double[:,:] newVocabDists   = vocabDists
+        double[:,:] diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float64)
+        double[:]   diSumVocabDists = np.ndarray(shape=(K,), dtype=np.float64) 
         double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
         double[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float64)
 
@@ -373,10 +374,11 @@ def iterate_f64(int iterations, int D, int K, int T, \
     
     totalItrs = 0
     for itr in range(iterations):
-        oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
+        diVocabDists[:,:]  = fns.digamma(vocabDists)
+        diSumVocabDists[:] = fns.digamma(np.sum (vocabDists, axis=1))
         
-        vocabNorm[:]       = vocabPrior * T
-        newVocabDists[:,:] = vocabPrior
+        vocabNorm[:]    = vocabPrior * T
+        vocabDists[:,:] = vocabPrior
         
         topicPriorSum = np.sum(topicPrior)
         
@@ -388,24 +390,24 @@ def iterate_f64(int iterations, int D, int K, int T, \
                                               W_list, docLens, \
                                               topicPrior, topicPriorSum, \
                                               z_dnk, oldMems, topicDists, \
-                                              oldVocabDists)
+                                              diVocabDists, diSumVocabDists)
                 
                 # Then use those to gradually update our new vocabulary
                 for k in range(K):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
-                        newVocabDists[k,t] += z_dnk[n,k]
-                        vocabNorm[k] += z_dnk[n,k]
+                        vocabDists[k,t] += z_dnk[n,k]
+                        vocabNorm[k]    += z_dnk[n,k]
                         
                         if is_invalid(newVocabDists[k,t]):
                             with gil:
-                                print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
-                                      % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
+                                print ("vocabDists[%d,%d] = %f, z_dnk[%d,%d] = %f" \
+                                      % (k, t, vocabDists[k,t], n, k, z_dnk[n,k]))
                             
             # With all documents processed, normalize the vocabulary
-            for k in prange(K):
-                for t in range(T):
-                    newVocabDists[k,t] /= vocabNorm[k]
+#             for k in prange(K):
+#                 for t in range(T):
+#                     newVocabDists[k,t] /= vocabNorm[k]
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
@@ -428,8 +430,6 @@ def iterate_f64(int iterations, int D, int K, int T, \
      
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
-    if iterations % 2 == 0:
-        vocabDists[:,:] = newVocabDists
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
@@ -440,14 +440,19 @@ def iterate_f64(int iterations, int D, int K, int T, \
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def query_f64(int D, int K, \
+def query_f64(int D, int T, int K, \
                  int[:,:] W_list, int[:] docLens, \
                  double[:] topicPrior, double[:,:] z_dnk, double[:,:] topicDists, 
                  double[:,:] vocabDists):
     cdef:
         int         d
-        double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
+        double[:]   oldMems         = np.ndarray(shape=(K,),  dtype=np.float64)
+        double[:,:] diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float64)
+        double[:]   diSumVocabDists = np.ndarray(shape=(K,),  dtype=np.float64)
         double      topicPriorSum = np.sum(topicPrior)
+    
+    diVocabDists[:,:]  = fns.digamma(vocabDists)
+    diSumVocabDists[:] = fns.digamma(np.sum(vocabDists, axis=1))
     
     with nogil:
         for d in range(D):
@@ -456,17 +461,17 @@ def query_f64(int D, int K, \
                  topicPrior, topicPriorSum,
                  z_dnk, 
                  oldMems, topicDists, 
-                 vocabDists)
+                 diVocabDists, diSumVocabDists)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef inline int infer_topics_f64(int d, int D, int K, \
+cdef int infer_topics_f64(int d, int D, int K, \
                  int[:,:] W_list, int[:] docLens, \
                  double[:] topicPrior, double topicPriorSum,
                  double[:,:] z_dnk, 
                  double[:] oldMems, double[:,:] topicDists, 
-                 double[:,:] vocabDists) nogil:
+                 double[:,:] diVocabDists, double[:] diSumVocabDists) nogil:
     '''             
     Infers the topic assignments for a given document d with a fixed vocab and
     topic prior. The topicDists and z_dnk are mutated in-place. Everything else
@@ -494,26 +499,30 @@ cdef inline int infer_topics_f64(int d, int D, int K, \
         double      norm = 0.0
         double      epsilon = 0.01 / K
         double      post
+        double      beta_kt
     
     
     # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
+    
     
     # For each document reset the topic probabilities and iterate to
     # convergence. This means we don't have to store the per-token
     # topic probabilties z_dnk for all documents, which is a huge saving
     oldMems[:]      = 1./K
-    topicDists[d,:] = topicPrior
+    innerItrs = 0
     
     post = D
     post /= K
-    for k in range(K):
-        topicDists[d,k] += post
-#    initAtRandom_f64(topicDists, d, K)
-    innerItrs = 0
     
+    for k in range(K):
+        topicDists[d,k] = topicPrior[k] + post
+        
     while ((innerItrs < MinInnerIters) or (l1_dist_f64 (oldMems, topicDists[d,:]) > epsilon)) \
     and (innerItrs < MaxInnerItrs):
-        oldMems[:] = topicDists[d,:]
+        for k in range(K):
+            oldMems[k]      = topicDists[d,k]
+            topicDists[d,k] = topicPrior[k] + post
+        
         innerItrs += 1
         
         # Determine the topic assignment for each individual token...
@@ -523,7 +532,7 @@ cdef inline int infer_topics_f64(int d, int D, int K, \
             
             # Work in log-space to avoid underflow
             for k in range(K):
-                z_dnk[n,k] = log(vocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
+                z_dnk[n,k] = diVocabDists[k,W_list[d,n]] - diSumVocabDists[k] + digamma(topicDists[d,k])
                 if z_dnk[n,k] > max:
                     max = z_dnk[n,k]
 
@@ -542,17 +551,28 @@ cdef inline int infer_topics_f64(int d, int D, int K, \
 
         # Use all the individual word topic assignments to determine
         # the topic mixture exhibited by this document
-        topicDists[d,:] = topicPrior
-        norm = topicPriorSum
         for n in range(docLens[d]):
             for k in range(K):
                 topicDists[d,k] += z_dnk[n,k]
-                norm += z_dnk[n,k]
-                
-        for k in range(K):
-            topicDists[d,k] /= norm   
+#                 norm += z_dnk[n,k]
+#                 
+#         for k in range(K):
+#             topicDists[d,k] /= norm   
                     
     return innerItrs
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef resetTopicDist_f64 (double[:,:] topicDist, int d, double[:] topicPrior, double offset):
+    '''
+    Alter topicDist in-place at row-index d. in numpy terms, equivalent to
+    topicDist[d,:] = offset + topicPrior.
+    
+    However that appears to trigger 
+    '''
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
