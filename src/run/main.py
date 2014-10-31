@@ -24,6 +24,7 @@ LdaVb         = 'lda_vb'
 
 ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb])
 
+FastButInaccurate=False
 
 def run(args):
     '''
@@ -109,6 +110,7 @@ def run(args):
         rd.shuffle(order)
         
         W = W[order,:].astype(dtype)
+        print ("Input doc-term matrix contains " + str(D) + " rows")
     if args.feats is None:
         X = None
         F = 0
@@ -149,7 +151,7 @@ def run(args):
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     
-    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, fastButInaccurate=True, debug=args.debug)
+    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, fastButInaccurate=FastButInaccurate, debug=args.debug)
     queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq, debug=args.debug)
     
     # things to inspect and store for later use
