@@ -28,6 +28,7 @@ import model.lda_vb_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged, clamp
+from util.array_utils import normalizerows_ip
 from model.lda_cvb import toWordList
 
 
@@ -335,13 +336,34 @@ def query(W, X, modelState, queryState, queryPlan):
                      wordDists)
     else:
         for _ in range(queryPlan.iterations):
-            compiled.query_f64 (D, K, \
+            compiled.query_f64 (D, T, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
                      wordDists)
-        
-   
+    
+    queryState.topicDists
     return modelState, queryState
+
+def wordDists (modelState):
+    '''
+    The K x T matrix of  word distributions inferred for the K topics 
+    '''
+    result = modelState.wordDists
+    norm   = np.sum(modelState.wordDists, axis=1)
+    result /= norm[:,np.newaxis]
+    
+    return result
+
+def topicDists (queryState):
+    '''
+    The D x K matrix of topics distributions inferred for the K topics 
+    across all D documents
+    '''
+    result = queryState.topicDists
+    norm   = np.sum(queryState.topicDists, axis=1)
+    result /= norm[:,np.newaxis]
+    
+    return result
 
 
 def perplexity (W, modelState, queryState):
@@ -363,7 +385,7 @@ def log_likelihood (W, modelState, queryState):
     
     Actually returns a vector of D document specific log likelihoods
     '''
-    return sparseScalarProductOfSafeLnDot(W, queryState.topicDists, modelState.wordDists).sum()
+    return sparseScalarProductOfSafeLnDot(W, topicDists(queryState), wordDists(modelState)).sum()
     
 
 def var_bound(W, modelState, queryState, z_dnk = None):
@@ -373,7 +395,7 @@ def var_bound(W, modelState, queryState, z_dnk = None):
     # Unpack the the structs, for ease of access and efficiency
     W_list, docLens, topicDists = \
         queryState.W_list, queryState.docLens, queryState.topicDists
-    K, topicPrior, vocabPrior, wordDists, dtype = \
+    K, topicPrior, vocabPrior, _, dtype = \
         modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.wordDists, modelState.dtype
     
     D,T = W.shape
@@ -382,7 +404,7 @@ def var_bound(W, modelState, queryState, z_dnk = None):
         z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
         
     diWordDists = fns.digamma(wordDists.copy()) - fns.digamma(wordDists.sum(axis=1))[:,np.newaxis]
-    lnWordDists = np.log(wordDists, out=wordDists)
+    lnWordDists = np.log(wordDists(modelState))
    
     bound = 0
     
