@@ -193,6 +193,9 @@ def train (W, X, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for itr in range(iterations):
+        if itr == 9:
+            print ("Ruh-ro")
+        
         
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
@@ -222,6 +225,9 @@ def train (W, X, modelState, queryState, trainPlan):
         
         debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
 #        print("                sigT.det = " + str(la.det(sigT)))
+        print (str((sigT * 100).astype(np.int32)))
+        print (str((isigT * 100).astype(np.int32)))
+        
         
         # Building Blocks - temporarily replaces means with exp(means)
         expMeans = np.exp(means, out=means)
@@ -257,9 +263,9 @@ def train (W, X, modelState, queryState, trainPlan):
             for d in range(D):
                 means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
         
-        means -= (means[:,0])[:,np.newaxis]
+#         means -= (means[:,0])[:,np.newaxis]
         
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)        
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
