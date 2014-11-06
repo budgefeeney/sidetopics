@@ -402,30 +402,27 @@ def iterate_f64(int iterations, int D, int K, int T, \
                             with gil:
                                 print ("vocabDists[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, vocabDists[k,t], n, k, z_dnk[n,k]))
-                            
-            # With all documents processed, normalize the vocabulary
-#             for k in prange(K):
-#                 for t in range(T):
-#                     newVocabDists[k,t] /= vocabNorm[k]
+        
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-#         count = np.multiply(topicDists, docLens[:,None])
-#         countSum = np.sum(count, axis=1)
-#         for k in range(K):
-#             topicPrior[k] = 1.0
-#         for _ in range(1000):
-#             oldTopicPrior = np.copy(topicPrior)
-#              
-#             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
-#             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-#              
-#             tmp = np.divide(num, dnm)
-#             for k in range(K):
-#                 topicPrior[k] *= tmp[k]
-#              
-#             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
-#                 break
+        count = np.multiply(topicDists, docLens[:,None])
+        count /= (np.sum(topicDists, axis=1))[:,np.newaxis]
+        countSum = np.sum(count, axis=1)
+        for k in range(K):
+            topicPrior[k] = 1.0
+        for _ in range(1000):
+            oldTopicPrior = np.copy(topicPrior)
+              
+            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+              
+            tmp = np.divide(num, dnm)
+            for k in range(K):
+                topicPrior[k] *= tmp[k]
+              
+            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+                break
      
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
