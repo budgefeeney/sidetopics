@@ -330,7 +330,7 @@ def query(W, X, modelState, queryState, queryPlan):
     
     if modelState.dtype == np.float32:
         for _ in range(queryPlan.iterations):
-            compiled.query_f32 (D, K, \
+            compiled.query_f64 (D, T, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
                      vocabDists)

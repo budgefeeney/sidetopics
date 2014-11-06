@@ -85,30 +85,32 @@ def iterate_f32(int iterations, int D, int K, int T, \
                  assignments for a single document
     topicDists - the D x K matrix of per-document, topic probabilities. This _must_
                  be in C (i.e row-major) format.
-    vocabDists - the K x T matrix of per-topic word probabilities
+    vocabDists - the K x T matrix of per-topic word probabilties
     '''
     
     cdef:
         int         d, n, k, t
         int         itr, totalItrs
-        float[:,:] oldVocabDists = np.ndarray(shape=(K,T), dtype=np.float32)
-        float[:,:] newVocabDists = vocabDists
-        float[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float32)
-        float[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float32)
+        float[:,:]  diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float32)
+        float[:]    diSumVocabDists = np.ndarray(shape=(K,), dtype=np.float32) 
+        float[:]    oldMems         = np.ndarray(shape=(K,), dtype=np.float32)
+        float[:]    vocabNorm       = np.ndarray(shape=(K,), dtype=np.float32)
 
-        float      topicPriorSum
-        float[:]   oldTopicPrior
-        float[:,:] count
-        float[:]   num
-        float      dnm
+        float       topicPriorSum
+        float[:]    oldTopicPrior
+        float[:]    tmp
+        float[:,:]  count
+        float[:]    num
+        float       dnm
         
     
     totalItrs = 0
     for itr in range(iterations):
-        oldVocabDists, newVocabDists = newVocabDists, oldVocabDists
+        diVocabDists    = fns.digamma(vocabDists)
+        diSumVocabDists = fns.digamma(np.sum (vocabDists, axis=1))
         
-        vocabNorm[:]       = vocabPrior * T
-        newVocabDists[:,:] = vocabPrior
+        vocabDists[:,:] = vocabPrior
+        vocabNorm[:]    = vocabPrior * T
         
         topicPriorSum = np.sum(topicPrior)
         
@@ -116,87 +118,89 @@ def iterate_f32(int iterations, int D, int K, int T, \
             for d in range(D):
                 # Figure out document d's topic distribution, this is
                 # written into topicDists and z_dnk
-                totalItrs += infer_topics_f32(d, K, \
+                totalItrs += infer_topics_f32(d, D, K, \
                                               W_list, docLens, \
                                               topicPrior, topicPriorSum, \
                                               z_dnk, oldMems, topicDists, \
-                                              oldVocabDists)
+                                              diVocabDists, diSumVocabDists)
                 
                 # Then use those to gradually update our new vocabulary
                 for k in range(K):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
-                        newVocabDists[k,t] += z_dnk[n,k]
-                        vocabNorm[k] += z_dnk[n,k]
+                        vocabDists[k,t] += z_dnk[n,k]
+                        vocabNorm[k]    += z_dnk[n,k]
                         
-                        if is_invalid(newVocabDists[k,t]):
+                        if is_invalid(vocabDists[k,t]):
                             with gil:
-                                print ("newVocabDist[%d,%d] = %f, z_dnk[%d,%d] = %f" \
-                                      % (k, t, newVocabDists[k,t], n, k, z_dnk[n,k]))
-                            
-            # With all documents processed, normalize the vocabulary
-            for k in range(K):
-                for t in range(T):
-                    newVocabDists[k,t] /= vocabNorm[k]
+                                print ("vocabDists[%d,%d] = %f, z_dnk[%d,%d] = %f" \
+                                      % (k, t, vocabDists[k,t], n, k, z_dnk[n,k]))
+        
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
 #         count = np.multiply(topicDists, docLens[:,None])
+#         count /= (np.sum(topicDists, axis=1))[:,np.newaxis]
 #         countSum = np.sum(count, axis=1)
 #         for k in range(K):
 #             topicPrior[k] = 1.0
 #         for _ in range(1000):
 #             oldTopicPrior = np.copy(topicPrior)
-#              
+#               
 #             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
 #             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-#              
+#               
 #             tmp = np.divide(num, dnm)
 #             for k in range(K):
 #                 topicPrior[k] *= tmp[k]
-#              
+#               
 #             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
 #                 break
-                
+     
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
-    if iterations % 2 == 0:
-        vocabDists[:,:] = newVocabDists
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
     return totalItrs                        
 
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def query_f32(int D, int K, \
+def query_f32(int D, int T, int K, \
                  int[:,:] W_list, int[:] docLens, \
                  float[:] topicPrior, float[:,:] z_dnk, float[:,:] topicDists, 
                  float[:,:] vocabDists):
     cdef:
         int        d
-        float[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float32)
+        float[:]   oldMems = np.ndarray(shape=(K,),  dtype=np.float32)
+        float[:,:] diVocabDists
+        float[:]   diSumVocabDists
         float      topicPriorSum = np.sum(topicPrior)
+    
+    diVocabDists    = fns.digamma(vocabDists)
+    diSumVocabDists = fns.digamma(np.sum(vocabDists, axis=1))
     
     with nogil:
         for d in range(D):
-            infer_topics_f32(d, K, \
+            infer_topics_f32(d, D, K, \
                  W_list, docLens, \
                  topicPrior, topicPriorSum,
                  z_dnk, 
                  oldMems, topicDists, 
-                 vocabDists)
+                 diVocabDists, diSumVocabDists)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef inline int infer_topics_f32(int d, int K, \
+cdef int infer_topics_f32(int d, int D, int K, \
                  int[:,:] W_list, int[:] docLens, \
-                 float[:] topicPrior, float topicPriorSum,
+                 float[:] topicPrior, double topicPriorSum,
                  float[:,:] z_dnk, 
                  float[:] oldMems, float[:,:] topicDists, 
-                 float[:,:] vocabDists) nogil:
+                 float[:,:] diVocabDists, float[:] diSumVocabDists) nogil:
     '''             
     Infers the topic assignments for a given document d with a fixed vocab and
     topic prior. The topicDists and z_dnk are mutated in-place. Everything else
@@ -217,37 +221,51 @@ cdef inline int infer_topics_f32(int d, int K, \
     vocabDists - the K x T matrix of per-topic word probabilties
     '''
     cdef:
-        int        k
-        int        n
-        int        innerItrs
-        float      max  = 1E-311
-        float      norm = 0.0
-        float      epsilon = 0.01 / K
+        int         k
+        int         n
+        int         innerItrs
+        float       max  = -1E+30
+        float       norm = 0.0
+        float       epsilon = 0.01 / K
+        float       post
+        float       beta_kt
+        float       diTopicDist
     
     
     # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
     
+    
     # For each document reset the topic probabilities and iterate to
     # convergence. This means we don't have to store the per-token
     # topic probabilties z_dnk for all documents, which is a huge saving
-    oldMems[:]      = topicDists[d,:]
-    topicDists[d,:] = 1./K
-#    initAtRandom_f32(topicDists, d, K)
+    oldMems[:]      = 1./K
     innerItrs = 0
     
+    post = D
+    post /= K
+    
+    for k in range(K):
+        topicDists[d,k] = topicPrior[k] + post
+        
     while ((innerItrs < MinInnerIters) or (l1_dist_f32 (oldMems, topicDists[d,:]) > epsilon)) \
     and (innerItrs < MaxInnerItrs):
-        oldMems[:] = topicDists[d,:]
+        for k in range(K):
+            oldMems[k]      = topicDists[d,k]
+            topicDists[d,k] = topicPrior[k] + post
+        
         innerItrs += 1
+        
         
         # Determine the topic assignment for each individual token...
         for n in range(docLens[d]):
             norm = 0.0
-            max  = 1E-311
+            max  = -1E+30
             
             # Work in log-space to avoid underflow
             for k in range(K):
-                z_dnk[n,k] = log(vocabDists[k,W_list[d,n]]) + digamma(topicDists[d,k])
+                diTopicDist = digamma(topicDists[d,k])
+                
+                z_dnk[n,k] = diVocabDists[k,W_list[d,n]] - diSumVocabDists[k] + diTopicDist
                 if z_dnk[n,k] > max:
                     max = z_dnk[n,k]
 
@@ -266,17 +284,16 @@ cdef inline int infer_topics_f32(int d, int K, \
 
         # Use all the individual word topic assignments to determine
         # the topic mixture exhibited by this document
-        topicDists[d,:] = topicPrior
-        norm = topicPriorSum
         for n in range(docLens[d]):
             for k in range(K):
                 topicDists[d,k] += z_dnk[n,k]
-                norm += z_dnk[n,k]
-                
-        for k in range(K):
-            topicDists[d,k] /= norm   
+#                 norm += z_dnk[n,k]
+#                 
+#         for k in range(K):
+#             topicDists[d,k] /= norm   
                     
     return innerItrs
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -406,23 +423,23 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     
         # And update the prior on the topic distribution. We
         # do this with the GIL, as built-in numpy is likely faster
-        count = np.multiply(topicDists, docLens[:,None])
-        count /= (np.sum(topicDists, axis=1))[:,np.newaxis]
-        countSum = np.sum(count, axis=1)
-        for k in range(K):
-            topicPrior[k] = 1.0
-        for _ in range(1000):
-            oldTopicPrior = np.copy(topicPrior)
-              
-            num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
-            dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
-              
-            tmp = np.divide(num, dnm)
-            for k in range(K):
-                topicPrior[k] *= tmp[k]
-              
-            if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
-                break
+#         count = np.multiply(topicDists, docLens[:,None])
+#         count /= (np.sum(topicDists, axis=1))[:,np.newaxis]
+#         countSum = np.sum(count, axis=1)
+#         for k in range(K):
+#             topicPrior[k] = 1.0
+#         for _ in range(1000):
+#             oldTopicPrior = np.copy(topicPrior)
+#               
+#             num = np.sum(fns.psi(np.add (count, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+#             dnm = np.sum(fns.psi(countSum + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+#               
+#             tmp = np.divide(num, dnm)
+#             for k in range(K):
+#                 topicPrior[k] *= tmp[k]
+#               
+#             if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+#                 break
      
     # Just before we return, make sure the vocabDists memoryview that
     # was passed in has the latest vocabulary distributions
@@ -562,16 +579,6 @@ cdef int infer_topics_f64(int d, int D, int K, \
     return innerItrs
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-cdef resetTopicDist_f64 (double[:,:] topicDist, int d, double[:] topicPrior, double offset):
-    '''
-    Alter topicDist in-place at row-index d. in numpy terms, equivalent to
-    topicDist[d,:] = offset + topicPrior.
-    
-    However that appears to trigger 
-    '''
 
 
 @cython.boundscheck(False)
