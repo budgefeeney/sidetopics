@@ -141,7 +141,7 @@ def newQueryState(W, modelState):
 #           .reshape((D,maxN,K)) # very expensive 
     z_dnk = rd.rand(D*maxN,K)
     z_dnk /= (z_dnk.sum(axis=1))[:,np.newaxis]
-    z_dnk = z_dnk.rehape((D,maxN,K))
+    z_dnk = z_dnk.reshape((D,maxN,K))
     print ("Done")
     sys.stdout.flush()
     

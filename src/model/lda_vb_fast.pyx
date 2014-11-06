@@ -358,11 +358,10 @@ def iterate_f64(int iterations, int D, int K, int T, \
     cdef:
         int         d, n, k, t
         int         itr, totalItrs
-        double[:,:] newVocabDists   = vocabDists
         double[:,:] diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:]   diSumVocabDists = np.ndarray(shape=(K,), dtype=np.float64) 
-        double[:]   oldMems       = np.ndarray(shape=(K,), dtype=np.float64)
-        double[:]   vocabNorm     = np.ndarray(shape=(K,), dtype=np.float64)
+        double[:]   oldMems         = np.ndarray(shape=(K,), dtype=np.float64)
+        double[:]   vocabNorm       = np.ndarray(shape=(K,), dtype=np.float64)
 
         double      topicPriorSum
         double[:]   oldTopicPrior
@@ -374,11 +373,11 @@ def iterate_f64(int iterations, int D, int K, int T, \
     
     totalItrs = 0
     for itr in range(iterations):
-        diVocabDists[:,:]  = fns.digamma(vocabDists)
-        diSumVocabDists[:] = fns.digamma(np.sum (vocabDists, axis=1))
+        diVocabDists    = fns.digamma(vocabDists)
+        diSumVocabDists = fns.digamma(np.sum (vocabDists, axis=1))
         
-        vocabNorm[:]    = vocabPrior * T
         vocabDists[:,:] = vocabPrior
+        vocabNorm[:]    = vocabPrior * T
         
         topicPriorSum = np.sum(topicPrior)
         
@@ -399,7 +398,7 @@ def iterate_f64(int iterations, int D, int K, int T, \
                         vocabDists[k,t] += z_dnk[n,k]
                         vocabNorm[k]    += z_dnk[n,k]
                         
-                        if is_invalid(newVocabDists[k,t]):
+                        if is_invalid(vocabDists[k,t]):
                             with gil:
                                 print ("vocabDists[%d,%d] = %f, z_dnk[%d,%d] = %f" \
                                       % (k, t, vocabDists[k,t], n, k, z_dnk[n,k]))
@@ -446,13 +445,13 @@ def query_f64(int D, int T, int K, \
                  double[:,:] vocabDists):
     cdef:
         int         d
-        double[:]   oldMems         = np.ndarray(shape=(K,),  dtype=np.float64)
-        double[:,:] diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float64)
-        double[:]   diSumVocabDists = np.ndarray(shape=(K,),  dtype=np.float64)
+        double[:]   oldMems = np.ndarray(shape=(K,),  dtype=np.float64)
+        double[:,:] diVocabDists
+        double[:]   diSumVocabDists
         double      topicPriorSum = np.sum(topicPrior)
     
-    diVocabDists[:,:]  = fns.digamma(vocabDists)
-    diSumVocabDists[:] = fns.digamma(np.sum(vocabDists, axis=1))
+    diVocabDists    = fns.digamma(vocabDists)
+    diSumVocabDists = fns.digamma(np.sum(vocabDists, axis=1))
     
     with nogil:
         for d in range(D):
@@ -495,11 +494,12 @@ cdef int infer_topics_f64(int d, int D, int K, \
         int         k
         int         n
         int         innerItrs
-        double      max  = 1E-311
+        double      max  = -1E+300
         double      norm = 0.0
         double      epsilon = 0.01 / K
         double      post
         double      beta_kt
+        double      diTopicDist
     
     
     # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
@@ -525,14 +525,17 @@ cdef int infer_topics_f64(int d, int D, int K, \
         
         innerItrs += 1
         
+        
         # Determine the topic assignment for each individual token...
         for n in range(docLens[d]):
             norm = 0.0
-            max  = 1E-311
+            max  = -1E+300
             
             # Work in log-space to avoid underflow
             for k in range(K):
-                z_dnk[n,k] = diVocabDists[k,W_list[d,n]] - diSumVocabDists[k] + digamma(topicDists[d,k])
+                diTopicDist = digamma(topicDists[d,k])
+                
+                z_dnk[n,k] = diVocabDists[k,W_list[d,n]] - diSumVocabDists[k] + diTopicDist
                 if z_dnk[n,k] > max:
                     max = z_dnk[n,k]
 

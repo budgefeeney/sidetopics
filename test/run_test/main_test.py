@@ -53,8 +53,9 @@ class Test(unittest.TestCase):
                     + ' --iters '          + '100'      \
                     + ' --query-iters '    + '20'      \
                     + ' --folds '          + '10'      \
-                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-                    + ' --out-model '      + '/Users/Desktop/acl-out'
+                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+#                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+#                     + ' --out-model '      + '/Users/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
 #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
 #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'

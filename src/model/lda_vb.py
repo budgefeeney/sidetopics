@@ -321,7 +321,7 @@ def query(W, X, modelState, queryState, queryPlan):
     '''
     W_list, docLens, topicDists = \
         queryState.W_list, queryState.docLens, queryState.topicDists
-    K, topicPrior, wordDists, dtype = \
+    K, topicPrior, vocabDists, dtype = \
         modelState.K, modelState.topicPrior, modelState.wordDists, modelState.dtype
    
     D,T = W.shape
@@ -333,13 +333,13 @@ def query(W, X, modelState, queryState, queryPlan):
             compiled.query_f32 (D, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
-                     wordDists)
+                     vocabDists)
     else:
         for _ in range(queryPlan.iterations):
             compiled.query_f64 (D, T, K, \
                      W_list, docLens, \
                      topicPrior, z_dnk, topicDists, 
-                     wordDists)
+                     vocabDists)
     
     queryState.topicDists
     return modelState, queryState
@@ -402,9 +402,11 @@ def var_bound(W, modelState, queryState, z_dnk = None):
     maxN = docLens.max()
     if z_dnk == None:
         z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
+    
+    wordDistsMatrix = wordDists(modelState)
         
-    diWordDists = fns.digamma(wordDists.copy()) - fns.digamma(wordDists.sum(axis=1))[:,np.newaxis]
-    lnWordDists = np.log(wordDists(modelState))
+    diWordDists = fns.digamma(wordDistsMatrix.copy()) - fns.digamma(wordDistsMatrix.sum(axis=1))[:,np.newaxis]
+    lnWordDists = np.log(wordDistsMatrix)
    
     bound = 0
     
@@ -449,15 +451,14 @@ def var_bound(W, modelState, queryState, z_dnk = None):
         bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
         
     # p(vocabDists|vocabPrior)
-    wordDists = np.exp(lnWordDists, out=lnWordDists)
     
     ln_b_vocab = fns.gammaln(T * vocabPrior) - T * fns.gammaln(vocabPrior)
     bound += K * ln_b_vocab \
            + (vocabPrior - 1) * np.sum(diWordDists)
     
     # and its entropy
-    ent = fns.gammaln(wordDists.sum(axis=1)).sum() - fns.gammaln(wordDists).sum() \
-        + np.sum ((wordDists - 1) * diWordDists)
+    ent = fns.gammaln(wordDistsMatrix.sum(axis=1)).sum() - fns.gammaln(wordDistsMatrix).sum() \
+        + np.sum ((wordDistsMatrix - 1) * diWordDists)
     
     bound -= ent   
     
