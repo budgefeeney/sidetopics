@@ -40,12 +40,14 @@ class Test(unittest.TestCase):
         with open(featsFile, 'wb') as f:
             pkl.dump(X, f)
         
+        print ("New Version")
+        
         K,P = 20, 75
         modelFileses = []
-        for modelName in [ LdaCvbZero ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
-                    + ' --dtype '          + 'f8'      \
+                    + ' --dtype '          + 'f4'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-feats '  + str(P)    \
                     + ' --log-freq '       + '10'       \
@@ -53,7 +55,7 @@ class Test(unittest.TestCase):
                     + ' --iters '          + '100'      \
                     + ' --query-iters '    + '20'      \
                     + ' --folds '          + '10'      \
-                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --out-model '      + '/Users/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
