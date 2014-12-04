@@ -42,22 +42,22 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 20, 75
+        K,P = 30, 75
         modelFileses = []
-        for modelName in [ LdaVb ]: #ModelNames:
+        for modelName in [ CtmBohning ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
-                    + ' --dtype '          + 'f4'      \
+                    + ' --dtype '          + 'f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-feats '  + str(P)    \
-                    + ' --log-freq '       + '10'       \
+                    + ' --log-freq '       + '50'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '100'      \
-                    + ' --query-iters '    + '20'      \
-                    + ' --folds '          + '10'      \
-                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl'
+                    + ' --iters '          + '500'      \
+                    + ' --query-iters '    + '100'      \
+                    + ' --folds '          + '5'      \
+                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+                    + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-#                     + ' --out-model '      + '/Users/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
 #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
 #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
