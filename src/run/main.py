@@ -110,7 +110,7 @@ def run(args):
         rd.shuffle(order)
         
         W = W[order,:].astype(dtype)
-        print ("Input doc-term matrix contains " + str(D) + " rows")
+        print ("Input doc-term matrix contains " + str(D) + " rows and " + str(W.shape[1]) + " columns")
     if args.feats is None:
         X = None
         F = 0
