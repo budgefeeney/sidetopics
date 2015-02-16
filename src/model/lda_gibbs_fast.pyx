@@ -14,25 +14,31 @@ cdef extern from "gsl/gsl_rng.h":
     cdef gsl_rng_type *gsl_rng_mt19937
     
     gsl_rng *gsl_rng_alloc ( gsl_rng_type * T) nogil
-    oid gsl_rng_free (gsl_rng * r) nogil
+    void gsl_rng_free (gsl_rng * r) nogil
     
     void gsl_rng_set ( gsl_rng * r, unsigned long int seed) nogil
     
     double gsl_rng_uniform ( gsl_rng * r) nogil
     
 # We just set up a single, non-threadsafe, global RNG
-# We don't both explicitly freeing it
-cdef gsl_rng *global_rng = gsl_rng_alloc(gsl_rng_mt19937)
+# This must be manually freed to avoid craashing the Python interpreter
+cdef gsl_rng *global_rng
 
-def setGlobalRngSeed (int randSeed):
+def initGlobalRng (int randSeed):
+    global global_rng
+    global_rng = gsl_rng_alloc(gsl_rng_mt19937)
     gsl_rng_set(global_rng, randSeed)
+
+def freeGlobalRng (int randSeed):
+    global global_rng
+    gsl_rng_free(global_rng)
 
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def inferPolyaHyper (counts, countsSum):
+cdef double[:] inferPolyaHyper (int[:,:] counts, int[:] countsSum):
     '''
     Given draws from a Polya (i.e. Dirichlet multinomial)
     distribution, infer its parameters.
@@ -148,8 +154,8 @@ def sample ( \
         int[:,:]  ndk, \
         int[:,:]  nkv, \
         int[:]    nk,  \
-        double[:,:] topicSum,   \
-        double[:,:] vocabSum,   \
+        np.ndarray[np.float64_t, ndim=2] topicSum,   \
+        np.ndarray[np.float64_t, ndim=2] vocabSum,   \
         double[:]   a, \
         double[:]   b, \
         bint        isQuery):
@@ -177,6 +183,7 @@ def sample ( \
     b          - the prior over vocabulary, a vector
     isQuery    - if true the vocabulary distribution is kept fixed
     '''
+    global global_rng
     cdef:
         int s, d, n, nsimple, ncount, j
         int i, start = 0, end = 0
@@ -186,8 +193,9 @@ def sample ( \
         int queryDelta
         double[:] dist
         double    distNorm, draw
-        double    bSum
+        double    aSum, bSum
     
+    aSum = np.sum(a)
     bSum = np.sum(b)
     dist = np.empty((K,), dtype=np.float64)
     queryDelta = 0 if isQuery else 1
@@ -203,6 +211,8 @@ def sample ( \
                 # through words in documents
                 nsimple = <int> (gsl_rng_uniform (global_rng) * docLens[d])
                 for ncount in range(docLens[d]):
+                    with gil:
+                        print("-")
                     nsimple = (nsimple + 1) % docLens[d]
                     n = start + nsimple
 
@@ -218,9 +228,10 @@ def sample ( \
                     # Generate a distribution over topics
                     distNorm = 0.0
                     for j in range(K):
-                        dist[k] = (ndk[d,k] + a[k]) \
-                                * (nkv[k,v] + b[v]) \
-                                / (nk[k] + bSum)
+                        dist[j] = (ndk[d,j] + a[j]) \
+                                * (nkv[j,v] + b[v]) \
+                                / (nk[j] + bSum)
+                        distNorm += dist[j]
 
                     # Choose a new topic for the current word
                     k = -1
@@ -228,22 +239,43 @@ def sample ( \
                     while draw > 0:
                         k = (k + 1) % K # shouldn't need mod, but to be safe...
                         draw -= dist[k]
+                        
+                    z_list[n] = k
                     
                     # Add current word's new topic to suff stats
                     ndk[d,k] += 1
                     nkv[k,v] += queryDelta
                     nk[k]    += 1
+                    
+                    with gil:
+                        print ("+")
 
             # Check if this is one of the samples to take
             if (s + 1) % thin == 0:
                 with gil:
-                    np.add(ndk, topicSum, out=topicSum)
-                    np.add(nkv, vocabSum, out=vocabSum)
+                    print ("\nTaking sample " + str(trueSampleCount))
+                    
+                # Avoid fully vectorising so we don't materialise huge, temporary, DxK or KxV matrices
+                # TODO Consider doing this a row at a time, using numpy, for speedup
+                for d in range(D):
+                    for k in range(K):
+                        topicSum[d,k] += (ndk[d,k] + a[k]) / (docLens[d] + aSum)
+                for k in range(K):
+                    for v in range(T):
+                        vocabSum[k,v] += nkv[k,v] + b[v] / (nk[k] + bSum)
                 
-                    trueSampleCount += 1
-                    if trueSampleCount % 10 == 0:
-                        a[:] = inferPolyaHyper(ndk, docLens)
-                        b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1))
+                trueSampleCount += 1
+                    
+                if trueSampleCount % 10 == 0:
+                    pass
+#                     with gil:
+#                         print ("Updating hyperparameters...")
+#                         a[:] = inferPolyaHyper(ndk, docLens)
+#                         b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
+#                        
+#                         aSum = np.sum(a)
+#                         bSum = np.sum(b)
+#                         print ("Done")
     
     return trueSampleCount
  

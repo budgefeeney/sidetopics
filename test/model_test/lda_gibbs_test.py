@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_gibbs as lda
+import model.lda_cvb as lda
+from model.lda_cvb import DTYPE
 
 class Test(unittest.TestCase):
 
@@ -28,7 +29,8 @@ class Test(unittest.TestCase):
         if len(d) == 1:
             d = d[0]
         
-        W = W.astype(np.int32)
+        if W.dtype != dtype:
+            W = W.astype(dtype)
         
         docLens   = np.squeeze(np.asarray(W.sum(axis=1)))
         good_rows = (np.where(docLens > 0.5))[0]
@@ -42,10 +44,9 @@ class Test(unittest.TestCase):
        
         # Initialise the model  
         K = 10
-        
-        model      = lda.newModelAtRandom(W, K, dtype=np.float64)
+        model      = lda.newModelAtRandom(W, K, dtype=dtype)
         queryState = lda.newQueryState(W, model)
-        trainPlan  = lda.newTrainPlan(iterations=1000, burnIn=300, thin=10)
+        trainPlan  = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=True)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = lda.train (W, None, model, queryState, trainPlan)
@@ -53,33 +54,30 @@ class Test(unittest.TestCase):
 #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
         
         # Plot the evolution of the bound during training.
-#         fig, ax1 = plt.subplots()
-#         ax1.plot(bndItrs, bndVals, 'b-')
-#         ax1.set_xlabel('Iterations')
-#         ax1.set_ylabel('Bound', color='b')
-#         
-#         ax2 = ax1.twinx()
-#         ax2.plot(bndItrs, bndLikes, 'r-')
-#         ax2.set_ylabel('Likelihood', color='r')
-#         
-#         fig.show()
-#         plt.show()
+        fig, ax1 = plt.subplots()
+        ax1.plot(bndItrs, bndVals, 'b-')
+        ax1.set_xlabel('Iterations')
+        ax1.set_ylabel('Bound', color='b')
         
-        vocab = model.vocabSum.copy() / model.numSamples
-#         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
-#         plt.show()
+        ax2 = ax1.twinx()
+        ax2.plot(bndItrs, bndLikes, 'r-')
+        ax2.set_ylabel('Likelihood', color='r')
+        
+        fig.show()
+        plt.show()
+        
+        vocab = lda.vocab(model)
+        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.show()
             
         # Print out the most likely topic words
         topWordCount = 100
         kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
         
-        print(str(model.topicPrior))
-        print("%6.3f  %6.3f  %6.3f" % (model.vocabPrior.min(), model.vocabPrior.mean(), model.vocabPrior.max()))
-        
-#         print ("Perplexity: %f\n\n" % lda.perplexity(W, model, query))
-        print ("\t".join (["%20s" % ("Topic " + str(k)) for k in range(K)]))
-        print ("\n".join ("\t".join ("%20s\t%0.3f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for k in range(K)) for c in range(topWordCount)))
+        print ("Perplexity: %f\n\n" % lda.perplexity(W, model, query))
+        print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
+        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         
     def topWords (self, wordDict, vocab, count=10):
         return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]

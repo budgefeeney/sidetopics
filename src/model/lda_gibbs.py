@@ -28,6 +28,7 @@ import sys
 import model.lda_gibbs_fast as compiled
 
 from util.misc import constantArray
+from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 
 # ==============================================================
 # CONSTANTS
@@ -141,7 +142,7 @@ def newQueryState(W, modelState):
     
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    print ("Sampling the per-token topic distributions... ", end="")
+    print ("Sampling the " + str(w_list.shape[0]) + " per-token topic distributions... ", end="")
     z_list = rd.randint(0, K, w_list.shape[0]).astype(np.uint8)
     print("Done")
     
@@ -153,14 +154,14 @@ def newTrainPlan (iterations, burnIn, thin = 10, logFrequency = 100, debug = Fal
 
 
 def train (W, X, model, query, plan):
-    iterations, burnIn, thin, logFrequency, debug = \
+    iterations, burnIn, thin, _, _ = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
-    w_list, z_list, docLens, topicSum, numSamples = \
+    w_list, z_list, docLens, _, _ = \
         query.w_list, query.z_list, query.docLens, query.topicSum, query.numSamples
-    K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name = \
+    K, T, topicPrior, vocabPrior, _, _, _, dtype, name = \
         model.K, model.T, model.topicPrior, model.vocabPrior, model.topicSum, model.vocabSum, model.numSamples, model.dtype, model.name
     
-    assert model.dtype == np.float64, "This is only implements for 64-bit floats"
+    assert model.dtype == np.float64, "This is only implemented for 64-bit floats"
     D = docLens.shape[0]
     
     ndk = np.zeros((D,K), dtype=np.int32)
@@ -170,18 +171,22 @@ def train (W, X, model, query, plan):
     topicSum = np.zeros((D,K), dtype=dtype)
     vocabSum = np.zeros((K,T), dtype=dtype)
     
-    compiled.setGlobalRngSeed(0xC0FFEE)
+    compiled.initGlobalRng(0xC0FFEE)
     compiled.sumSuffStats(w_list, z_list, docLens, ndk, nkv, nk)
     
     # Burn in
+    print ("Burning")
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, query = False)
+            topicPrior, vocabPrior, False)
     
     # True samples
-    numSamples = compiled.sample (iterations, thin, w_list, z_list, docLens, \
+    print ("Sampling")
+    numSamples = compiled.sample (iterations - burnIn, thin, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, query = False)
+            topicPrior, vocabPrior, False)
+    
+#     compiled.freeGlobalRng()
     
     return \
         ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
@@ -190,11 +195,11 @@ def train (W, X, model, query, plan):
 
 
 def query (W, X, model, query, plan):
-    iterations, burnIn, thin, logFrequency, debug = \
+    iterations, burnIn, thin, _, _ = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
-    w_list, z_list, docLens, topicSum, numSamples = \
+    w_list, z_list, docLens, _, _ = \
         query.w_list, query.z_list, query.docLens, query.topicSum, query.numSamples
-    K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name = \
+    K, T, topicPrior, vocabPrior, _, _, _, dtype, name = \
         model.K, model.T, model.topicPrior, model.vocabPrior, model.topicSum, model.vocabSum, model.numSamples, model.dtype, model.name
     
     assert model.dtype == np.float64, "This is only implements for 64-bit floats"
@@ -214,12 +219,12 @@ def query (W, X, model, query, plan):
     # Burn in
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, query = True)
+            topicPrior, vocabPrior, True)
     
     # True samples
-    numSamples = compiled.sample (iterations, thin, w_list, z_list, docLens, \
+    numSamples = compiled.sample (iterations - burnIn, thin, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, query = True)
+            topicPrior, vocabPrior, True)
     
     return \
         ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
@@ -227,9 +232,40 @@ def query (W, X, model, query, plan):
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
+def topicDist(query):
+    '''
+    Returns the topic distribution for the given query
+    ''' 
+    topicDist = query.topicSum.copy()
+    topicDist /= query.numSamples
+    return topicDist
+
+
+def vocab(model):
+    '''
+    Returns the word distributions for the given query
+    ''' 
+    vocabDist = model.vocabSum.copy()
+    vocabDist /= model.numSamples
+    return vocabDist
+
     
-
-
+def log_likelihood (W, model, query):
+    '''
+    Return the log-likelihood of the given data W according to the model
+    and the parameters inferred for the entries in W stored in the
+    queryState object.
     
+    '''
+    return sparseScalarProductOfSafeLnDot(W, topicDist(query), vocab(model)).sum()
 
+def perplexity (W, modelState, queryState):
+    '''
+    Return the perplexity of this model.
+
+    Perplexity is a sort of normalized likelihood, applicable to textual
+    data. Specifically it's the reciprocal of the geometric mean of the
+    likelihoods of each individual word in the corpus.
+    '''
+    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
 
