@@ -263,7 +263,7 @@ def sample ( \
                         topicSum[d,k] += (ndk[d,k] + a[k]) / (docLens[d] + aSum)
                 for k in range(K):
                     for v in range(T):
-                        vocabSum[k,v] += nkv[k,v] + b[v] / (nk[k] + bSum)
+                        vocabSum[k,v] += (nkv[k,v] + b[v]) / (nk[k] + bSum)
                 
                 trueSampleCount += 1
                     
