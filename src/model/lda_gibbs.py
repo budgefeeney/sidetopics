@@ -135,14 +135,14 @@ def newQueryState(W, modelState):
     '''
     K =  modelState.K
     
-    D,_ = W.shape
-    print("Converting document-term matrix to list of lists... ", end="")
+    D,T = W.shape
+    print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
     w_list, docLens = compiled.flatten(W)
     print("Done")
     
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    print ("Sampling the " + str(w_list.shape[0]) + " per-token topic distributions... ", end="")
+    print ("Sampling the {:,} ({:,}) per-token topic distributions... ".format(w_list.shape[0], docLens.sum()), end="")
     z_list = rd.randint(0, K, w_list.shape[0]).astype(np.uint8)
     print("Done")
     

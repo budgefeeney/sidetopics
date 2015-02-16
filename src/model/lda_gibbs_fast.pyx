@@ -7,32 +7,41 @@ from libc.stdlib cimport srand, rand, RAND_MAX
 
 # Import the random number generation functions from
 # the GNU Scientific Library
-cdef extern from "gsl/gsl_rng.h":
-    ctypedef struct gsl_rng_type
-    ctypedef struct gsl_rng
-    
-    cdef gsl_rng_type *gsl_rng_mt19937
-    
-    gsl_rng *gsl_rng_alloc ( gsl_rng_type * T) nogil
-    void gsl_rng_free (gsl_rng * r) nogil
-    
-    void gsl_rng_set ( gsl_rng * r, unsigned long int seed) nogil
-    
-    double gsl_rng_uniform ( gsl_rng * r) nogil
+# cdef extern from "gsl/gsl_rng.h":
+#     ctypedef struct gsl_rng_type
+#     ctypedef struct gsl_rng
+#     
+#     cdef gsl_rng_type *gsl_rng_mt19937
+#     
+#     gsl_rng *gsl_rng_alloc ( gsl_rng_type * T) nogil
+#     void gsl_rng_free (gsl_rng * r) nogil
+#     
+#     void gsl_rng_set ( gsl_rng * r, unsigned long int seed) nogil
+#     
+#     double gsl_rng_uniform ( gsl_rng * r) nogil
     
 # We just set up a single, non-threadsafe, global RNG
 # This must be manually freed to avoid craashing the Python interpreter
-cdef gsl_rng *global_rng
-
+# cdef gsl_rng *global_rng = gsl_rng_alloc(gsl_rng_mt19937)
+ 
 def initGlobalRng (int randSeed):
-    global global_rng
-    global_rng = gsl_rng_alloc(gsl_rng_mt19937)
-    gsl_rng_set(global_rng, randSeed)
-
+    srand(randSeed)
+#     gsl_rng_set(global_rng, randSeed)
+ 
 def freeGlobalRng (int randSeed):
-    global global_rng
-    gsl_rng_free(global_rng)
+    pass
+#     gsl_rng_free(global_rng)
 
+
+    
+@cython.cdivision(True)
+cdef int rand_lim(int min_val, int max_val) nogil:
+    '''
+    return a random number between 0 and limit inclusive.
+    '''
+    return <int> ((rand() / (RAND_MAX + 1.0)) \
+                  * (max_val - min_val+1) + min_val)
+    
 
 
 @cython.boundscheck(False)
@@ -150,10 +159,10 @@ def sample ( \
         int thin,    \
         uint16_t[:] w_list,  \
         uint8_t[:]  z_list,  \
-        int[:]    docLens, \
-        int[:,:]  ndk, \
-        int[:,:]  nkv, \
-        int[:]    nk,  \
+        int[:]      docLens, \
+        int[:,:]    ndk, \
+        int[:,:]    nkv, \
+        int[:]      nk,  \
         np.ndarray[np.float64_t, ndim=2] topicSum,   \
         np.ndarray[np.float64_t, ndim=2] vocabSum,   \
         double[:]   a, \
@@ -183,10 +192,9 @@ def sample ( \
     b          - the prior over vocabulary, a vector
     isQuery    - if true the vocabulary distribution is kept fixed
     '''
-    global global_rng
     cdef:
         int s, d, n, nsimple, ncount, j
-        int i, start = 0, end = 0
+        int i, start = -docLens[0]
         int D = ndk.shape[0], K = ndk.shape[1], T = nkv.shape[1]
         int k, v
         int trueSampleCount = 0
@@ -202,20 +210,15 @@ def sample ( \
     
     with nogil:
         for s in range(count):
-            end = 0
+            start = 0
             for d in range(D):
-                start = end
-                end += docLens[d + 1]
-
                 # we randomise the point at which we start looping
                 # through words in documents
-                nsimple = <int> (gsl_rng_uniform (global_rng) * docLens[d])
+                nsimple = rand_lim(0, docLens[d] - 1) #<int> (gsl_rng_uniform (global_rng) * docLens[d])
                 for ncount in range(docLens[d]):
-                    with gil:
-                        print("-")
                     nsimple = (nsimple + 1) % docLens[d]
                     n = start + nsimple
-
+                    
                     # Current word and its topic
                     k = z_list[n]
                     v = w_list[n]
@@ -235,7 +238,7 @@ def sample ( \
 
                     # Choose a new topic for the current word
                     k = -1
-                    draw = gsl_rng_uniform (global_rng) * distNorm
+                    draw = (<double> rand()) / RAND_MAX * distNorm #gsl_rng_uniform (global_rng) * distNorm
                     while draw > 0:
                         k = (k + 1) % K # shouldn't need mod, but to be safe...
                         draw -= dist[k]
@@ -246,10 +249,8 @@ def sample ( \
                     ndk[d,k] += 1
                     nkv[k,v] += queryDelta
                     nk[k]    += 1
-                    
-                    with gil:
-                        print ("+")
 
+                start += docLens[d]
             # Check if this is one of the samples to take
             if (s + 1) % thin == 0:
                 with gil:
@@ -266,8 +267,7 @@ def sample ( \
                 
                 trueSampleCount += 1
                     
-                if trueSampleCount % 10 == 0:
-                    pass
+#                 if trueSampleCount % 10 == 0:
 #                     with gil:
 #                         print ("Updating hyperparameters...")
 #                         a[:] = inferPolyaHyper(ndk, docLens)
@@ -276,7 +276,8 @@ def sample ( \
 #                         aSum = np.sum(a)
 #                         bSum = np.sum(b)
 #                         print ("Done")
-    
+
+            
     return trueSampleCount
  
 
@@ -338,21 +339,12 @@ cdef void shuffle (uint16_t[:] a, int start, int end) nogil:
     shuffle_count = end - start / 2
     
     for i in range(shuffle_count):
-        left  = rand_lim(start, end)
-        right = rand_lim(start, end)
+        left  = rand_lim(start, end - 1)
+        right = rand_lim(start, end - 1)
         
         tmp      = a[left]
         a[left]  = a[right]
         a[right] = tmp
     
-    
-@cython.cdivision(True)
-cdef int rand_lim(int min_val, int max_val) nogil:
-    '''
-    return a random number between 0 and limit inclusive.
-    '''
 
-    return <int> ((rand() / (RAND_MAX + 1.0)) \
-                  * (max_val - min_val+1) + min_val)
-    
 
