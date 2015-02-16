@@ -68,6 +68,8 @@ class Test(unittest.TestCase):
         vocab = model.vocabSum.copy() / model.numSamples
 #         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
 #         plt.show()
+        
+        print (str(model.vocabSum))
             
         # Print out the most likely topic words
         topWordCount = 100
