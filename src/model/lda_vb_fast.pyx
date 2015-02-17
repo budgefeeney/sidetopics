@@ -39,6 +39,7 @@ cdef extern from "gsl/gsl_sf_result.h":
     ctypedef struct gsl_sf_result:
         double val
         double err
+        
 cdef extern from "gsl/gsl_sf_psi.h":
     double gsl_sf_psi(double x) nogil
     double gsl_sf_psi_1(double x) nogil
