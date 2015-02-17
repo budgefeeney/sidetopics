@@ -267,15 +267,15 @@ def sample ( \
                 
                 trueSampleCount += 1
                     
-#                 if trueSampleCount % 10 == 0:
-#                     with gil:
-#                         print ("Updating hyperparameters...")
-#                         a[:] = inferPolyaHyper(ndk, docLens)
-#                         b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
-#                        
-#                         aSum = np.sum(a)
-#                         bSum = np.sum(b)
-#                         print ("Done")
+                if trueSampleCount % 10 == 0:
+                    with gil:
+                        print ("Updating hyperparameters...")
+                        a[:] = inferPolyaHyper(ndk, docLens)
+                        b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
+                        
+                        aSum = np.sum(a)
+                        bSum = np.sum(b)
+                        print ("Done")
 
             
     return trueSampleCount
