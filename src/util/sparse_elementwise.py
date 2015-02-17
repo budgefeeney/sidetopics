@@ -237,7 +237,8 @@ def _sparseScalarProductOfSafeLnDot_py(A,B,C, out=None):
         
     if out is None:
         out = A.copy()
-    out.data[:] = A.data
+    else:
+        out.data[:] = A.data
     
     rhs = B.dot(C)
     rhs[rhs < sys.float_info.min] = sys.float_info.min
