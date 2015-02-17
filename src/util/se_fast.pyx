@@ -419,7 +419,7 @@ def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:]
             while e < elemCount:
                 col         = A_indices[i]
                 dotProd     = dotProduct_f8(row,col,B,C)
-                out_data[i] = A_data[i] * log(dotProd) if dotProd > DBL_MIN else logOfMin
+                out_data[i] = A_data[i] * (log(dotProd) if dotProd > DBL_MIN else logOfMin)
                 i += 1
                 e += 1
             row += 1
@@ -460,7 +460,7 @@ def sparseScalarProductOfSafeLnDot_f4(float[:] A_data, int[:] A_indices, int[:] 
             while e < elemCount:
                 col         = A_indices[i]
                 dotProd     = dotProduct_f4(row,col,B,C)
-                out_data[i] = A_data[i] * log(dotProd) if dotProd > FLT_MIN else logOfMin
+                out_data[i] = A_data[i] * (log(dotProd) if dotProd > FLT_MIN else logOfMin)
                 i += 1
                 e += 1
             row += 1
