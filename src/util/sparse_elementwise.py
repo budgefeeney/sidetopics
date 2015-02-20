@@ -235,6 +235,9 @@ def _sparseScalarProductOfSafeLnDot_py(A,B,C, out=None):
     if WarnIfSlow:
         sys.stderr.write("WARNING: Slow code path triggered (_sparseScalarProductOfSafeLnDot_py)")
         
+    if not (A.dtype == B.dtype and B.dtype == C.dtype and (out is None or C.dtype == out.dtype)):
+        raise ValueError ("Inconsistent dtypes in the three matrices and possibly the out-param")
+        
     if out is None:
         out = A.copy()
     else:
@@ -281,6 +284,9 @@ def _sparseScalarQuotientOfDot_py(A,B,C, out=None):
     '''
     if WarnIfSlow:
         sys.stderr.write("WARNING: Slow code path triggered (_sparseScalarQuotientOfDot_py)")
+    
+    if not (A.dtype == B.dtype and B.dtype == C.dtype and (out is None or C.dtype == out.dtype)):
+        raise ValueError ("Inconsistent dtypes in the three matrices and possibly the out-param")
     
     if out is None:
         out = A.copy()
