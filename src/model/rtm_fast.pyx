@@ -10,7 +10,7 @@ from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 import scipy.special as fns
 import scipy.linalg as la
 
-from model.lda_vb_fast import initAtRandom_f64, l1_dist_f64
+from model.lda_vb_fast cimport initAtRandom_f64, l1_dist_f64
 
 cdef int MaxInnerItrs = 100
 cdef int MinInnerIters = 3
@@ -42,8 +42,6 @@ cdef np.ndarray[np.float64_t, ndim=1] probit_f64(np.ndarray[np.float64_t, ndim=1
     '''
     return 0.5 * fns.erfc(-x * OneOverSqrtTwo)
 
-def probit (vec_f64_t x):
-    return probit_f64 (x)
 
 cdef double SqrtTwoPi = 2.5066282746310002
 cdef double OneOverSqrtTwoPi = 1. / SqrtTwoPi
@@ -63,14 +61,27 @@ cdef np.ndarray[np.float64_t, ndim=1] normpdf_f64(np.ndarray[np.float64_t, ndim=
     result *= OneOverSqrtTwoPi
     return result
 
+cdef bint is_invalid (double zdnk) nogil:
+    return is_nan(zdnk) \
+        or zdnk < -0.001 \
+#        or zdnk > 1.1 \ # Called before normalization
+#         or isinf(zdnk) \
+#        or zdnk > 1.001
+
+cdef bint is_nan(double num) nogil:
+    '''
+    Work around the fact that this isn't defined on the cluster
+    '''
+    return num != num
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
 def iterate_f64(int iterations, int D, int K, int T, \
                  int[:,:] W_list, int[:] docLens, \
                  double[:] topicPrior, double vocabPrior, \
-                 double[:,:] z_dnk, double[:,:] topicDists, double[:,:] topicMeans, \
-                 double[:,:] vocabDists):
+                 double[:,:] z_dnk, double[:,:] topicDists, double[:,:] vocabDists):
     '''
     Performs the given number of iterations as part of the training
     procedure. There are two corpora, the model corpus of files, whose
@@ -172,7 +183,35 @@ def iterate_f64(int iterations, int D, int K, int T, \
             
     print ("Average inner iterations %f" % (float(totalItrs) / (D*iterations)))
     
-    return totalItrs   
+    return totalItrs                        
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def query_f64(int D, int T, int K, \
+                 int[:,:] W_list, int[:] docLens, \
+                 double[:] topicPrior, double[:,:] z_dnk, double[:,:] topicDists, 
+                 double[:,:] vocabDists):
+    cdef:
+        int         d
+        double[:]   oldMems = np.ndarray(shape=(K,),  dtype=np.float64)
+        double[:,:] diVocabDists
+        double[:]   diSumVocabDists
+        double      topicPriorSum = np.sum(topicPrior)
+    
+    diVocabDists    = fns.digamma(vocabDists)
+    diSumVocabDists = fns.digamma(np.sum(vocabDists, axis=1))
+    
+    with nogil:
+        for d in range(D):
+            infer_topics_f64(d, D, K, \
+                 W_list, docLens, \
+                 topicPrior, topicPriorSum,
+                 z_dnk, 
+                 oldMems, topicDists, 
+                 diVocabDists, diSumVocabDists)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -220,7 +259,7 @@ cdef int infer_topics_f64(int d, int D, int K, \
     # For each document reset the topic probabilities and iterate to
     # convergence. This means we don't have to store the per-token
     # topic probabilties z_dnk for all documents, which is a huge saving
-    oldMems[:]  = 1./K
+    oldMems[:]      = 1./K
     innerItrs = 0
     
     post = D
@@ -269,34 +308,12 @@ cdef int infer_topics_f64(int d, int D, int K, \
         for n in range(docLens[d]):
             for k in range(K):
                 topicDists[d,k] += z_dnk[n,k]
+#                 norm += z_dnk[n,k]
+#                 
+#         for k in range(K):
+#             topicDists[d,k] /= norm   
                     
     return innerItrs
 
 
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-def query_f64(int D, int T, int K, \
-                 int[:,:] W_list, int[:] docLens, \
-                 double[:] topicPrior, double[:,:] z_dnk, double[:,:] topicDists, 
-                 double[:,:] vocabDists):
-    cdef:
-        int         d
-        double[:]   oldMems = np.ndarray(shape=(K,),  dtype=np.float64)
-        double[:,:] diVocabDists
-        double[:]   diSumVocabDists
-        double      topicPriorSum = np.sum(topicPrior)
-    
-    diVocabDists    = fns.digamma(vocabDists)
-    diSumVocabDists = fns.digamma(np.sum(vocabDists, axis=1))
-    
-    with nogil:
-        for d in range(D):
-            infer_topics_f64(d, D, K, \
-                 W_list, docLens, \
-                 topicPrior, topicPriorSum,
-                 z_dnk, 
-                 oldMems, topicDists, 
-                 diVocabDists, diSumVocabDists)
 
