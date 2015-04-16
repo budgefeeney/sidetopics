@@ -42,17 +42,17 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 30, 75
+        K,P = 50, 75
         modelFileses = []
-        for modelName in [ CtmBohning ]: #ModelNames:
+        for modelName in [ CtmBouchard ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-feats '  + str(P)    \
-                    + ' --log-freq '       + '50'       \
+                    + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '500'      \
+                    + ' --iters '          + '1000'      \
                     + ' --query-iters '    + '100'      \
                     + ' --folds '          + '5'      \
                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
