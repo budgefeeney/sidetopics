@@ -182,10 +182,10 @@ def perplexity (W, modelState, queryState):
     return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
 
 
-def log_likelihood (W, modelState, queryState):
+def log_likelihood (W, X, modelState, queryState):
     '''
-    Return the log-likelihood of the given data W according to the model
-    and the parameters inferred for the entries in W stored in the
+    Return the log-likelihood of the given data W and X according to the model
+    and the parameters inferred for the entries in W and X stored in the
     queryState object.
 
     Actually returns a vector of D document specific log likelihoods
@@ -254,8 +254,8 @@ def train(W, X, model, query, plan):
                  z_dnk, topicDists, wordDists)
 
         boundIters[bvIdx]   = segment * segIters
-        boundValues[bvIdx]  = var_bound(W, model, query)
-        likelyValues[bvIdx] = log_likelihood(W, model, query)
+        boundValues[bvIdx]  = var_bound(W, X, model, query, z_dnk)
+        likelyValues[bvIdx] = log_likelihood(W, X, model, query)
         bvIdx += 1
 
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
@@ -264,7 +264,7 @@ def train(W, X, model, query, plan):
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
 
-        print ("Segment %d/%d Total Iterations %d Duration %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, duration, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
+        print ("Segment %d/%d Total Iterations %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
 
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \
@@ -273,8 +273,8 @@ def train(W, X, model, query, plan):
                  z_dnk, topicDists, wordDists)
 
     boundIters[bvIdx]   = iterations - 1
-    boundValues[bvIdx]  = var_bound(W, model, query)
-    likelyValues[bvIdx] = log_likelihood(W, model, query)
+    boundValues[bvIdx]  = var_bound(W, X, model, query, z_dnk)
+    likelyValues[bvIdx] = log_likelihood(W, X, model, query)
 
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
@@ -284,15 +284,91 @@ def train(W, X, model, query, plan):
 
 
 
-def var_bound(W, modelState, queryState, z_dnk = None):
+def var_bound(W, X, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
     '''
     bound = 0
     
+    # Unpack the the structs, for ease of access and efficiency
+    W_list, docLens, topicDists, topicMeans = \
+        query.W_list, query.docLens, query.topicDists, query.topicMeans
+    K, topicPrior, wordPrior, wordDists, weights, negCount, reg, dtype = \
+        model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
+
+    # Initialize z matrix if necessary 
+    D,T = W.shape
+    maxN = docLens.max()
+    if z_dnk == None:
+        z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
+        
+    # Perform the digamma transform for E[ln \theta] etc.
+    diTopicDists = fns.digamma(topicDists) - fns.digamma(topicDists.sum(axis=1))[:,np.newaxis]
+    diWordDists  = fns.digamma(model.wordDists) - fns.digamma(model.wordDists.sum(axis=1))[:,np.newaxis]
+    
+    
+    # P(topics|topicPrior)
+    #
+    bound += D * fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum() \
+           + np.sum((topicPrior - 1)[np.newaxis,:] * (diTopicDists - diTopicDists.sum(axis=1)[:,np.newaxis] ))
+    
+    # and its entropy
+    bound += dirichletEntropy(topicDists)
+    
+        
+    # P(vocabs|vocabPrior)
+    #
+    if type(m.vocabPrior) is float:
+        bound += D * fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior) \
+               + np.sum((wordPrior - 1) * (diWordDists - diWordDists.sum(axis=1)[:,np.newaxis] ))
+    else:
+        bound += D * fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum() \
+               + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diWordDists.sum(axis=1)[:,np.newaxis] ))
+    
+    # and its entropy
+    bound += dirichletEntropy(wordDists)
+    
+    
+    # P(z|topic) is tricky as we don't actually store this. However
+    # we make a single, simple estimate for this case.
+    # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
+    for d in range(D):
+        z_dnk[0:docLens[d],:] = diWordDists.T[W_list[d,0:docLens[d]],:] \
+                              + diTopicDists[d,:]
+        
+        # We've been working in (expected) log-space till now, before we
+        #  go to true probability space rescale so we don't underflow everywhere
+        maxes  = z_dnk.max(axis=1)
+        z_dnk -= maxes[:,np.newaxis]
+        np.exp(z_dnk, out=z_dnk)
+        
+        # Now normalize so probabilities sum to one
+        sums   = z_dnk.sum(axis=1)
+        z_dnk /= sums[:,np.newaxis]
+        
+        # Now use to calculate  E[ln p(Z|topics), E[ln p(W|Z)
+        bound += np.sum(z_dnk[0:docLens[d],:] * (diTopicDists[d,:] - diTopicDists[d,:].sum()) )
+        bound += np.sum(z_dnk[0:docLens[d],:].T * diWordDists[:,W_list[d,0:docLens[d]]])
+        
+        # And finally the entropy of Z
+        bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
+        
+    
     return bound
 
-
+def dirichletEntropy (P):
+    '''
+    Entropy of D Dirichlet distributions, with dimension K, whose parameters
+    are given by the DxK matrix P
+    '''
+    D,K    = P.shape
+    psums  = P.sum(axis=1)
+    lnB   = fns.gammaln(psums) - fns.gammaln(P).sum(axis = 1)
+    term1 = (psums - K) * fns.digamma(psums)
+    term2 = (P - 1) * fns.digamma(P)
+    
+    return (lnB + term1 - term2.sum(axis=1)).sum()
+    
 
 if __name__ == '__main__':
     test = np.array([-1, 3, 5, -4 , 4, -3, 1], dtype=np.float64)
