@@ -232,7 +232,8 @@ def query (W, X, model, query, plan):
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
-def topicDist(query):
+
+def topicDists(query):
     '''
     Returns the topic distribution for the given query
     ''' 
@@ -240,8 +241,7 @@ def topicDist(query):
     topicDist /= query.numSamples
     return topicDist
 
-
-def vocab(model):
+def wordDists(model):
     '''
     Returns the word distributions for the given query
     ''' 
@@ -257,7 +257,7 @@ def log_likelihood (W, model, query):
     queryState object.
     
     '''
-    return sparseScalarProductOfSafeLnDot(W, topicDist(query), vocab(model)).sum()
+    return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
 
 def perplexity (W, modelState, queryState):
     '''

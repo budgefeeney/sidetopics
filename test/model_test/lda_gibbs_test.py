@@ -66,7 +66,7 @@ class Test(unittest.TestCase):
         fig.show()
         plt.show()
         
-        vocab = lda.vocab(model)
+        vocab = lda.wordDists(model)
         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
             
