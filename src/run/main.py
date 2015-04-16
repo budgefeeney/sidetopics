@@ -14,27 +14,28 @@ import os
 from math import ceil
 
 DTYPE=np.float32
-    
+
 CtmBouchard   = 'ctm_bouchard'
 CtmBohning    = 'ctm_bohning'
 StmYvBouchard = 'stm_yv_bouchard'
 StmYvBohning  = 'stm_yv_bohning'
 LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
+Rtm           = "rtm_vb"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, Rtm])
 
 FastButInaccurate=False
 
 def run(args):
     '''
-    Parses the command-line arguments (excluding the application name portion). 
+    Parses the command-line arguments (excluding the application name portion).
     Executes a cross-validation run accordingly, saving the output at the end
     of each run.
-    
+
     Returns the list of files created.
     '''
-    
+
     #
     # Enumerate all possible arguments
     #
@@ -77,26 +78,27 @@ def run(args):
                     help="Display a debug message, with the bound, after every variable update")
     parser.add_argument('--dtype', '-t', dest='dtype', default="f4", metavar=' ', \
                     help="Datatype to use, values are f4 and f8 for single and double-precision floats respectively")
-    
+
+
     #
     # Parse the arguments
     #
     print ("Args are : " + str(args))
     args = parser.parse_args(args)
-    
+
     print ("Random seed is 0xC0FFEE")
     rd.seed(0xC0FFEE)
-    
+
     dtype = np.float32 if args.dtype=='f4' else np.float64
-    
+
     #
     # Load in the files. As the cross-validation slices aren't randomized, we
     # randomly re-order the data to help ensure that there's no patterns in the
-    # data that might hurt on querying 
+    # data that might hurt on querying
     #
     with open(args.words, 'rb') as f:
         W = pkl.load(f)
-        
+
         docLens = np.squeeze(np.asarray(W.sum(axis=1)))
         if docLens.min() < 0.5: # docLens should be integers, but in case it's floats which don't add up accurately use 0.5
             print("Input doc-term matrix contains some empty rows. These have been removed.")
@@ -106,9 +108,9 @@ def run(args):
         else:
             D = W.shape[0]
             order = np.linspace(0, D - 1, D)
-        
+
         rd.shuffle(order)
-        
+
         W = W[order,:].astype(dtype)
         print ("Input doc-term matrix contains " + str(D) + " rows and " + str(W.shape[1]) + " columns")
     if args.feats is None:
@@ -119,17 +121,17 @@ def run(args):
             X = pkl.load(f)
             X = X[order,:].astype(dtype)
             F = X.shape[1]
-            
+
     K     = args.K
     P     = args.P
     Q     = args.Q
     folds = args.folds
-    
+
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
-    
+
     #
     # Instantiate and configure the model
-    #    
+    #
     if args.model == CtmBouchard:
         import model.ctm as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
@@ -137,10 +139,10 @@ def run(args):
         import model.ctm_bohning as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
     elif args.model == StmYvBouchard:
-        import model.stm_yv as mdl 
+        import model.stm_yv as mdl
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     elif args.model == StmYvBohning:
-        import model.stm_yv_bohning as mdl 
+        import model.stm_yv_bohning as mdl
         templateModel = mdl.newModelAtRandom(X, W, P, K, fv, lfv, dtype=dtype)
     elif args.model == LdaCvbZero:
         import model.lda_cvb as mdl
@@ -148,12 +150,15 @@ def run(args):
     elif args.model == LdaVb:
         import model.lda_vb as mdl
         templateModel = mdl.newModelAtRandom(W, K, dtype=dtype)
+    elif args.model == Rtm:
+        import model.rtm as mdl
+        templateModel = mdl.newModelAtRandom(W, X, K, dtype=dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
-    
+
     trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, fastButInaccurate=FastButInaccurate, debug=args.debug)
     queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq, debug=args.debug)
-    
+
     # things to inspect and store for later use
     modelFiles = []
 
@@ -162,11 +167,11 @@ def run(args):
         try:
             model = mdl.newModelFromExisting(templateModel)
             query = mdl.newQueryState(W, model)
-            
+
             model, query, (boundItrs, boundVals, boundLikes) = mdl.train (W, X, model, query, trainPlan)
             trainSetLikely = mdl.log_likelihood (W, model, query)
             perp = np.exp (-trainSetLikely / W.data.sum())
-            
+
             print("Train-set Likelihood: %12f" % (trainSetLikely))
             print("Train-set Perplexity: %12f" % (perp))
             print("")
@@ -183,52 +188,52 @@ def run(args):
         trainLikelySum = 0
         trainWordsSum  = 0
         finishedFolds  = 0 # count of folds that finished successfully
-        
+
         foldSize  = ceil(D / folds)
         querySize = foldSize
         trainSize = D - querySize
-        
+
         for fold in range(folds):
             try:
                 # Split the datasets up for the current fold
                 start = fold * foldSize
                 end   = start + trainSize
-                
+
                 trainSet = np.arange(start,end) % D
                 querySet = np.arange(end, end + querySize) % D
-                
+
                 W_train, W_query = W[trainSet,:], W[querySet,:]
                 if X is not None:
                     X_train, X_query = X[trainSet,:], X[querySet,:]
                 else:
                     X_train, X_query = None, None
-                
+
                 # Train the model
                 modelState  = mdl.newModelFromExisting(templateModel)
                 trainTopics = mdl.newQueryState(W_train, modelState)
                 modelState, trainTopics, (boundItrs, boundVals, boundLikes) \
                     = mdl.train(W_train, X_train, modelState, trainTopics, trainPlan)
-                    
+
                 trainSetLikely = mdl.log_likelihood (W_train, modelState, trainTopics)
                 trainWords     = W_train.data.sum()
                 trainSetPerp   = np.exp(-trainSetLikely / trainWords)
-                
+
                 # Query the model - if there are no features we need to split the text
                 W_query_train, W_query_eval = splitInput(X, W_query)
                 queryTopics = mdl.newQueryState(W_query_train, modelState)
                 modelState, queryTopics = mdl.query(W_query_train, X_query, modelState, queryTopics, queryPlan)
-                
+
                 querySetLikely = mdl.log_likelihood(W_query_eval, modelState, queryTopics)
                 queryWords     = W_query_eval.data.sum()
                 querySetPerp   = np.exp(-querySetLikely / queryWords)
-                
+
                 # Keep a record of the cumulative likelihood and query-set word-count
                 trainLikelySum += trainSetLikely
                 trainWordsSum  += trainWords
                 queryLikelySum += querySetLikely
                 queryWordsSum  += queryWords
                 finishedFolds  += 1
-                
+
                 # Write out the output
                 print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
                 print("")
@@ -239,11 +244,11 @@ def run(args):
                     modelFiles.append(modelFile)
                     with open(modelFile, 'wb') as f:
                         pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
-        
+
         print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, np.exp(-trainLikelySum / trainWordsSum)))
         print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, np.exp(-queryLikelySum / queryWordsSum)))
-        
-                        
+
+
     return modelFiles
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
@@ -259,17 +264,17 @@ def splitInput(X, W):
     For traditional topic models, when evaluating on unseen data, we partition
     each document into two parts, using one to estimate topic memberships, and
     the second part to evaluate the log-likelihood given those memberships.
-    
+
     For topic models with side-information, where we don't use words to determine
     topic-memberships, we can use the entire set of words to evaluate the
     likelihood.
-    
+
     So if there are features (X is not None) then we return W for both estimation
     and evaluation. If there are not we partition each document (i.e. row) in W
     into two, and return both versions.
-    
+
     Params:
-    X - the DxF matrix of F features for all D documents, used only to see if a 
+    X - the DxF matrix of F features for all D documents, used only to see if a
         split in W is necessary
     W - the DxT matrix of T term-counts for all D documents
 
@@ -279,15 +284,15 @@ def splitInput(X, W):
     '''
     if X is not None:
         return W, W
-    
+
     rng = rd.RandomState(0xBADB055)
-    
+
     dat    = W.data
     jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=W.dtype)
     evl    = dat + jitter
     est    = np.around(evl / 2.0)
     evl    = dat - est
-    
+
     return \
         ssp.csr_matrix((est, W.indices, W.indptr), shape=W.shape), \
         ssp.csr_matrix((evl, W.indices, W.indptr), shape=W.shape)
@@ -296,13 +301,13 @@ def newModelFile(modelName, K, P, fold=None, prefix="/Users/bryanfeeney/Desktop"
     modelName = modelName.replace('/','_')
     modelName = modelName.replace('-','_')
     timestamp = time.strftime("%Y%m%d_%H%M", time.gmtime())
-    
+
     cfg = "k_" + str(K)
     if P is not None:
         cfg += "_p_" + str(P)
-    
+
     foldDesc = "" if fold is None else "fold_" + str(fold) + "_"
-    
+
     return prefix + '/' \
          + modelName + '_' \
          + cfg + '_' \
@@ -311,4 +316,3 @@ def newModelFile(modelName, K, P, fold=None, prefix="/Users/bryanfeeney/Desktop"
 
 if __name__ == '__main__':
     run(args=sys.argv[1:])
-    

@@ -8,7 +8,11 @@ import pickle as pkl
 import tempfile as tmp
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, LdaCvbZero, LdaVb, StmYvBohning, CtmBouchard, CtmBohning, LdaCvbZero
+from run.main import run, ModelNames, Rtm
+
+AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL/"
+AclWordPath = AclPath + "words.pkl"
+AclCitePath = AclPath + "cites.pkl"
 
 def tmpFiles():
     '''
@@ -42,20 +46,20 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 50, 75
+        K,P = 10, 75
         modelFileses = []
-        for modelName in [ CtmBouchard ]: #ModelNames:
+        for modelName in [ Rtm ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8'      \
                     + ' --num-topics '     + str(K)    \
-                    + ' --num-lat-feats '  + str(P)    \
-                    + ' --log-freq '       + '10'       \
+                    + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '1000'      \
-                    + ' --query-iters '    + '100'      \
-                    + ' --folds '          + '5'      \
-                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+                    + ' --iters '          + '100'      \
+                    + ' --query-iters '    + '20'      \
+                    + ' --folds '          + '1'      \
+                    + ' --words '          + AclWordPath \
+                    + ' --feats '          + AclCitePath \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
