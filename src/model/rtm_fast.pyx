@@ -42,6 +42,12 @@ cdef np.ndarray[np.float64_t, ndim=1] probit_f64(np.ndarray[np.float64_t, ndim=1
     '''
     return 0.5 * fns.erfc(-x * OneOverSqrtTwo)
 
+def probit(X):
+    '''
+    Returns probit of every element of the given numpy array
+    '''
+    assert X.dtype is np.float64, "Only implemented for 64-bit double-precision floats"
+    return probit_f64 (X)
 
 cdef double SqrtTwoPi = 2.5066282746310002
 cdef double OneOverSqrtTwoPi = 1. / SqrtTwoPi

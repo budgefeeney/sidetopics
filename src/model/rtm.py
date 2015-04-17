@@ -6,7 +6,9 @@ Created on 15 Apr 2015
 
 import numpy as np
 import numpy.random as rd
+import scipy.sparse as ssp
 import scipy.special as fns
+import numba as nb
 
 import model.rtm_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -261,7 +263,7 @@ def train(W, X, model, query, plan):
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=5):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
-                QueryState(W_list, docLens, topicDists), \
+                QueryState(W_list, docLens, topicDists, topicMeans), \
                 (boundIters, boundValues, likelyValues)
 
         print ("Segment %d/%d Total Iterations %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
@@ -278,7 +280,7 @@ def train(W, X, model, query, plan):
 
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
-           QueryState(W_list, docLens, topicDists), \
+           QueryState(W_list, docLens, topicDists, topicMeans), \
            (boundIters, boundValues, likelyValues)
 
 
@@ -354,6 +356,27 @@ def var_bound(W, X, model, query, z_dnk = None):
         # And finally the entropy of Z
         bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
     
+    # Next, the distribution over links - we just focus on the positives in this case
+    topicDists -= topicPrior[np.newaxis,:]
+    topicDists /= docLens[d] # Turns this into a topic means array
+    for d in range(D):
+        links   = links_up_to(d, X)
+        scales  = topicDists[links,:].dot(weights * topicDists[d])
+        probs   = compiled.probit(scales)
+        lnProbs = np.log(probs)
+        
+        # expected probability of all links from d to p < d such that y_dp = 1
+        bound += lnProbs
+        
+        # and the entropy
+        bound     -= np.sum(probs * lnProbs)
+        probs[:]   = 1 - probs
+        lnProbs[:] = np.log(probs)
+        bound     -= np.sum(probs * lnProbs)
+        
+    
+    topicDists *= docLens[d] # Turns this back into a regularized topic distributions array
+    topicDists += topicPrior[np.newaxis,:]
     return bound
 
 def dirichletEntropy (P):
@@ -368,6 +391,33 @@ def dirichletEntropy (P):
     term2 = (P - 1) * fns.digamma(P)
     
     return (lnB + term1 - term2.sum(axis=1)).sum()
+
+def links_up_to (d, X):
+    '''
+    Gets all the links that exist to earlier documents in the corpus. Ensures
+    that if we iterate through all documents, we only ever consider each link
+    once.
+    '''
+    return links_up_to_csr(d, X.indptr, X.indices)
+
+nb.autojit
+def links_up_to_csr(d, Xptr, Xindices):
+    '''
+    Gets all the links that exist to earlier documents in the corpus. Ensures
+    that if we iterate through all documents, we only ever consider each link
+    once. Assumes we're working on a DxD CSR matrix.
+    '''
+    
+    start = Xptr[d]
+    end   = start
+    while end < Xptr[d+1]:
+        if Xindices[end] >= d:
+            break
+        end += 1
+    
+    result = Xindices[start:end]
+    
+    return result
     
 
 if __name__ == '__main__':
