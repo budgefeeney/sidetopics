@@ -115,7 +115,6 @@ def iterate_f64(int iterations, int D, int K, int T, \
         double[:,:] diVocabDists    = np.ndarray(shape=(K,T), dtype=np.float64)
         double[:]   diSumVocabDists = np.ndarray(shape=(K,), dtype=np.float64) 
         double[:]   oldMems         = np.ndarray(shape=(K,), dtype=np.float64)
-        double[:]   vocabNorm       = np.ndarray(shape=(K,), dtype=np.float64)
 
         double      topicPriorSum
         double[:]   oldTopicPrior
@@ -131,8 +130,6 @@ def iterate_f64(int iterations, int D, int K, int T, \
         diSumVocabDists = fns.digamma(np.sum (vocabDists, axis=1))
         
         vocabDists[:,:] = vocabPrior
-        vocabNorm[:]    = vocabPrior * T
-        
         topicPriorSum = np.sum(topicPrior)
         
         with nogil:
@@ -150,12 +147,6 @@ def iterate_f64(int iterations, int D, int K, int T, \
                     for n in range(docLens[d]):
                         t = W_list[d,n]
                         vocabDists[k,t] += z_dnk[n,k]
-                        vocabNorm[k]    += z_dnk[n,k]
-                        
-                        if is_invalid(vocabDists[k,t]):
-                            with gil:
-                                print ("vocabDists[%d,%d] = %f, z_dnk[%d,%d] = %f" \
-                                      % (k, t, vocabDists[k,t], n, k, z_dnk[n,k]))
         
                     
         # And update the prior on the topic distribution. We
@@ -262,8 +253,7 @@ cdef int infer_topics_f64(int d, int D, int K, \
     oldMems[:]      = 1./K
     innerItrs = 0
     
-    post = D
-    post /= K
+    post = (1. * D) / K
     
     for k in range(K):
         topicDists[d,k] = topicPrior[k] + post
@@ -275,7 +265,6 @@ cdef int infer_topics_f64(int d, int D, int K, \
             topicDists[d,k] = topicPrior[k] + post
         
         innerItrs += 1
-        
         
         # Determine the topic assignment for each individual token...
         for n in range(docLens[d]):
@@ -308,10 +297,6 @@ cdef int infer_topics_f64(int d, int D, int K, \
         for n in range(docLens[d]):
             for k in range(K):
                 topicDists[d,k] += z_dnk[n,k]
-#                 norm += z_dnk[n,k]
-#                 
-#         for k in range(K):
-#             topicDists[d,k] /= norm   
                     
     return innerItrs
 
