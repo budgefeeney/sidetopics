@@ -169,7 +169,7 @@ def run(args):
             query = mdl.newQueryState(W, model)
 
             model, query, (boundItrs, boundVals, boundLikes) = mdl.train (W, X, model, query, trainPlan)
-            trainSetLikely = mdl.log_likelihood (W, model, query)
+            trainSetLikely = mdl.log_likelihood (W, X, model, query) # TODO Fix me by tupling
             perp = np.exp (-trainSetLikely / W.data.sum())
 
             print("Train-set Likelihood: %12f" % (trainSetLikely))
