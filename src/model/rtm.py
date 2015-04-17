@@ -6,12 +6,12 @@ Created on 15 Apr 2015
 
 import numpy as np
 import numpy.random as rd
+import scipy.special as fns
 
 import model.rtm_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged, clamp
-from util.array_utils import normalizerows_ip
 from model.lda_cvb import toWordList
 
 from collections import namedtuple
@@ -258,7 +258,7 @@ def train(W, X, model, query, plan):
         likelyValues[bvIdx] = log_likelihood(W, X, model, query)
         bvIdx += 1
 
-        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
+        if converged (boundIters, boundValues, bvIdx, epsilon, minIters=5):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
                 QueryState(W_list, docLens, topicDists), \
@@ -299,18 +299,19 @@ def var_bound(W, X, model, query, z_dnk = None):
     # Initialize z matrix if necessary 
     D,T = W.shape
     maxN = docLens.max()
-    if z_dnk == None:
+    if z_dnk is None:
         z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
         
     # Perform the digamma transform for E[ln \theta] etc.
-    diTopicDists = fns.digamma(topicDists) - fns.digamma(topicDists.sum(axis=1))[:,np.newaxis]
-    diWordDists  = fns.digamma(model.wordDists) - fns.digamma(model.wordDists.sum(axis=1))[:,np.newaxis]
-    
+    diTopicDists    = fns.digamma(topicDists)
+    diSumTopicDists = fns.digamma(topicDists.sum(axis=1))
+    diWordDists     = fns.digamma(model.wordDists)
+    diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
     
     # P(topics|topicPrior)
     #
     bound += D * fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum() \
-           + np.sum((topicPrior - 1)[np.newaxis,:] * (diTopicDists - diTopicDists.sum(axis=1)[:,np.newaxis] ))
+           + np.sum((topicPrior - 1)[np.newaxis,:] * (diTopicDists - diSumTopicDists[:,np.newaxis] ))
     
     # and its entropy
     bound += dirichletEntropy(topicDists)
@@ -318,12 +319,12 @@ def var_bound(W, X, model, query, z_dnk = None):
         
     # P(vocabs|vocabPrior)
     #
-    if type(m.vocabPrior) is float:
+    if type(model.vocabPrior) is float:
         bound += D * fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior) \
-               + np.sum((wordPrior - 1) * (diWordDists - diWordDists.sum(axis=1)[:,np.newaxis] ))
+               + np.sum((wordPrior - 1) * (diWordDists - diSumWordDists[:,np.newaxis] ))
     else:
         bound += D * fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum() \
-               + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diWordDists.sum(axis=1)[:,np.newaxis] ))
+               + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diSumWordDists[:,np.newaxis] ))
     
     # and its entropy
     bound += dirichletEntropy(wordDists)
@@ -347,12 +348,11 @@ def var_bound(W, X, model, query, z_dnk = None):
         z_dnk /= sums[:,np.newaxis]
         
         # Now use to calculate  E[ln p(Z|topics), E[ln p(W|Z)
-        bound += np.sum(z_dnk[0:docLens[d],:] * (diTopicDists[d,:] - diTopicDists[d,:].sum()) )
-        bound += np.sum(z_dnk[0:docLens[d],:].T * diWordDists[:,W_list[d,0:docLens[d]]])
+        bound += np.sum(z_dnk[0:docLens[d],:] * (diTopicDists[d,:] - diSumTopicDists[d]) )
+        bound += np.sum(z_dnk[0:docLens[d],:].T * (diWordDists[:,W_list[d,0:docLens[d]]] - diSumWordDists[:,np.newaxis]))
         
         # And finally the entropy of Z
         bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
-        
     
     return bound
 
@@ -363,7 +363,7 @@ def dirichletEntropy (P):
     '''
     D,K    = P.shape
     psums  = P.sum(axis=1)
-    lnB   = fns.gammaln(psums) - fns.gammaln(P).sum(axis = 1)
+    lnB   = fns.gammaln(P).sum(axis = 1) - fns.gammaln(psums)
     term1 = (psums - K) * fns.digamma(psums)
     term2 = (P - 1) * fns.digamma(P)
     
