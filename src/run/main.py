@@ -176,9 +176,9 @@ def run(args):
                 trainSetPerp   = perplexity_from_like(trainSetLikely, trainWordCount)
 
                 # Query the model - if there are no features we need to split the text
-                query_train, query_eval = query_data.doc_completion_split()
-                queryTopics = mdl.newQueryState(query_train, modelState)
-                modelState, queryTopics = mdl.query(query_train, modelState, queryTopics, queryPlan)
+                query_estim, query_eval = query_data.doc_completion_split()
+                queryTopics = mdl.newQueryState(query_estim, modelState)
+                modelState, queryTopics = mdl.query(query_estim, modelState, queryTopics, queryPlan)
 
                 querySetLikely = mdl.log_likelihood(query_eval, modelState, queryTopics)
                 queryWordCount = query_eval.word_count
