@@ -11,6 +11,7 @@ import sys
 import time
 
 from model.common import DataSet
+from model.evals import perplexity_from_like
 
 DTYPE=np.float32
 
@@ -140,7 +141,7 @@ def run(args):
 
             model, query, (boundItrs, boundVals, boundLikes) = mdl.train(data, model, query, trainPlan)
             trainSetLikely = mdl.log_likelihood(data, model, query) # TODO Fix me by tupling
-            perp = np.exp (-trainSetLikely / data.word_count)
+            perp = perplexity_from_like(trainSetLikely, data.word_count)
 
             print("Train-set Likelihood: %12f" % (trainSetLikely))
             print("Train-set Perplexity: %12f" % (perp))
@@ -172,7 +173,7 @@ def run(args):
 
                 trainSetLikely = mdl.log_likelihood (train_data, modelState, trainTopics)
                 trainWordCount = train_data.word_count
-                trainSetPerp   = np.exp(-trainSetLikely / trainWordCount)
+                trainSetPerp   = perplexity_from_like(trainSetLikely, trainWordCount)
 
                 # Query the model - if there are no features we need to split the text
                 query_train, query_eval = query_data.doc_completion_split()
@@ -181,7 +182,7 @@ def run(args):
 
                 querySetLikely = mdl.log_likelihood(query_eval, modelState, queryTopics)
                 queryWordCount = query_eval.word_count
-                querySetPerp   = np.exp(-querySetLikely / queryWordCount)
+                querySetPerp   = perplexity_from_like(querySetLikely, queryWordCount)
 
                 # Keep a record of the cumulative likelihood and query-set word-count
                 trainLikelySum += trainSetLikely
@@ -201,8 +202,8 @@ def run(args):
                     with open(modelFile, 'wb') as f:
                         pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
 
-        print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, np.exp(-trainLikelySum / trainWordsSum)))
-        print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, np.exp(-queryLikelySum / queryWordsSum)))
+        print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, perplexity_from_like(trainLikelySum, trainWordsSum)))
+        print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, perplexity_from_like(queryLikelySum, queryWordsSum)))
 
 
     return modelFiles
