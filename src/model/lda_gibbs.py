@@ -66,7 +66,7 @@ ModelState = namedtuple ( \
 # ==============================================================
 
 
-def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
+def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -74,8 +74,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
-    W - the DxT document-term matrix of T terms in D documents
-        which will be used for training.
+    data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     topicPrior - the prior over topics, either a scalar or a K-dimensional vector
     vocabPrior - the prior over vocabs, either a scalar or a T-dimensional vector
@@ -84,7 +83,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     Return:
     A ModelState object
     '''
-    T = W.shape[1]
+    T = data.words.shape[1]
     
     assert K > 1,     "There must be at least two topics"
     assert K < 256,   "There can be no more than 256 topics"
@@ -119,15 +118,14 @@ def newModelFromExisting(model):
         model.dtype,      \
         model.name)
 
-def newQueryState(W, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
     datapoints.
     
     Param:
-    W - the DxT document-term matrix used for training or
-        querying.
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
     
     REturn:
@@ -135,11 +133,10 @@ def newQueryState(W, modelState):
     '''
     K =  modelState.K
     
-    D,T = W.shape
+    D,T = data.words.shape
     print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
-    w_list, docLens = compiled.flatten(W)
+    w_list, docLens = compiled.flatten(data.words)
     print("Done")
-    
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
     print ("Sampling the {:,} ({:,}) per-token topic distributions... ".format(w_list.shape[0], docLens.sum()), end="")
@@ -153,7 +150,7 @@ def newTrainPlan (iterations, burnIn, thin = 10, logFrequency = 100, debug = Fal
     return TrainPlan(iterations, burnIn, thin, logFrequency, debug)
 
 
-def train (W, X, model, query, plan):
+def train (data, model, query, plan):
     iterations, burnIn, thin, _, _ = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
     w_list, z_list, docLens, _, _ = \
@@ -194,7 +191,7 @@ def train (W, X, model, query, plan):
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
-def query (W, X, model, query, plan):
+def query (data, model, query, plan):
     iterations, burnIn, thin, _, _ = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
     w_list, z_list, docLens, _, _ = \
@@ -250,22 +247,13 @@ def wordDists(model):
     return vocabDist
 
     
-def log_likelihood (W, model, query):
+def log_likelihood (data, model, query):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
     queryState object.
     
     '''
-    return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
+    return sparseScalarProductOfSafeLnDot(data.words, topicDists(query), wordDists(model)).sum()
 
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
-
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
 

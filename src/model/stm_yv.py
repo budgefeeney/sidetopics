@@ -82,7 +82,7 @@ def newModelFromExisting(model):
         model.dtype, model.name)
 
 
-def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
+def newModelAtRandom(data, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -90,10 +90,8 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
-    X - The DxF document-feature matrix of F features associated
-        with the D documents
-    W - the DxT document-term matrix of T terms in D documents
-        which will be used for training.
+    data - the dataset of words, features and links of which only words and
+           features are used in this model
     P - The size of the latent feature-space P << F
     K - the number of topics
     featVar - the prior variance of the feature-space: this is a
@@ -106,8 +104,8 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     '''
     assert K > 1, "There must be at least two topics"
     
-    base = ctm.newModelAtRandom(W, K, dtype)
-    _,F = X.shape
+    base = ctm.newModelAtRandom(data, K, dtype)
+    _,F = data.feats.shape
     Y = rd.random((K,P)).astype(dtype)
     R_Y = latFeatVar * np.eye(P,P, dtype=dtype)
     
@@ -117,21 +115,21 @@ def newModelAtRandom(X, W, P, K, featVar, latFeatVar, dtype=DTYPE):
     
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
     datapoints.
     
     Param:
-    W - the DxT document-term matrix used for training or
-        querying.
+    data - the dataset of words, features and links of which only words and
+           features are used in this model
     modelState - the model state object
     
     REturn:
     A QueryState object
     '''
-    base = ctm.newQueryState(W, modelState)
+    base = ctm.newQueryState(data, modelState)
     
     return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
@@ -146,13 +144,14 @@ def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate
     return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate, base.debug)
 
 
-def train (W, X, modelState, queryState, trainPlan):
+def train (data, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
     
     Params:
-    W - the DxT document-term matrix
+    data - the dataset of words, features and links of which only words and
+           features are used in this model
     modelState - the actual CTM model
     queryState - the query results - essentially all the "local" variables
                  matched to the given observations
@@ -164,7 +163,8 @@ def train (W, X, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
     '''
-    
+    W, X = data.words, data.feats
+
     assert W.dtype == modelState.dtype
     assert X.dtype == modelState.dtype
     
@@ -310,14 +310,14 @@ def train (W, X, modelState, queryState, trainPlan):
         QueryState(means, varcs, lxi, s, n), \
         (boundIters, boundValues, likeValues)
 
-def query(W, X, modelState, queryState, queryPlan):
+def query(data, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
     
     Params:
-    W - The query words to which we assign topics
-    X - The query features, used to assign topics
+    data - the dataset of words, features and links of which only words and
+           features are used in this model
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
     queryPlan  - used in this case as we need to tighten up the approx
@@ -334,7 +334,7 @@ def query(W, X, modelState, queryState, queryPlan):
     # per topic per doc)
     isigT = la.inv(sigT)
         
-    
+    W,X = data.words, data.feats
         
     # Enable logging or not. If enabled, we need the inner product of the feat matrix
     if debug:
@@ -382,7 +382,7 @@ def query(W, X, modelState, queryState, queryPlan):
     return modelState, QueryState (means, varcs, lxi, s, n)
 
 
-def log_likelihood (W, modelState, queryState):
+def log_likelihood (data, modelState, queryState):
     ''' 
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the 
@@ -390,33 +390,23 @@ def log_likelihood (W, modelState, queryState):
     '''
     return np.sum( \
         sparseScalarProductOfSafeLnDot(\
-            W, \
+            data.words, \
             rowwise_softmax(queryState.means), \
             modelState.vocab \
         ).data \
     )
 
 
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
     
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
-    
-
-    
-def var_bound(W, X, modelState, queryState, XTX = None):
+def var_bound(data, modelState, queryState, XTX = None):
     '''
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial
     manner.
     '''
     # Unpack the the structs, for ease of access and efficiency
-    D,_ = W.shape
+    W, X = data.words, data.feats
+    D, _ = W.shape
     means, varcs, lxi, s, docLens = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     

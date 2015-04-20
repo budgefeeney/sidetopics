@@ -21,7 +21,6 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import scipy.special as fns
-import scipy.linalg as la
 import numpy.random as rd
 import sys
 
@@ -79,7 +78,7 @@ def newModelFromExisting(model):
         model.dtype,       \
         model.name)
 
-def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
+def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -87,8 +86,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
-    W - the DxT document-term matrix of T terms in D documents
-        which will be used for training.
+    data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     topicPrior - the prior over topics, either a scalar or a K-dimensional vector
     vocabPrior - the prior over vocabs, either a scalar or a T-dimensional vector
@@ -98,11 +96,15 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     A ModelState object
     '''
     assert K > 1, "There must be at least two topics"
-    
+
+    # Based on Griffiths and Steyvers 2004, with the amendment suggested by
+    # Ascuncion in his Smoothing Topic Models paper
+
+
     if topicPrior is None:
-        topicPrior = constantArray((K,), 50.0 / K, dtype=dtype) # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K,), (50.0 / K) + 0.5, dtype=dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.1 # Also from G&S
+        vocabPrior = 0.1 + 0.5
         
     n_dk = None # These start out at none until we actually
     n_kv = None # go ahead and train this model.
@@ -111,23 +113,23 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, dtype, MODEL_NAME)
 
 
-def newQueryState(W, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
     datapoints.
     
     Param:
-    W - the DxT document-term matrix used for training or
-        querying.
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
     
     REturn:
     A CtmQueryState object
     '''
-    K =  modelState.K
-    
+    K   = modelState.K
+    W   = data.words
     D,_ = W.shape
+
     print("Converting document-term matrix to list of lists... ", end="")
     W_list, docLens = toWordList(W)
     print("Done")
@@ -175,14 +177,13 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
-def train (W, X, modelState, queryState, trainPlan, query=False):
+def train (data, modelState, queryState, trainPlan, query=False):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
 
     Params:
-    W - the DxT document-term matrix
-    X - The DxF document-feature matrix, which is IGNORED in this case
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the actual LDA model. In a training run (query = False) this
                  will be mutated in place, and then returned.
     queryState - the query results - essentially all the "local" variables
@@ -206,6 +207,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
     
     D_train = 0 if m_n_dk is None else m_n_dk.shape[0]
     D_query = q_n_dk.shape[0]
+    W = data.words
     T = W.shape[1]
     
     # Quick sanity check
@@ -291,7 +293,7 @@ def train (W, X, modelState, queryState, trainPlan, query=False):
            (boundIters, boundValues, likelyValues)
   
   
-def var_bound_intermediate (W, model, query, n_kt, n_k):
+def var_bound_intermediate (data, model, query, n_kt, n_k):
     model = ModelState(\
         model.K, \
         model.topicPrior, \
@@ -302,9 +304,9 @@ def var_bound_intermediate (W, model, query, n_kt, n_k):
         model.dtype, \
         model.name)
     
-    return var_bound (W, model, query)
+    return var_bound (data, model, query)
 
-def log_likely_intermediate (W, model, query, n_kt, n_k):
+def log_likely_intermediate (data, model, query, n_kt, n_k):
     model = ModelState(\
         model.K, \
         model.topicPrior, \
@@ -315,16 +317,15 @@ def log_likely_intermediate (W, model, query, n_kt, n_k):
         model.dtype, \
         model.name)
     
-    return log_likelihood (W, model, query)
+    return log_likelihood (data, model, query)
 
-def query(W, X, modelState, queryState, queryPlan):
+def query(data, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
 
     Params:
-    W - The query words to which we assign topics
-    X - This is ignored, and can be omitted
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
     queryPlan  - used in this case as we need to tighten up the approx
@@ -333,22 +334,11 @@ def query(W, X, modelState, queryState, queryPlan):
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
-    modelState, queryState, _ = train(W, X, modelState, queryState, queryPlan, query=True)
+    modelState, queryState, _ = train(data, modelState, queryState, queryPlan, query=True)
     return modelState, queryState
 
 
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
-
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
-
-
-def log_likelihood (W, modelState, queryState):
+def log_likelihood (data, modelState, queryState):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
@@ -383,7 +373,7 @@ def log_likelihood (W, modelState, queryState):
     return ln_likely
     
 
-def var_bound(W, modelState, queryState):
+def var_bound(data, modelState, queryState):
     '''
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial

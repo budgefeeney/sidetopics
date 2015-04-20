@@ -76,7 +76,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
 
-def newModelAtRandom(W, K, dtype=DTYPE):
+def newModelAtRandom(dataset, K, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -84,8 +84,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
-    W - the DxT document-term matrix of T terms in D documents
-        which will be used for training.
+    data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     
     Return:
@@ -93,7 +92,7 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     '''
     assert K > 1, "There must be at least two topics"
     
-    _,T = W.shape
+    _,T = dataset.words.shape
     vocab     = normalizerows_ip(rd.random((K,T)).astype(dtype))
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
@@ -104,15 +103,14 @@ def newModelAtRandom(W, K, dtype=DTYPE):
     
     return ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
 
-def newQueryState(W, modelState):
+def newQueryState(dataset, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
     datapoints.
     
     Param:
-    W - the DxT document-term matrix used for training or
-        querying.
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
     
     REturn:
@@ -120,7 +118,7 @@ def newQueryState(W, modelState):
     '''
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
     
-    D,T = W.shape
+    D,T = dataset.words.shape
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
@@ -144,14 +142,13 @@ def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
 
-def train (W, X, modelState, queryState, trainPlan):
+def train (dataset, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
     
     Params:
-    W - the DxT document-term matrix
-    X - The DxF document-feature matrix, which is IGNORED in this case
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the actual CTM model
     queryState - the query results - essentially all the "local" variables
                  matched to the given observations
@@ -163,6 +160,7 @@ def train (W, X, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want it)
     A new query object with the update query parameters
     '''
+    W   = dataset.words
     D,_ = W.shape
     
     # Unpack the the structs, for ease of access and efficiency
@@ -288,14 +286,13 @@ def train (W, X, modelState, queryState, trainPlan):
         (boundIters, boundValues, likelyValues)
     
 
-def query(W, X, modelState, queryState, queryPlan):
+def query(dataset, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
     
     Params:
-    W - The query words to which we assign topics
-    X - This is ignored, and can be omitted
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
     queryPlan  - used in this case as we need to tighten up the approx
@@ -304,6 +301,7 @@ def query(W, X, modelState, queryState, queryPlan):
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
+    W = dataset.words
     D = W.shape[0]
     
     iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
@@ -359,19 +357,9 @@ def verifyProper(X, xName):
         print (xName + " contains NaNs")
     if np.isinf(X).any():
         print (xName + " contains Infs")
-
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
-    
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
     
 
-def log_likelihood (W, modelState, queryState):
+def log_likelihood (data, modelState, queryState):
     ''' 
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the 
@@ -379,13 +367,13 @@ def log_likelihood (W, modelState, queryState):
     '''
     return np.sum( \
         sparseScalarProductOfSafeLnDot(\
-            W, \
+            data.words, \
             rowwise_softmax(queryState.means), \
             modelState.vocab \
         ).data \
     )
     
-def var_bound(W, modelState, queryState):
+def var_bound(data, modelState, queryState):
     '''
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial
@@ -393,6 +381,7 @@ def var_bound(W, modelState, queryState):
     '''
     
     # Unpack the the structs, for ease of access and efficiency
+    W   = data.words
     D,_ = W.shape
     means, varcs, lxi, s, docLens = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     K, topicMean, sigT, vocab     = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab

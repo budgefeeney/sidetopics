@@ -51,7 +51,7 @@ def newModelFromExisting(model):
         model.name)
 
 
-def newModelAtRandom(W, X, K, pseudoNegCount=None, regularizer=0.001, topicPrior=None, vocabPrior=None, dtype=DTYPE):
+def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -75,7 +75,7 @@ def newModelAtRandom(W, X, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     '''
     assert K > 1,   "There must be at least two topics"
     assert K < 255, "There can be no more than 255 topics"
-    T = W.shape[1]
+    T = data.words.shape[1]
 
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
@@ -100,7 +100,7 @@ def newModelAtRandom(W, X, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, pseudoNegCount, regularizer, dtype, MODEL_NAME)
 
 
-def newQueryState(W, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -115,10 +115,10 @@ def newQueryState(W, modelState):
     A QueryState object
     '''
     K = modelState.K
-    D,_ = W.shape
+    D,_ = data.words.shape
     
     print("Converting Bag of Words matrix to List of List representation... ", end="")
-    W_list, docLens = toWordList(W)
+    W_list, docLens = toWordList(data.words)
     print("Done")
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -149,7 +149,6 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
 
-
 def wordDists (modelState):
     '''
     The K x T matrix of  word distributions inferred for the K topics
@@ -173,18 +172,8 @@ def topicDists (queryState):
     return result
 
 
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
 
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
-
-
-def log_likelihood (W, X, modelState, queryState):
+def log_likelihood (data, modelState, queryState):
     '''
     Return the log-likelihood of the given data W and X according to the model
     and the parameters inferred for the entries in W and X stored in the
@@ -192,7 +181,7 @@ def log_likelihood (W, X, modelState, queryState):
 
     Actually returns a vector of D document specific log likelihoods
     '''
-    wordLikely = sparseScalarProductOfSafeLnDot(W, topicDists(queryState), wordDists(modelState)).sum()
+    wordLikely = sparseScalarProductOfSafeLnDot(data.words, topicDists(queryState), wordDists(modelState)).sum()
     
     # For likelihood it's a bit tricky. In theory, given d =/= p, and letting 
     # c_d = 1/n_d, where n_d is the word count of document d, it's 
@@ -221,7 +210,7 @@ def log_likelihood (W, X, modelState, queryState):
 
 
 
-def train(W, X, model, query, plan):
+def train(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint, and additionally learns the weights
@@ -248,7 +237,9 @@ def train(W, X, model, query, plan):
     K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
 
+    W   = data.words
     D,T = W.shape
+    X   = data.links
 
     # Quick sanity check
     if np.any(docLens < 1):
@@ -311,7 +302,7 @@ def train(W, X, model, query, plan):
 
 
 
-def var_bound(W, X, model, query, z_dnk = None):
+def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
     '''
@@ -323,7 +314,8 @@ def var_bound(W, X, model, query, z_dnk = None):
     K, topicPrior, wordPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
 
-    # Initialize z matrix if necessary 
+    # Initialize z matrix if necessary
+    W,X = data.words, data.links
     D,T = W.shape
     maxN = docLens.max()
     if z_dnk is None:
@@ -355,8 +347,7 @@ def var_bound(W, X, model, query, z_dnk = None):
     
     # and its entropy
     bound += dirichletEntropy(wordDists)
-    
-    
+
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
     # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)

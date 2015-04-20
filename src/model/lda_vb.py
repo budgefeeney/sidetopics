@@ -79,7 +79,7 @@ def newModelFromExisting(model):
         model.dtype,       \
         model.name)
 
-def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
+def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -87,8 +87,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     the dataset (e.g. learnt priors)
     
     Param:
-    W - the DxT document-term matrix of T terms in D documents
-        which will be used for training.
+    data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     topicPrior - the prior over topics, either a scalar or a K-dimensional vector
     vocabPrior - the prior over vocabs, either a scalar or a T-dimensional vector
@@ -98,7 +97,7 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     A ModelState object
     '''
     assert K > 1, "There must be at least two topics"
-    T = W.shape[1]
+    T = data.words.shape[1]
     
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
@@ -115,23 +114,22 @@ def newModelAtRandom(W, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
 
 
-def newQueryState(W, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
     datapoints.
     
     Param:
-    W - the DxT document-term matrix used for training or
-        querying.
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
     
     Return:
     A CtmQueryState object
     '''
-    D,_ = W.shape
+    D,_ = data.words.shape
     print("Converting Bag of Words matrix to List of List representation... ", end="")
-    W_list, docLens = toWordList(W)
+    W_list, docLens = toWordList(data.words)
     print("Done")
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -152,14 +150,13 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
-def train (W, X, modelState, queryState, trainPlan):
+def train (data, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint.
 
     Params:
-    W - the DxT document-term matrix
-    X - The DxF document-feature matrix, which is IGNORED in this case
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the actual LDA model. In a training run (query = False) this
                  will be mutated in place, and then returned.
     queryState - the query results - essentially all the "local" variables
@@ -180,7 +177,8 @@ def train (W, X, modelState, queryState, trainPlan):
         queryState.W_list, queryState.docLens, queryState.topicDists
     K, topicPrior, vocabPrior, wordDists, dtype = \
         modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.wordDists, modelState.dtype
-    
+
+    W   = data.words
     D,T = W.shape
     
     # Quick sanity check
@@ -303,14 +301,13 @@ def iterate (iterations, D, K, T, \
 
 
 
-def query(W, X, modelState, queryState, queryPlan):
+def query(data, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
     the inputs.
 
     Params:
-    W - The query words to which we assign topics
-    X - This is ignored, and can be omitted
+    data - the dataset of words, features and links of which only words are used in this model
     modelState - the _trained_ model
     queryState - the query state generated for the query dataset
     queryPlan  - used in this case as we need to tighten up the approx
@@ -323,7 +320,8 @@ def query(W, X, modelState, queryState, queryPlan):
         queryState.W_list, queryState.docLens, queryState.topicDists
     K, topicPrior, vocabDists, dtype = \
         modelState.K, modelState.topicPrior, modelState.wordDists, modelState.dtype
-   
+
+    W   = data.words
     D,T = W.shape
     z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
     
@@ -365,19 +363,7 @@ def topicDists (queryState):
     
     return result
 
-
-def perplexity (W, modelState, queryState):
-    '''
-    Return the perplexity of this model.
-
-    Perplexity is a sort of normalized likelihood, applicable to textual
-    data. Specifically it's the reciprocal of the geometric mean of the
-    likelihoods of each individual word in the corpus.
-    '''
-    return np.exp (-log_likelihood (W, modelState, queryState) / np.sum(W.data))
-
-
-def log_likelihood (W, modelState, queryState):
+def log_likelihood (data, modelState, queryState):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
@@ -385,10 +371,10 @@ def log_likelihood (W, modelState, queryState):
     
     Actually returns a vector of D document specific log likelihoods
     '''
-    return sparseScalarProductOfSafeLnDot(W, topicDists(queryState), wordDists(modelState)).sum()
+    return sparseScalarProductOfSafeLnDot(data.words, topicDists(queryState), wordDists(modelState)).sum()
     
 
-def var_bound(W, modelState, queryState, z_dnk = None):
+def var_bound(data, modelState, queryState, z_dnk = None):
     '''
     Determines the variational bounds.
     '''
@@ -397,7 +383,8 @@ def var_bound(W, modelState, queryState, z_dnk = None):
         queryState.W_list, queryState.docLens, queryState.topicDists
     K, topicPrior, vocabPrior, _, dtype = \
         modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.wordDists, modelState.dtype
-    
+
+    W   = data.words
     D,T = W.shape
     maxN = docLens.max()
     if z_dnk == None:
