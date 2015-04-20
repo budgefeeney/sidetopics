@@ -192,7 +192,32 @@ def log_likelihood (W, X, modelState, queryState):
 
     Actually returns a vector of D document specific log likelihoods
     '''
-    return sparseScalarProductOfSafeLnDot(W, topicDists(queryState), wordDists(modelState)).sum()
+    wordLikely = sparseScalarProductOfSafeLnDot(W, topicDists(queryState), wordDists(modelState)).sum()
+    
+    # For likelihood it's a bit tricky. In theory, given d =/= p, and letting 
+    # c_d = 1/n_d, where n_d is the word count of document d, it's 
+    #
+    #   ln p(y_dp|weights) = E[\sum_k weights[k] * (c_d \sum_n z_dnk) * (c_p \sum_n z_pnk)]
+    #                      = \sum_k weights[k] * c_d * E[\sum_n z_dnk] * c_p * E[\sum_n z_pnk]
+    #                      = \sum_k weights[k] * topicDistsMean[d,k] * topicDistsMean[p,k]
+    #                      
+    #
+    # where topicDistsMean[d,k] is the mean of the k-th element of the Dirichlet parameterised
+    # by topicDist[d,:]
+    #
+    # However in the related paper on Supervised LDA, which uses this trick of average z_dnk,
+    # they explicitly say that in the likelihood calculation they use the expectation
+    # according to the _variational_ approximate posterior distribution q(z_dn) instead of the
+    # actual distribution p(z_dn|topicDist), and thus
+    #
+    # E[\sum_n z_dnk] = \sum_n E_q[z_dnk] 
+    #
+    # There's no detail of the likelihood in either of the RTM papers, so we use the
+    # variational approch
+    
+    linkLikely = 0
+    
+    return wordLikely + linkLikely
 
 
 
