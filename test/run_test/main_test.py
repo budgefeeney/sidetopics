@@ -56,8 +56,8 @@ class Test(unittest.TestCase):
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '1000'      \
-                    + ' --query-iters '    + '500'      \
+                    + ' --iters '          + '100'      \
+                    + ' --query-iters '    + '50'      \
                     + ' --folds '          + '1'      \
                     + ' --words '          + AclWordPath \
                     + ' --links '          + AclCitePath \
