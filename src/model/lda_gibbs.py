@@ -144,7 +144,7 @@ def newQueryState(data, modelState):
 
 def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
     if burnIn < 0:
-        burnIn = iterations / 5
+        burnIn = iterations // 5
 
     if thin < 0:
         thin = 5 if iterations <= 100 \
