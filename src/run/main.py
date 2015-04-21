@@ -56,7 +56,7 @@ def run(args):
                     help='The path to the pickle file containing a DxT array or matrix of the word-counts across all D documents')
     parser.add_argument('--feats', '-x', dest='feats', metavar=' ', \
                     help='The path to the pickle file containing a DxF array or matrix of the features across all D documents')
-    parser.add_argument('--links', '-c', dest='feats', metavar=' ', \
+    parser.add_argument('--links', '-c', dest='links', metavar=' ', \
                     help='The path to the pickle file containing a DxP array or matrix of the links (citations) emanated by all D documents')
     parser.add_argument('--eval', '-v', dest='eval', default=Perplexity, metavar=' ', \
                     help='Evaluation metric, available options are: ' + ','.join(EvalNames))
@@ -99,6 +99,7 @@ def run(args):
     dtype   = np.float32 if args.dtype == 'f4' else np.float64
 
     data = DataSet(args.words, args.feats, args.links)
+    data.convert_to_dtype(np.int32)
     order = data.prune_and_shuffle(min_doc_len=0.5)
     folds = args.folds
 
@@ -134,8 +135,8 @@ def run(args):
     else:
         raise ValueError ("Unknown model identifier " + args.model)
 
-    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, fastButInaccurate=FastButInaccurate, debug=args.debug)
-    queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq, debug=args.debug)
+    trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+    queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
 
     if args.eval == Perplexity:

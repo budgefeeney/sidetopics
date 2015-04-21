@@ -56,12 +56,12 @@ class Test(unittest.TestCase):
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '100'      \
-                    + ' --query-iters '    + '20'      \
+                    + ' --iters '          + '1000'      \
+                    + ' --query-iters '    + '500'      \
                     + ' --folds '          + '1'      \
                     + ' --words '          + AclWordPath \
-                    + ' --feats '          + AclCitePath \
-                    + ' --eval  '          + Perplexity \
+                    + ' --links '          + AclCitePath \
+                    + ' --eval '           + Perplexity \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'

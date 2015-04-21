@@ -142,7 +142,15 @@ def newQueryState(data, modelState):
     return QueryState(w_list, z_list, docLens, None, 0)
 
 
-def newTrainPlan (iterations, burnIn, thin = 10, logFrequency = 100, debug = False):
+def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
+    if burnIn < 0:
+        burnIn = iterations / 5
+
+    if thin < 0:
+        thin = 5 if iterations <= 100 \
+            else 10 if iterations <= 1000 \
+            else 50
+
     return TrainPlan(iterations, burnIn, thin, logFrequency, debug)
 
 

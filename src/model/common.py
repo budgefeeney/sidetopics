@@ -43,19 +43,20 @@ class DataSet:
     def _check_and_assign_matrices(self, words, feats=None, links=None, order=None):
         assert words.shape[0] > 0, "No rows in the document-words matrix"
         assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
+
         assert feats is None or feats.shape[0] == words.shape[0], "Differing row-counts for document-word and document-feature matrices"
         assert links is None or links.shape[0] == words.shape[0], "Differing row-counts for document-word and document-link matrices"
 
         assert type(words) is ssp.csr_matrix, "Words are not stored as a sparse CSR matrix"
-        assert type(feats) is ssp.csr_matrix, "Features are not stored as a sparse CSR matrix"
-        assert type(links) is ssp.csr_matrix, "Links are not stored as a sparse CSR matrix"
+        assert feats is None or type(feats) is ssp.csr_matrix, "Features are not stored as a sparse CSR matrix"
+        assert links is None or type(links) is ssp.csr_matrix, "Links are not stored as a sparse CSR matrix"
 
         self._words = words
         self._feats = feats
         self._links = links
 
         self._order = order if order is not None \
-            else np.linspace(0, words.shape[0] - 1, words.shape)
+            else np.linspace(0, words.shape[0] - 1, words.shape[0]).astype(np.int32)
 
 
     @property
@@ -102,15 +103,19 @@ class DataSet:
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
 
-    def to_dtype(self, dtype):
-        self._words = self._words.asdtype(dtype)
-        self._feats = self._feats.asdtype(dtype)
-        self._links = self._links.asdtype(dtype)
+    def convert_to_dtype(self, dtype):
+        '''
+        Inplace conversion to given dtype
+        '''
+        self.convert_to_dtypes(dtype, dtype, dtype)
 
-    def to_dtypes(self, words_dtype, feats_dtype, links_dtype):
-        self._words = self._words.asdtype(words_dtype)
-        self._feats = self._feats.asdtype(feats_dtype)
-        self._links = self._links.asdtype(links_dtype)
+    def convert_to_dtypes(self, words_dtype, feats_dtype, links_dtype):
+        '''
+        Inplace conversion to given dtypes
+        '''
+        self._words = self._words.astype(words_dtype)
+        self._feats = None if self._feats is None else self._feats.astype(feats_dtype)
+        self._links = None if self._links is None else self._links.astype(links_dtype)
 
     def reorder (self, order):
         '''
@@ -119,11 +124,11 @@ class DataSet:
         columns are also re-ordered.
         '''
         self._words = self._words[order, :]
-        self._feats = self._feats[order, :]
-        self._links = \
-            self._links[order, order] \
-            if self._links.shape[0] == self._links.shape[1] \
-            else self._links[order, :]
+        self._feats = None if self._feats is None else self._feats[order, :]
+        self._links = None if self._links is None \
+            else (self._links[order, order] \
+                    if self._links.shape[0] == self._links.shape[1] \
+                    else self._links[order, :])
 
 
     def convert_to_undirected_graph(self):
