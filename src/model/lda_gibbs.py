@@ -10,7 +10,6 @@ Created on 17 Jan 2014
 '''
 
 import os # Configuration for PyxImport later on. Requires GCC
-import sys
 os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
 from math import log
@@ -20,10 +19,7 @@ from math import e
 
 from collections import namedtuple
 import numpy as np
-import scipy.special as fns
-import scipy.linalg as la
 import numpy.random as rd
-import sys
 
 import model.lda_gibbs_fast as compiled
 
@@ -146,7 +142,16 @@ def newQueryState(data, modelState):
     return QueryState(w_list, z_list, docLens, None, 0)
 
 
-def newTrainPlan (iterations, burnIn, thin = 10, logFrequency = 100, debug = False):
+def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
+    if burnIn < 0:
+        burnIn = iterations // 5
+        iterations += burnIn
+
+    if thin < 0:
+        thin = 5 if iterations <= 100 \
+            else 10 if iterations <= 1000 \
+            else 50
+
     return TrainPlan(iterations, burnIn, thin, logFrequency, debug)
 
 
@@ -254,6 +259,7 @@ def log_likelihood (data, model, query):
     queryState object.
     
     '''
-    return sparseScalarProductOfSafeLnDot(data.words, topicDists(query), wordDists(model)).sum()
+    W = data.words if data.words.dtype is model.dtype else data.words.astype(model.dtype)
+    return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
 
 

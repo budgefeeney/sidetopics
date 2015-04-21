@@ -408,6 +408,7 @@ def dirichletEntropy (P):
     
     return (lnB + term1 - term2.sum(axis=1)).sum()
 
+
 def links_up_to (d, X):
     '''
     Gets all the links that exist to earlier documents in the corpus. Ensures
@@ -415,6 +416,7 @@ def links_up_to (d, X):
     once.
     '''
     return links_up_to_csr(d, X.indptr, X.indices)
+
 
 nb.autojit
 def links_up_to_csr(d, Xptr, Xindices):
@@ -434,7 +436,45 @@ def links_up_to_csr(d, Xptr, Xindices):
     result = Xindices[start:end]
     
     return result
-    
+
+
+def is_undirected_link_predictor():
+    return True
+
+
+def min_link_probs(model, topics, links):
+    '''
+    For every document, for each of the given links, determine the
+    probability of the least likely link (i.e the document-specific
+    minimum of probabilitieS).
+
+    :param model: the model object
+    :param topics: the topics that were inferred for each document
+        represented by the links matrix
+    :param links: a DxD matrix of links for each document (row)
+    :return: a D-dimensional vector with the minimum probabilties for each
+        link
+    '''
+    return np.ones((links.shape[0],1))
+
+
+def link_probs(model, topics, min_link_probs):
+    '''
+    Generate the probability of a link for all possible pairs of documents,
+    but only store those probabilities that are bigger than or equal to the
+    minimum. This ensures, hopefully, that we don't materialise a complete
+    DxD matrix, but rather the minimum needed to determine the mean
+    average precsions
+
+    :param model: the trained model
+    :param topics: the topics for each of teh documents we're generating
+        links for
+    :param min_link_probs: the minimum link probability for each document
+    :return: a (hopefully) sparse DxD matrix of link probabilities
+    '''
+    D = min_link_probs.shape[0]
+    return ssp.diags(0, np.ones((D,)))
+
 
 if __name__ == '__main__':
     test = np.array([-1, 3, 5, -4 , 4, -3, 1], dtype=np.float64)

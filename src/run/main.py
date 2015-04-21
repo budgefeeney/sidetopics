@@ -11,7 +11,8 @@ import sys
 import time
 
 from model.common import DataSet
-from model.evals import perplexity_from_like
+from model.evals import perplexity_from_like, mean_average_prec, \
+    EvalNames, Perplexity, MeanAveragePrecAllDocs
 
 DTYPE=np.float32
 
@@ -21,9 +22,12 @@ StmYvBouchard = 'stm_yv_bouchard'
 StmYvBohning  = 'stm_yv_bohning'
 LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
+LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, Rtm])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm])
+
+
 
 FastButInaccurate=False
 
@@ -52,10 +56,10 @@ def run(args):
                     help='The path to the pickle file containing a DxT array or matrix of the word-counts across all D documents')
     parser.add_argument('--feats', '-x', dest='feats', metavar=' ', \
                     help='The path to the pickle file containing a DxF array or matrix of the features across all D documents')
-    parser.add_argument('--links', '-c', dest='feats', metavar=' ', \
+    parser.add_argument('--links', '-c', dest='links', metavar=' ', \
                     help='The path to the pickle file containing a DxP array or matrix of the links (citations) emanated by all D documents')
-    parser.add_argument('--eval', '-v', dest='eval', default="perplexity", metavar=' ', \
-                    help='Evaluation metric, only available is: perplexity or likelihood')
+    parser.add_argument('--eval', '-v', dest='eval', default=Perplexity, metavar=' ', \
+                    help='Evaluation metric, available options are: ' + ','.join(EvalNames))
     parser.add_argument('--out-model', '-o', dest='out_model', default=None, metavar=' ', \
                     help='Optional output path in which to store the model')
     parser.add_argument('--log-freq', '-l', dest='log_freq', type=int, default=10, metavar=' ', \
@@ -95,6 +99,7 @@ def run(args):
     dtype   = np.float32 if args.dtype == 'f4' else np.float64
 
     data = DataSet(args.words, args.feats, args.links)
+    data.convert_to_dtype(np.int32)
     order = data.prune_and_shuffle(min_doc_len=0.5)
     folds = args.folds
 
@@ -121,92 +126,172 @@ def run(args):
     elif args.model == LdaVb:
         import model.lda_vb as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+    elif args.model == LdaGibbs:
+        import model.lda_gibbs as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
     elif args.model == Rtm:
         import model.rtm as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
 
-    trainPlan = mdl.newTrainPlan(args.iters, args.min_vb_change, args.log_freq, fastButInaccurate=FastButInaccurate, debug=args.debug)
-    queryPlan = mdl.newTrainPlan(args.query_iters, args.min_vb_change, args.log_freq, debug=args.debug)
+    trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+    queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
-    # things to inspect and store for later use
-    modelFiles = []
 
-    # Run the model on each fold
-    if folds == 1:
-        try:
-            model = mdl.newModelFromExisting(templateModel)
-            query = mdl.newQueryState(data, model)
-
-            model, query, (boundItrs, boundVals, boundLikes) = mdl.train(data, model, query, trainPlan)
-            trainSetLikely = mdl.log_likelihood(data, model, query) # TODO Fix me by tupling
-            perp = perplexity_from_like(trainSetLikely, data.word_count)
-
-            print("Train-set Likelihood: %12f" % (trainSetLikely))
-            print("Train-set Perplexity: %12f" % (perp))
-            print("")
-        finally:
-            # Write out the end result of the model run.
-            if args.out_model is not None:
-                modelFile = newModelFile(args.model, args.K, args.P, fold=None, prefix=args.out_model)
-                modelFiles.append(modelFile)
-                with open(modelFile, 'wb') as f:
-                    pkl.dump ((order, boundItrs, boundVals, model, query, None), f)
+    if args.eval == Perplexity:
+        return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, folds, args.out_model)
+    elif args.eval == MeanAveragePrecAllDocs:
+        return link_split_map (data, mdl, templateModel, trainPlan, queryPlan, args.out_model)
     else:
-        queryLikelySum = 0 # to calculate the overall likelihood and
-        queryWordsSum  = 0 # perplexity for the whole dataset
-        trainLikelySum = 0
-        trainWordsSum  = 0
-        finishedFolds  = 0 # count of folds that finished successfully
-
-
-        for fold in range(folds):
-            try:
-                train_data, query_data = data.cross_valid_split(fold, folds)
-
-                # Train the model
-                modelState  = mdl.newModelFromExisting(templateModel)
-                trainTopics = mdl.newQueryState(train_data, modelState)
-                modelState, trainTopics, (boundItrs, boundVals, boundLikes) \
-                    = mdl.train(train_data, modelState, trainTopics, trainPlan)
-
-                trainSetLikely = mdl.log_likelihood (train_data, modelState, trainTopics)
-                trainWordCount = train_data.word_count
-                trainSetPerp   = perplexity_from_like(trainSetLikely, trainWordCount)
-
-                # Query the model - if there are no features we need to split the text
-                query_estim, query_eval = query_data.doc_completion_split()
-                queryTopics = mdl.newQueryState(query_estim, modelState)
-                modelState, queryTopics = mdl.query(query_estim, modelState, queryTopics, queryPlan)
-
-                querySetLikely = mdl.log_likelihood(query_eval, modelState, queryTopics)
-                queryWordCount = query_eval.word_count
-                querySetPerp   = perplexity_from_like(querySetLikely, queryWordCount)
-
-                # Keep a record of the cumulative likelihood and query-set word-count
-                trainLikelySum += trainSetLikely
-                trainWordsSum  += trainWordCount
-                queryLikelySum += querySetLikely
-                queryWordsSum  += queryWordCount
-                finishedFolds  += 1
-
-                # Write out the output
-                print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, trainSetPerp, querySetPerp))
-                print("")
-            finally:
-                # Write out the end result of the model run.
-                if args.out_model is not None:
-                    modelFile = newModelFile(args.model, args.K, args.P, fold, args.out_model)
-                    modelFiles.append(modelFile)
-                    with open(modelFile, 'wb') as f:
-                        pkl.dump ((order, boundItrs, boundVals, boundLikes, modelState, trainTopics, queryTopics), f)
-
-        print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (finishedFolds, trainLikelySum, perplexity_from_like(trainLikelySum, trainWordsSum)))
-        print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (finishedFolds, queryLikelySum, perplexity_from_like(queryLikelySum, queryWordsSum)))
-
+        raise ValueError("Unknown evaluation metric " + args.eval)
 
     return modelFiles
+
+def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_plan, folds, model_dir= None):
+    '''
+    Uses cross-validation go get the average perplexity. If folds == 1 a special path is
+    triggered where perplexity is evaluated on the training data, and the results are
+    not saved to disk, even if model_dir is not none
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param query_plan:  the query play (number of iterations etc.)
+    :param folds:  the number of folds to cross validation
+    :param model_dir: if not none, and folds > 1, the models are stored in this
+    directory.
+    :return: the list of model files stored
+    '''
+    model_files = []
+
+    if folds == 1:
+        model = mdl.newModelFromExisting(sample_model)
+        query = mdl.newQueryState(data, model)
+
+        model, train_tops, (train_itrs, train_vbs, train_likes) = mdl.train(data, model, query, train_plan)
+        likely = mdl.log_likelihood(data, model, train_tops)
+        perp   = perplexity_from_like(likely, data.word_count)
+
+        print("Train-set Likelihood: %12f" % (likely))
+        print("Train-set Perplexity: %12f" % (perp))
+
+        model_files = save_if_necessary(model_files, model_dir, model, data, 0, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+        return model_files
+
+    query_like_sum    = 0 # to calculate the overall likelihood and
+    query_wcount_sum  = 0 # perplexity for the whole dataset
+    train_like_sum    = 0
+    train_wcount_sum  = 0
+    folds_finished    = 0 # count of folds that finished successfully
+
+    for fold in range(folds):
+        train_data, query_data = data.cross_valid_split(fold, folds)
+
+        # Train the model
+        model      = mdl.newModelFromExisting(sample_model)
+        train_tops = mdl.newQueryState(train_data, model)
+        model, train_tops, (train_itrs, train_vbs, train_likes) \
+            = mdl.train(train_data, model, train_tops, train_plan)
+
+        train_like       = mdl.log_likelihood (train_data, model, train_tops)
+        train_word_count = train_data.word_count
+        train_perp       = perplexity_from_like(train_like, train_word_count)
+
+        # Query the model - if there are no features we need to split the text
+        query_estim, query_eval = query_data.doc_completion_split()
+        query_tops              = mdl.newQueryState(query_estim, model)
+        model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
+
+        query_like       = mdl.log_likelihood(query_eval, model, query_tops)
+        query_word_count = query_eval.word_count
+        query_perp       = perplexity_from_like(query_like, query_word_count)
+
+        # Keep a record of the cumulative likelihood and query-set word-count
+        train_like_sum += train_like
+        train_wcount_sum  += train_word_count
+        query_like_sum += query_like
+        query_wcount_sum  += query_word_count
+        folds_finished  += 1
+
+        # Write out the output
+        print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, train_perp, query_perp))
+        print("")
+
+        # Save the model
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
+
+    print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
+    print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
+
+    return model_files
+
+
+def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops):
+    if model_dir is not None:
+        model_files.append( \
+            save_model(\
+                model_dir, model, data, \
+                fold, train_itrs, train_vbs, train_likes, \
+                train_tops, query_tops))
+    return model_files
+
+
+def save_model(model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops):
+    P = 0 if 'P' not in dir(model) else model.P
+
+    model_file = newModelFile(model.name, model.K, P, fold, model_dir)
+    with open (model_file, 'wb') as f:
+        pkl.dump ((data.order, train_itrs, train_vbs, train_likes, model, train_tops, query_tops), f)
+
+    return model_file
+
+
+def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, model_dir = None):
+    '''
+    Uses cross-validation go get the average perplexity. If folds == 1 a special path is
+    triggered where perplexity is evaluated on the training data, and the results are
+    not saved to disk, even if model_dir is not none
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param query_plan:  the query play (number of iterations etc.)
+    :param folds:  the number of folds to cross validation
+    :param model_dir: if not none, and folds > 1, the models are stored in this
+    directory.
+    :return: the list of model files stored
+    '''
+    model_files = []
+    assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
+
+    symm = mdl.is_undirected_link_predictor()
+    if symm:
+        data.convert_to_undirected_graph()
+        data.convert_to_binary_link_matrix()
+
+    for fold in folds:
+        model = mdl.newModelFromExisting(sample_model)
+        train_data, query_data = data.link_prediction_split(symm, seed=rd.randint())
+
+        train_tops = mdl.newQueryState(train_data, model)
+        model, train_tops, (train_itrs, train_vbs, train_likes) = \
+            mdl.train(train_data, model, train_tops, train_plan)
+
+        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
+        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
+
+        map = mean_average_prec (query_data.links, predicted_link_probs)
+        print ("Fold %2d: Mean-Average-Precision %6.3f" % (fold, map))
+
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+
+    return model_files
+
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
     return newModelFile (\
