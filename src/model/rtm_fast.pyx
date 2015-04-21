@@ -2,13 +2,8 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
-from cython.parallel cimport parallel, prange
-from libc.stdlib cimport rand, srand, malloc, free, RAND_MAX
-from libc.math cimport log, exp, sqrt, fabs
-from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
-#from openmp cimport omp_set_num_threads
+
 import scipy.special as fns
-import scipy.linalg as la
 
 from model.lda_vb_fast cimport initAtRandom_f64, l1_dist_f64
 
@@ -248,9 +243,6 @@ cdef int infer_topics_f64(int d, int D, int K, \
         double      post
         double      beta_kt
         double      diTopicDist
-    
-    
-    # NOTE THIS CODE COPY AND PASTED INTO lda_vb.var_bound() !
     
     
     # For each document reset the topic probabilities and iterate to
