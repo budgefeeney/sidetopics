@@ -112,12 +112,12 @@ class DataSet:
         query_range = np.arange(start, end) % doc_count
         train_range = np.arange(end, end + train_size) % doc_count
 
-        train = Input ( \
+        train = DataSet ( \
             self._words[train_range], \
             None if self._feats is None else self._feats[train_range], \
             None if self._links is None else self._links[train_range]
         )
-        query = Input ( \
+        query = DataSet ( \
             self._words[query_range], \
             None if self._feats is None else self._feats[query_range], \
             None if self._links is None else self._links[query_range]
@@ -142,7 +142,7 @@ class DataSet:
         rng = rd.RandomState(0xBADB055)
 
         dat    = self._words.data
-        jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=W.dtype)
+        jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=self._words.dtype)
         evl    = dat + jitter
         est    = np.around(evl / 2.0)
         evl    = dat - est
@@ -150,3 +150,5 @@ class DataSet:
         return \
             ssp.csr_matrix((est, self._words.indices,  self._words.indptr), shape=self._words.shape), \
             ssp.csr_matrix((evl,  self._words.indices,  self._words.indptr), shape=self._words.shape)
+
+    

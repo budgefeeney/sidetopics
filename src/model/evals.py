@@ -86,6 +86,6 @@ def mean_average_prec_(expected_links, estim_link_probs):
 
     # Return the mean of average-precisions
     return sum_ap / D
-    
+
 
 
