@@ -14,6 +14,7 @@ class DataSet:
     def __init__(self, words, feats=None, links=None):
         self._check_and_assign_matrices(words, feats, links)
 
+
     def __init__(self, words_file, feats_file=None, links_file=None):
         with open(words_file, 'rb') as f:
             words = pkl.load(f)
@@ -27,6 +28,7 @@ class DataSet:
                 links = pkl.load(f)
 
         self._check_and_assign_matrices(words, feats, links)
+
 
     def _check_and_assign_matrices(self, words, feats=None, links=None):
         assert words.shape[0] > 0, "No rows in the document-words matrix"
@@ -47,26 +49,32 @@ class DataSet:
     def words(self):
         return self._words
 
+
     @property()
     def links(self):
         return self._links
+
 
     @property()
     def feats(self):
         return self._feats
 
+
     @property()
     def doc_count(self):
         return self._words.shape[0]
+
 
     @property()
     def word_count(self):
         return self._words.sum()
 
+
     @property()
     def link_count(self):
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
+
 
     def prune_and_shuffle(self, min_doc_len=0.5):
         '''
@@ -93,6 +101,7 @@ class DataSet:
             else self._links[order, :]
 
         return order
+
 
     def cross_valid_split (self, test_fold_id, num_folds):
         '''
@@ -123,7 +132,10 @@ class DataSet:
             None if self._links is None else self._links[query_range]
         )
 
-    def doc_completion_split(self):
+        return train, query
+
+
+    def doc_completion_split(self, seed=0xBADB055):
         '''
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
@@ -134,12 +146,12 @@ class DataSet:
         If there are features, this just returns two references to this unchanged
         object.
 
-        This is always split with the a custom RNG seeded with 0xBADB055
+        This is always split with the a custom RNG seeded with the given seed
         '''
         if self._feats is not None:
             return self, self
 
-        rng = rd.RandomState(0xBADB055)
+        rng = rd.RandomState(seed)
 
         dat    = self._words.data
         jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=self._words.dtype)
@@ -147,8 +159,111 @@ class DataSet:
         est    = np.around(evl / 2.0)
         evl    = dat - est
 
-        return \
-            ssp.csr_matrix((est, self._words.indices,  self._words.indptr), shape=self._words.shape), \
-            ssp.csr_matrix((evl,  self._words.indices,  self._words.indptr), shape=self._words.shape)
+        words_train = ssp.csr_matrix((est, self._words.indices,  self._words.indptr), shape=self._words.shape)
+        words_query = ssp.csr_matrix((evl,  self._words.indices,  self._words.indptr), shape=self._words.shape)
 
-    
+        return \
+            DataSet(words_train, self._feats, self._links), \
+            DataSet(words_query, self._feats, self._links)
+
+
+    def link_prediction_split(self, symmetric=True, seed=0xC0FFEE):
+        '''
+        Returns two variants of this DataSet, both having the exact same words and features
+        (by reference, no copies), but having different sets of links. For each document,
+        its links are partitioned into two sets at random, according to the given seed. Where
+        a link occurs n > 1 times, all n occurrences will be put in one set.
+
+        If symmetric is true, the two partitioned matrices will also be symmetric. This is
+        primarily a requirement of undirected graphs.
+        '''
+        assert self._links is not None, "Can't do a link prediction split if there are no links!"
+
+        rng = rd.RandomState(seed)
+
+        if symmetric:
+            links_train, links_query = _split_symm(self._links, rng)
+        else:
+            links_train, links_query = _split(self._links, rng)
+
+
+        return \
+            DataSet(self._words, self._feats, links_train), \
+            DataSet(self._words, self._feats, links_query)
+
+
+def _split(X, rng):
+    '''
+    Given a  matrix, splits it into two matrices such that their sum is equal to the
+    given matrix. Moreover, if an element of one of the partitioned matrices is non-zero,
+    then it _will_ be zero in the other partitioned matrix
+
+    A random number generator is provided to determine how the "random" split should be
+    performed.
+    '''
+    nnz = X.nnz
+    coo = X.tocoo(copy=False)
+
+    row, col, dat = coo.row, coo.col, coo.data
+
+    ind = np.arange(nnz)
+    rng.shuffle (ind)
+    split_point = nnz / 2
+
+    left_ind  = np.sort(ind[:split_point])
+    right_ind = np.sort(ind[split_point:])
+
+    return \
+        ssp.coo_matrix ((dat[left_ind],  (row[left_ind],  col[left_ind])),  shape=X.shape).tocsr(), \
+        ssp.coo_matrix ((dat[right_ind], (row[right_ind], col[right_ind])), shape=X.shape).tocsr(),
+
+
+def _symm_csr(dat, row, col, shape):
+    '''
+    Creates a symmetric matrix from the given data and row and column coordinates,
+    where the coorindates are for the upper triangle only. These are then copied
+    to create the lower-triangle. The returned matrix is in CSR format.
+    '''
+    count = len(dat)
+
+    nu_dat = np.ndarray(shape=(count*2,), dtype=dat.dtype)
+    nu_row = np.ndarray(shape=(count*2,),  dtype=row.dtype)
+    nu_col = np.ndarray(shape=(count*2,),  dtype=col.dtype)
+
+    nu_dat[:count] = dat
+    nu_dat[count:] = dat
+
+    nu_row[:count] = row
+    nu_row[count:] = col
+
+    nu_col[:count] = col
+    nu_col[count:] = row
+
+    return ssp.coo_matrix((nu_dat, (nu_row, nu_col)), shape=shape).tocsr()
+
+
+def _split_symm(X, rng):
+    '''
+    Given a symmetric matrix, splits it into two symmetric matrices such that their
+    sum is equal to the given matrix. Moreover, if an element of one of the
+    partitioned matrices is non-zero, then it _will_ be zero in the other partitioned
+    matrix
+
+    A random number generator is provided to determine how the "random" split should be
+    performed.
+    '''
+    nnz = X.nnz
+    coo = X.tocoo(copy=False)
+
+    row, col, dat = coo.row, coo.col, coo.data
+
+    ind = np.array([i for i in range(nnz) if row[i] >= col[i]], dtype=np.int32)
+    rng.shuffle (ind)
+    split_point = len(ind) / 2
+
+    left_ind  = np.sort(ind[:split_point])
+    right_ind = np.sort(ind[split_point:])
+
+    return \
+        _symm_csr (dat[left_ind],  row[left_ind],  col[left_ind],  X.shape), \
+        _symm_csr (dat[right_ind], row[right_ind], col[right_ind], X.shape),
