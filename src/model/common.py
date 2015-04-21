@@ -58,31 +58,31 @@ class DataSet:
             else np.linspace(0, words.shape[0] - 1, words.shape)
 
 
-    @property()
+    @property
     def words(self):
         return self._words
 
 
-    @property()
+    @property
     def links(self):
         return self._links
 
 
-    @property()
+    @property
     def feats(self):
         return self._feats
 
 
-    @property()
+    @property
     def doc_count(self):
         return self._words.shape[0]
 
 
-    @property()
+    @property
     def word_count(self):
         return self._words.sum()
 
-    @property()
+    @property
     def order(self):
         '''
         :return: the subset of the rows originally read in that are contained in these
@@ -97,7 +97,7 @@ class DataSet:
         return self._feats is not None
 
 
-    @property()
+    @property
     def link_count(self):
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
