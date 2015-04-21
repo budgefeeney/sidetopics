@@ -145,6 +145,7 @@ def newQueryState(data, modelState):
 def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
     if burnIn < 0:
         burnIn = iterations // 5
+        iterations += burnIn
 
     if thin < 0:
         thin = 5 if iterations <= 100 \
@@ -258,6 +259,7 @@ def log_likelihood (data, model, query):
     queryState object.
     
     '''
-    return sparseScalarProductOfSafeLnDot(data.words, topicDists(query), wordDists(model)).sum()
+    W = data.words if data.words.dtype is model.dtype else data.words.astype(model.dtype)
+    return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
 
 

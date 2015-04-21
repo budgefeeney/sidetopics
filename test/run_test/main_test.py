@@ -15,6 +15,10 @@ AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL/"
 AclWordPath = AclPath + "words.pkl"
 AclCitePath = AclPath + "cites.pkl"
 
+NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
+NipsWordPath = NipsPath + "W_ar.pkl"
+NipsFeatPath = NipsPath + "X_ar.pkl"
+
 def tmpFiles():
     '''
     Returns files in the temporary directory for storing the DxT matrix of
@@ -59,8 +63,8 @@ class Test(unittest.TestCase):
                     + ' --iters '          + '100'      \
                     + ' --query-iters '    + '50'      \
                     + ' --folds '          + '1'      \
-                    + ' --words '          + AclWordPath \
-                    + ' --links '          + AclCitePath \
+                    + ' --words '          + NipsWordPath \
+                    + ' --links '          + NipsFeatPath \
                     + ' --eval '           + Perplexity \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \

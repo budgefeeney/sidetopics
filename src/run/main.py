@@ -234,7 +234,7 @@ def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, tr
         model_files.append( \
             save_model(\
                 model_dir, model, data, \
-                train_itrs, train_vbs, train_likes, \
+                fold, train_itrs, train_vbs, train_likes, \
                 train_tops, query_tops))
     return model_files
 
