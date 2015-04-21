@@ -11,8 +11,14 @@ class DataSet:
     The input to one of our algorithms. Contains at a minimum words. May also contain
     features and a matrix of links.
     '''
-    def __init__(self, words, feats=None, links=None):
-        self._check_and_assign_matrices(words, feats, links)
+    def __init__(self, words, feats=None, links=None, order=None):
+        '''
+        The three matrices that make up our features. The order vector gives
+        the postions of rows in the original matrices. Specifying an order does
+        _not_ change these matrices, however if these matrices were changed before
+        this DataSet object was created, you should specify the order there.
+        '''
+        self._check_and_assign_matrices(words, feats, links, order)
 
 
     def __init__(self, words_file, feats_file=None, links_file=None):
@@ -22,15 +28,19 @@ class DataSet:
         if feats_file is not None:
             with open(feats_file, 'rb') as f:
                 feats = pkl.load(f)
+        else:
+            feats = None
 
         if links_file is not None:
             with open(links_file, 'rb') as f:
                 links = pkl.load(f)
+        else:
+            links = None
 
-        self._check_and_assign_matrices(words, feats, links)
+        self._check_and_assign_matrices(words, feats, links, None)
 
 
-    def _check_and_assign_matrices(self, words, feats=None, links=None):
+    def _check_and_assign_matrices(self, words, feats=None, links=None, order=None):
         assert words.shape[0] > 0, "No rows in the document-words matrix"
         assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
         assert feats is None or feats.shape[0] == words.shape[0], "Differing row-counts for document-word and document-feature matrices"
@@ -43,6 +53,9 @@ class DataSet:
         self._words = words
         self._feats = feats
         self._links = links
+
+        self._order = order if order is not None \
+            else np.linspace(0, words.shape[0] - 1, words.shape)
 
 
     @property()
@@ -69,11 +82,65 @@ class DataSet:
     def word_count(self):
         return self._words.sum()
 
+    @property()
+    def order(self):
+        '''
+        :return: the subset of the rows originally read in that are contained in these
+        matrices
+        '''
+        return self._order
+
+    def has_links(self):
+        return self._links is not None
+
+    def has_features(self):
+        return self._feats is not None
+
 
     @property()
     def link_count(self):
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
+
+    def to_dtype(self, dtype):
+        self._words = self._words.asdtype(dtype)
+        self._feats = self._feats.asdtype(dtype)
+        self._links = self._links.asdtype(dtype)
+
+    def to_dtypes(self, words_dtype, feats_dtype, links_dtype):
+        self._words = self._words.asdtype(words_dtype)
+        self._feats = self._feats.asdtype(feats_dtype)
+        self._links = self._links.asdtype(links_dtype)
+
+    def reorder (self, order):
+        '''
+        Reorders the rows of all matrices according to the given order, which may
+        be smaller than the total of rows. Additionally, if links is square, its
+        columns are also re-ordered.
+        '''
+        self._words = self._words[order, :]
+        self._feats = self._feats[order, :]
+        self._links = \
+            self._links[order, order] \
+            if self._links.shape[0] == self._links.shape[1] \
+            else self._links[order, :]
+
+
+    def convert_to_undirected_graph(self):
+        '''
+        Converts the link matrix to an undirected graph in-place. If a link
+        exists in either direction, it will now exist in both directions.
+        '''
+        assert self._links is not None, "Can't call this if there are no links"
+        self._links = self._links + self._links.T
+
+
+    def convert_to_binary_link_matrix(self):
+        '''
+        Converts the link matrix to a binary 0-1 matrix in-place.
+        '''
+        assert self._links is not None, "Can't call this if there are no links"
+        self._links.data.fill(1)
 
 
     def prune_and_shuffle(self, min_doc_len=0.5):
@@ -87,20 +154,15 @@ class DataSet:
         if doc_lens.min() < min_doc_len:
             print("Input doc-term matrix contains some empty rows. These have been removed.")
             good_rows = (np.where(doc_lens > 0.5))[0]
-            order = good_rows
+            self._order = good_rows
         else:
             doc_count = self._words.shape[0]
-            order = np.linspace(0, doc_count - 1, doc_count)
+            self._order = np.linspace(0, doc_count - 1, doc_count)
 
-        rd.shuffle(order)
-        self._words = self._words[order, :]
-        self._feats = self._feats[order, :]
-        self._links = \
-            self._links[order, order] \
-            if self._links.shape[0] == self._links.shape[1] \
-            else self._links[order, :]
+        rd.shuffle(self._order)
+        self.reorder(self._order)
 
-        return order
+        return self._order
 
 
     def cross_valid_split (self, test_fold_id, num_folds):
@@ -111,6 +173,9 @@ class DataSet:
         Returns a tuple, the left being the Input object with the training
         data, the right being the input object with the query data
         '''
+        assert test_fold_id < num_folds, "The query fold ID can't be greater than the total number of folds"
+        assert num_folds > 1, "The number of folds should be greater than one"
+
         doc_count = self.doc_count
         query_size  = ceil(doc_count / num_folds) # a single fold
         train_size = doc_count - query_size
@@ -124,12 +189,14 @@ class DataSet:
         train = DataSet ( \
             self._words[train_range], \
             None if self._feats is None else self._feats[train_range], \
-            None if self._links is None else self._links[train_range]
+            None if self._links is None else self._links[train_range], \
+            self._order[train_range]
         )
         query = DataSet ( \
             self._words[query_range], \
             None if self._feats is None else self._feats[query_range], \
-            None if self._links is None else self._links[query_range]
+            None if self._links is None else self._links[query_range], \
+            self._order[query_range]
         )
 
         return train, query
@@ -159,8 +226,8 @@ class DataSet:
         est    = np.around(evl / 2.0)
         evl    = dat - est
 
-        words_train = ssp.csr_matrix((est, self._words.indices,  self._words.indptr), shape=self._words.shape)
-        words_query = ssp.csr_matrix((evl,  self._words.indices,  self._words.indptr), shape=self._words.shape)
+        words_train = ssp.csr_matrix((est, self._words.indices, self._words.indptr), shape=self._words.shape)
+        words_query = ssp.csr_matrix((evl, self._words.indices, self._words.indptr), shape=self._words.shape)
 
         return \
             DataSet(words_train, self._feats, self._links), \

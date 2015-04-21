@@ -7,6 +7,10 @@ Created on 20 Apr 2015
 import numpy as np
 import numba as nb
 
+Perplexity="perplexity"
+MeanAveragePrecAllDocs="meanavgprec_all"
+
+EvalNames = [Perplexity, MeanAveragePrecAllDocs]
 
 def perplexity_from_like(log_likely, token_count):
     return np.exp(-log_likely / token_count)
@@ -18,7 +22,7 @@ def word_perplexity(log_likely_fn, model, query, data):
 
 
 @nb.jit
-def mean_average_prec_(expected_links, estim_link_probs):
+def mean_average_prec(expected_links, estim_link_probs):
     '''
     Returns the average of all documents' average-precision scores.
 

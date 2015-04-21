@@ -10,7 +10,6 @@ Created on 17 Jan 2014
 '''
 
 import os # Configuration for PyxImport later on. Requires GCC
-import sys
 os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
 from math import log
@@ -20,10 +19,7 @@ from math import e
 
 from collections import namedtuple
 import numpy as np
-import scipy.special as fns
-import scipy.linalg as la
 import numpy.random as rd
-import sys
 
 import model.lda_gibbs_fast as compiled
 
