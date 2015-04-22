@@ -21,7 +21,7 @@ class DataSet:
         self._check_and_assign_matrices(words, feats, links, order)
 
 
-    def __init__(self, words_file, feats_file=None, links_file=None):
+    def __init__(self, words_file, feats_file=None, links_file=None, order = None):
         with open(words_file, 'rb') as f:
             words = pkl.load(f)
 
@@ -37,7 +37,7 @@ class DataSet:
         else:
             links = None
 
-        self._check_and_assign_matrices(words, feats, links, None)
+        self._check_and_assign_matrices(words, feats, links, order)
 
 
     def _check_and_assign_matrices(self, words, feats=None, links=None, order=None):
@@ -55,8 +55,11 @@ class DataSet:
         self._feats = feats
         self._links = links
 
-        self._order = order if order is not None \
-            else np.linspace(0, words.shape[0] - 1, words.shape[0]).astype(np.int32)
+        if order is not None:
+            self._order = order
+            self._reorder(order)
+        else:
+            self._order = np.linspace(0, words.shape[0] - 1, words.shape[0]).astype(np.int32)
 
 
     @property
@@ -117,7 +120,8 @@ class DataSet:
         self._feats = None if self._feats is None else self._feats.astype(feats_dtype)
         self._links = None if self._links is None else self._links.astype(links_dtype)
 
-    def reorder (self, order):
+
+    def _reorder (self, order):
         '''
         Reorders the rows of all matrices according to the given order, which may
         be smaller than the total of rows. Additionally, if links is square, its
@@ -169,7 +173,7 @@ class DataSet:
             self._order = np.linspace(0, doc_count - 1, doc_count)
 
         rd.shuffle(self._order)
-        self.reorder(self._order)
+        self._reorder(self._order)
 
         if min_link_count == 0 or not self.has_links():
             return self._order
@@ -177,7 +181,7 @@ class DataSet:
         link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
         sufficient_docs = np.where(link_counts >= min_link_count)[0]
         while len(sufficient_docs) < self._links.shape[0]:
-            self.reorder(sufficient_docs)
+            self._reorder(sufficient_docs)
             self._order = self._order[sufficient_docs]
             link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
             sufficient_docs = np.where(link_counts >= min_link_count)[0]
