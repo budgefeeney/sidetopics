@@ -122,6 +122,8 @@ class DataSet:
         Reorders the rows of all matrices according to the given order, which may
         be smaller than the total of rows. Additionally, if links is square, its
         columns are also re-ordered.
+
+        Maybe this should update the order property as well...
         '''
         self._words = self._words[order, :]
         self._feats = None if self._feats is None else self._feats[order, :]
@@ -148,12 +150,14 @@ class DataSet:
         self._links.data.fill(1)
 
 
-    def prune_and_shuffle(self, min_doc_len=0.5):
+    def prune_and_shuffle(self, min_doc_len=0.5, min_link_count=0):
         '''
         This IN-PLACE operation prunes out any documents where the document-length
         is less than the minimum, and the shuffles the matrices in a coherent manner.
 
         The order of the remaining matrices is returned.
+
+        Note that if no links matrix exists, min_link_count is ignored.
         '''
         doc_lens = np.squeeze(np.asarray(self._words.sum(axis=1)))
         if doc_lens.min() < min_doc_len:
@@ -166,6 +170,17 @@ class DataSet:
 
         rd.shuffle(self._order)
         self.reorder(self._order)
+
+        if min_link_count == 0 or not self.has_links():
+            return self._order
+
+        link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
+        sufficient_docs = np.where(link_counts >= min_link_count)[0]
+        while len(sufficient_docs) < self._links.shape[0]:
+            self.reorder(sufficient_docs)
+            self._order = self._order[sufficient_docs]
+            link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
+            sufficient_docs = np.where(link_counts >= min_link_count)[0]
 
         return self._order
 
