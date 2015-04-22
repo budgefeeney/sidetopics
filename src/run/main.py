@@ -82,8 +82,8 @@ def run(args):
                     help="Number of cross validation folds.")
     parser.add_argument('--debug', '-b', dest='debug', type=bool, default=False, metavar=' ', \
                     help="Display a debug message, with the bound, after every variable update")
-    parser.add_argument('--dtype', '-t', dest='dtype', default="f4", metavar=' ', \
-                    help="Datatype to use, values are f4 and f8 for single and double-precision floats respectively")
+    parser.add_argument('--dtype', '-t', dest='dtype', default="f4:f4", metavar=' ', \
+                    help="Datatype to use, values are i4, f4 and f8. Specify two, a data dtype and model dtype, delimited by a colon")
 
 
     #
@@ -96,12 +96,11 @@ def run(args):
     rd.seed(0xC0FFEE)
 
     K, P, Q = args.K, args.P, args.Q
-    dtype   = np.float32 if args.dtype == 'f4' else np.float64
+    (input_dtype, output_dtype)  = parse_dtypes(args.dtype)
 
     data = DataSet(args.words, args.feats, args.links)
-    data.convert_to_dtype(np.int32)
-    order = data.prune_and_shuffle(min_doc_len=0.5)
-    folds = args.folds
+    data.convert_to_dtype(input_dtype)
+    data.prune_and_shuffle(min_doc_len=0.5, min_link_count=4)
 
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
 
@@ -110,43 +109,70 @@ def run(args):
     #
     if args.model == CtmBouchard:
         import model.ctm as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == CtmBohning:
         import model.ctm_bohning as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == StmYvBouchard:
         import model.stm_yv as mdl
-        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=output_dtype)
     elif args.model == StmYvBohning:
         import model.stm_yv_bohning as mdl
-        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=output_dtype)
     elif args.model == LdaCvbZero:
         import model.lda_cvb as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaVb:
         import model.lda_vb as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaGibbs:
         import model.lda_gibbs as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Rtm:
         import model.rtm as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=dtype)
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
 
     trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
     queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
-
     if args.eval == Perplexity:
-        return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, folds, args.out_model)
+        return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
-        return link_split_map (data, mdl, templateModel, trainPlan, queryPlan, args.out_model)
+        return link_split_map (data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.out_model)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
     return modelFiles
+
+
+def parse_dtypes (dtype_str):
+    '''
+    Parse one or two dtype strings, delimited by a colon if there are two
+    '''
+    strs = [s.strip() for s in dtype_str.split(':')]
+
+    return (parse_dtype(strs[0]), parse_dtype(strs[0])) \
+        if len(strs) == 1 \
+        else (parse_dtype(strs[0]), parse_dtype(strs[1]))
+
+def parse_dtype (dtype_str):
+    '''
+    Parses a dtype string. Accepted values are f4 or f32, f8 or f64
+    or i4 or i32. Case is not sensitive. Two may be optionally
+    provided, in which case the first is the data dtype and the
+    second is the model-dtype
+    '''
+    if   dtype_str in ['f8', 'F8', 'f64', 'F64']:
+        return np.float64
+    elif dtype_str in ['f4', 'F4', 'f32', 'F32']:
+        return np.float32
+    elif dtype_str in ['i4', 'I4', 'i32', 'I32']:
+        return np.int32
+    else:
+        raise ValueError("Can't parse dtype " + dtype_str)
+
 
 def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_plan, folds, model_dir= None):
     '''
