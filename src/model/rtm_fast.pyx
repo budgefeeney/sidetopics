@@ -6,6 +6,7 @@ cimport numpy as np
 import scipy.special as fns
 
 from model.lda_vb_fast cimport initAtRandom_f64, l1_dist_f64
+from libc.math import exp
 
 cdef int MaxInnerItrs = 100
 cdef int MinInnerIters = 3
