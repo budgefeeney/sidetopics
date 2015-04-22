@@ -27,7 +27,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'W_list docLens topicDists topicMeans'\
+    'W_list docLens topicDists'\
 )
 
 ModelState = namedtuple ( \
@@ -47,7 +47,7 @@ def newModelFromExisting(model):
         None if model.weights is None else model.weights.copy(), \
         model.pseudoNegCount, \
         model.regularizer, \
-        model.dtype,       \
+        model.dtype, \
         model.name)
 
 
@@ -95,7 +95,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     # Count of dummy negative observations. Assume that for every
     # twp papers cited, 1 was considered and discarded
     if pseudoNegCount is None:
-        pseudoNegCount = 0.5 * np.mean(X.sum(axis=1).astype(DTYPE))
+        pseudoNegCount = 0.5 * np.mean(data.links.sum(axis=1).astype(DTYPE))
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, pseudoNegCount, regularizer, dtype, MODEL_NAME)
 
@@ -123,17 +123,12 @@ def newQueryState(data, modelState):
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
     # This is super-slow
-    topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)
-
-    # Use these priors to estimate the sample means
-    # This is also super slow
-    topicMeans = np.empty((D,K+1), dtype=modelState.dtype)
-    for d in range(D):
-        topicMeans[d,:K] = 1/docLens[d] * rd.multinomial(docLens[d], topicDists[d,:])
-        topicMeans[d,K]  = 1
+    topicPriorExt = np.hstack(modelState.topicPrior, 0)
+    topicDists = rd.dirichlet(topicPriorExt, size=D).astype(modelState.dtype)
+    topicDists[:,K] = docLens
 
     # Now assign a topic to
-    return QueryState(W_list, docLens, topicDists, topicMeans)
+    return QueryState(W_list, docLens, topicDists)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -165,8 +160,9 @@ def topicDists (queryState):
     The D x K matrix of topics distributions inferred for the K topics
     across all D documents
     '''
-    result = queryState.topicDists
-    norm   = np.sum(queryState.topicDists, axis=1)
+    K       = queryState.topicDists.shape[1] - 1
+    result  = queryState.topicDists[:,:K]
+    norm    = np.sum(result, axis=1)
     result /= norm[:,np.newaxis]
 
     return result
@@ -232,8 +228,8 @@ def train(data, model, query, plan):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
-    W_list, docLens, topicDists, topicMeans = \
-        query.W_list, query.docLens, query.topicDists, query.topicMeans
+    W_list, docLens, topicDists = \
+        query.W_list, query.docLens, query.topicDists
     K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
 
@@ -279,7 +275,7 @@ def train(data, model, query, plan):
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=5):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
-                QueryState(W_list, docLens, topicDists, topicMeans), \
+                QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
 
         print ("Segment %d/%d Total Iterations %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
@@ -296,10 +292,8 @@ def train(data, model, query, plan):
 
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
-           QueryState(W_list, docLens, topicDists, topicMeans), \
+           QueryState(W_list, docLens, topicDists), \
            (boundIters, boundValues, likelyValues)
-
-
 
 
 def var_bound(data, model, query, z_dnk = None):
@@ -309,10 +303,10 @@ def var_bound(data, model, query, z_dnk = None):
     bound = 0
     
     # Unpack the the structs, for ease of access and efficiency
-    W_list, docLens, topicDists, topicMeans = \
-        query.W_list, query.docLens, query.topicDists, query.topicMeans
     K, topicPrior, wordPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
+    W_list, docLens, topicDists = \
+        query.W_list, query.docLens, query.topicDists
 
     # Initialize z matrix if necessary
     W,X = data.words, data.links
@@ -322,8 +316,8 @@ def var_bound(data, model, query, z_dnk = None):
         z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
         
     # Perform the digamma transform for E[ln \theta] etc.
-    diTopicDists    = fns.digamma(topicDists)
-    diSumTopicDists = fns.digamma(topicDists.sum(axis=1))
+    diTopicDists    = fns.digamma(topicDists[:,:K])
+    diSumTopicDists = fns.digamma(topicDists[:,:K].sum(axis=1))
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
     
@@ -333,8 +327,7 @@ def var_bound(data, model, query, z_dnk = None):
            + np.sum((topicPrior - 1)[np.newaxis,:] * (diTopicDists - diSumTopicDists[:,np.newaxis] ))
     
     # and its entropy
-    bound += dirichletEntropy(topicDists)
-    
+    bound += dirichletEntropy(topicDists[:,:K])
         
     # P(vocabs|vocabPrior)
     #
@@ -373,7 +366,8 @@ def var_bound(data, model, query, z_dnk = None):
         bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
     
     # Next, the distribution over links - we just focus on the positives in this case
-    topicDists -= topicPrior[np.newaxis,:]
+    topicPriorExt = extend_topic_prior(topicPrior, 0)
+    topicDists -= topicPriorExt[np.newaxis,:]
     topicDists /= docLens[d] # Turns this into a topic means array
     for d in range(D):
         links   = links_up_to(d, X)
@@ -392,8 +386,9 @@ def var_bound(data, model, query, z_dnk = None):
         
     
     topicDists *= docLens[d] # Turns this back into a regularized topic distributions array
-    topicDists += topicPrior[np.newaxis,:]
+    topicDists += topicPriorExt[np.newaxis,:]
     return bound
+
 
 def dirichletEntropy (P):
     '''
@@ -442,11 +437,12 @@ def is_undirected_link_predictor():
     return True
 
 
+@nb.jit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the
     probability of the least likely link (i.e the document-specific
-    minimum of probabilitieS).
+    minimum of probabilities).
 
     :param model: the model object
     :param topics: the topics that were inferred for each document
@@ -455,8 +451,30 @@ def min_link_probs(model, topics, links):
     :return: a D-dimensional vector with the minimum probabilties for each
         link
     '''
-    return np.ones((links.shape[0],1))
+    weights    = model.weights
+    topicMeans = topics.topicDists
+    D = topicMeans.shape[0]
 
+    # derive topic means from the topic distributions
+    # note there is a risk of loss of precision in all this which I just accept
+    topicPriorExt = extend_topic_prior(model.topicPrior, 0)
+    topicMeans -= topicPriorExt[np.newaxis,:]
+    topicMeans /= topics.docLens[:, np.newaxis]
+
+    # use the topics means to predict links
+    mins = np.ones((D,), dtype=model.dtype)
+    for d in range(D):
+        probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
+        mins[d] = compiled.probit(probs).min()
+
+    # return from topic means to the topic distributions
+    topicMeans *= topics.docLens[:, np.newaxis]
+    topicMeans += topicPriorExt[np.newaxis,:]
+
+    return mins
+
+def extend_topic_prior (prior_vec, extra_field):
+    return np.hstack ((prior_vec, extra_field))
 
 def link_probs(model, topics, min_link_probs):
     '''
@@ -472,8 +490,44 @@ def link_probs(model, topics, min_link_probs):
     :param min_link_probs: the minimum link probability for each document
     :return: a (hopefully) sparse DxD matrix of link probabilities
     '''
-    D = min_link_probs.shape[0]
-    return ssp.diags(0, np.ones((D,)))
+    weights    = model.weights
+    topicMeans = topics.topicDists
+    D = topicMeans.shape[0]
+
+    # We build the result up as a COO matrix
+    rows = []
+    cols = []
+    vals = []
+
+    # derive topic means from the topic distributions
+    # note there is a risk of loss of precision in all this which I just accept
+    topicPriorExt = extend_topic_prior(model.topicPrior, 0)
+    topicMeans -= topicPriorExt[np.newaxis,:]
+    topicMeans /= topics.docLens[:, np.newaxis]
+
+    # use the topics means to predict links
+    mins = np.ones((D,), dtype=model.dtype)
+    for d in range(D):
+        probs = (topicMeans[d] * topicMeans).dot(weights)
+        probs = compiled.probit(probs)
+        relevant = np.where(probs >= mins[d])[0]
+        print ("Non-neglible links: %d / %d" % (len(relevant), D))
+
+        rows.extend[[d] * len(relevant)]
+        cols.extend(relevant)
+        vals.extend(probs[relevant])
+
+    # return from topic means to the topic distributions
+    topicMeans *= topics.docLens[:, np.newaxis]
+    topicMeans += topicPriorExt[np.newaxis,:]
+
+    # Build the COO matrix, then covert it to CSR. Converts lists to numpy
+    # arrays to ensure appropriate dtypes
+    r = np.array(rows, dtype=np.int32)
+    c = np.array(cols, dtype=np.int32)
+    v = np.array(vals, dtype=model.dtype)
+
+    return ssp.coo_matrix((v (r, c)), shape=(D,D)).tocsr()
 
 
 if __name__ == '__main__':
