@@ -53,7 +53,7 @@ class Test(unittest.TestCase):
         
         K,P = 10, 75
         modelFileses = []
-        for modelName in [ LdaGibbs ]: #ModelNames:
+        for modelName in [ Rtm ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8'      \
@@ -63,9 +63,9 @@ class Test(unittest.TestCase):
                     + ' --iters '          + '100'      \
                     + ' --query-iters '    + '50'      \
                     + ' --folds '          + '1'      \
-                    + ' --words '          + NipsWordPath \
-                    + ' --links '          + NipsFeatPath \
-                    + ' --eval '           + Perplexity \
+                    + ' --words '          + AclWordPath \
+                    + ' --links '          + AclCitePath \
+                    + ' --eval '           + MeanAveragePrecAllDocs \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
