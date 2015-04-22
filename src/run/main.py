@@ -84,7 +84,8 @@ def run(args):
                     help="Display a debug message, with the bound, after every variable update")
     parser.add_argument('--dtype', '-t', dest='dtype', default="f4:f4", metavar=' ', \
                     help="Datatype to use, values are i4, f4 and f8. Specify two, a data dtype and model dtype, delimited by a colon")
-
+    parser.add_argument('--limit-to', dest='limit', type=int, default=0, metavar=' ', \
+                    help="If set, discard all but the initial given number of rows of the input dataset")
 
     #
     # Parse the arguments
@@ -98,7 +99,9 @@ def run(args):
     K, P, Q = args.K, args.P, args.Q
     (input_dtype, output_dtype)  = parse_dtypes(args.dtype)
 
-    data = DataSet(args.words, args.feats, args.links)
+    data = DataSet(args.words, args.feats, args.links) \
+            if args.limit == 0 \
+            else DataSet(args.words, args.feats, args.links, np.linspace(0, args.limit - 1, args.limit).astype(np.int32))
     data.convert_to_dtype(input_dtype)
     data.prune_and_shuffle(min_doc_len=0.5, min_link_count=4)
 

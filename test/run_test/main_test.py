@@ -53,10 +53,10 @@ class Test(unittest.TestCase):
         
         K,P = 10, 75
         modelFileses = []
-        for modelName in [ Rtm ]: #ModelNames:
+        for modelName in [ LdaGibbs ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
-                    + ' --dtype '          + 'f8'      \
+                    + ' --dtype '          + 'i4:f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
@@ -65,7 +65,8 @@ class Test(unittest.TestCase):
                     + ' --folds '          + '1'      \
                     + ' --words '          + AclWordPath \
                     + ' --links '          + AclCitePath \
-                    + ' --eval '           + MeanAveragePrecAllDocs \
+                    + ' --limit-to '       + '1000' \
+                    + ' --eval '           + Perplexity \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
