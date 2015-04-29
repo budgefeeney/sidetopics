@@ -101,7 +101,7 @@ def run(args):
 
     data = DataSet(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
-    data.prune_and_shuffle(min_doc_len=50, min_link_count=4)
+    data.prune_and_shuffle(min_doc_len=50, min_link_count=2)
 
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
 
