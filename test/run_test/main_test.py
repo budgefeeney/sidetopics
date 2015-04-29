@@ -8,7 +8,7 @@ import pickle as pkl
 import tempfile as tmp
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, Rtm, LdaGibbs
+from run.main import run, ModelNames, Rtm, LdaGibbs, LdaVb
 from model.evals import Perplexity, MeanAveragePrecAllDocs
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/"
@@ -53,19 +53,19 @@ class Test(unittest.TestCase):
         
         K,P = 10, 75
         modelFileses = []
-        for modelName in [ LdaGibbs ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
-                    + ' --dtype '          + 'i4:f8'      \
+                    + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '100'      \
-                    + ' --query-iters '    + '50'      \
+                    + ' --iters '          + '40'      \
+                    + ' --query-iters '    + '5'      \
                     + ' --folds '          + '1'      \
                     + ' --words '          + AclWordPath \
                     + ' --links '          + AclCitePath \
-                    + ' --limit-to '       + '1000' \
+                    + ' --limit-to '       + '100000' \
                     + ' --eval '           + Perplexity \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
