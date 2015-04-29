@@ -217,8 +217,8 @@ def train (data, modelState, queryState, trainPlan):
         duration = current_micro_time() - start
     
         boundIters[bvIdx]   = segment * segIters
-        boundValues[bvIdx]  = var_bound(W, modelState, queryState)
-        likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
+        boundValues[bvIdx]  = var_bound(data, modelState, queryState)
+        likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
         bvIdx += 1
         
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
@@ -236,8 +236,8 @@ def train (data, modelState, queryState, trainPlan):
                  z_dnk, topicDists, wordDists)
     
     boundIters[bvIdx]   = iterations - 1
-    boundValues[bvIdx]  = var_bound(W, modelState, queryState)
-    likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
+    boundValues[bvIdx]  = var_bound(data, modelState, queryState)
+    likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
    
             
     return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
