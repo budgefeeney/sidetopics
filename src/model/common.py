@@ -212,7 +212,7 @@ class DataSet:
             sufficient_docs = np.where(link_counts >= min_link_count)[0]
 
         if trimmed:
-             print ("Removed %d documents whose out-link counts were less than %d. %d documents remain" \
+            print("Removed %d documents whose out-link counts were less than %d. %d documents remain" \
                    % (original_num_docs - self.doc_count, min_link_count, self.doc_count))
 
 
