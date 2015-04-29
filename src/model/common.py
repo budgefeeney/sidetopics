@@ -106,11 +106,13 @@ class DataSet:
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
 
+
     def convert_to_dtype(self, dtype):
         '''
         Inplace conversion to given dtype
         '''
         self.convert_to_dtypes(dtype, dtype, dtype)
+
 
     def convert_to_dtypes(self, words_dtype, feats_dtype, links_dtype):
         '''
@@ -165,9 +167,10 @@ class DataSet:
         '''
         doc_lens = np.squeeze(np.asarray(self._words.sum(axis=1)))
         if doc_lens.min() < min_doc_len:
-            print("Input doc-term matrix contains some empty rows. These have been removed.")
             good_rows = (np.where(doc_lens > 0.5))[0]
             self._order = good_rows
+            print ("Removed %d documents whose word counts were less than %d. %d documents remain" \
+                   % (len(doc_lens) - len(good_rows), min_doc_len, len(good_rows)))
         else:
             doc_count = self._words.shape[0]
             self._order = np.linspace(0, doc_count - 1, doc_count)
@@ -178,9 +181,11 @@ class DataSet:
         if min_link_count == 0 or not self.has_links():
             return self._order
 
+        trimmed = False
         link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
         sufficient_docs = np.where(link_counts >= min_link_count)[0]
         while len(sufficient_docs) < self._links.shape[0]:
+            trimmed = True
             self._reorder(sufficient_docs)
             self._order = self._order[sufficient_docs]
             link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
@@ -349,7 +354,7 @@ def _split_symm(X, rng):
     row, col, dat = coo.row, coo.col, coo.data
 
     ind = np.array([i for i in range(nnz) if row[i] >= col[i]], dtype=np.int32)
-    rng.shuffle (ind)
+    rng.shuffle(ind)
     split_point = len(ind) / 2
 
     left_ind  = np.sort(ind[:split_point])
