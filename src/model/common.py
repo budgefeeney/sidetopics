@@ -153,9 +153,9 @@ class DataSet:
         self._words = self._words[order, :]
         self._feats = None if self._feats is None else self._feats[order, :]
         self._links = None if self._links is None \
-            else (self._links[order, order] \
-                    if self._links.shape[0] == self._links.shape[1] \
-                    else self._links[order, :])
+            else ((self._links[order, :])[:, order] \
+                if self._links.shape[0] == self._links.shape[1] \
+                else self._links[order, :])
 
 
     def convert_to_undirected_graph(self):
