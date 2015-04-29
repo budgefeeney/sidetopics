@@ -11,17 +11,28 @@ class DataSet:
     The input to one of our algorithms. Contains at a minimum words. May also contain
     features and a matrix of links.
     '''
-    def __init__(self, words, feats=None, links=None, order=None):
+    def __init__(self, words, feats=None, links=None, order=None, limit=0):
         '''
         The three matrices that make up our features. The order vector gives
         the postions of rows in the original matrices. Specifying an order does
         _not_ change these matrices, however if these matrices were changed before
         this DataSet object was created, you should specify the order there.
+
+        If limit is greater than zero, then only the first "limit" documents are
+        considered.
         '''
-        self._check_and_assign_matrices(words, feats, links, order)
+        self._check_and_assign_matrices(words, feats, links, order, limit)
 
 
-    def __init__(self, words_file, feats_file=None, links_file=None, order = None):
+    def __init__(self, words_file, feats_file=None, links_file=None, order=None, limit=0):
+        '''
+        The three matrices that make up our features, loaded from the given
+        files. The order vector gives the positions of rows in the original matrices.
+        Specifying an order does _not_ change these matrices,
+
+        If limit is greater than zero, then only the first "limit" documents are
+        considered.
+        '''
         with open(words_file, 'rb') as f:
             words = pkl.load(f)
 
@@ -37,10 +48,10 @@ class DataSet:
         else:
             links = None
 
-        self._check_and_assign_matrices(words, feats, links, order)
+        self._check_and_assign_matrices(words, feats, links, order, limit)
 
 
-    def _check_and_assign_matrices(self, words, feats=None, links=None, order=None):
+    def _check_and_assign_matrices(self, words, feats=None, links=None, order=None, limit=0):
         assert words.shape[0] > 0, "No rows in the document-words matrix"
         assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
 
@@ -51,15 +62,23 @@ class DataSet:
         assert feats is None or type(feats) is ssp.csr_matrix, "Features are not stored as a sparse CSR matrix"
         assert links is None or type(links) is ssp.csr_matrix, "Links are not stored as a sparse CSR matrix"
 
+        # Now that the checks are done with, assign the values and apply the ordering.
         self._words = words
         self._feats = feats
         self._links = links
+
+        num_docs = words.shape[0]
+        if 0 < limit < num_docs:
+            order = np.linspace(0, limit - 1, limit).astype(np.int32) \
+                if order is None \
+                else order[:limit]
+            num_docs = limit
 
         if order is not None:
             self._order = order
             self._reorder(order)
         else:
-            self._order = np.linspace(0, words.shape[0] - 1, words.shape[0]).astype(np.int32)
+            self._order = np.linspace(0, num_docs - 1, num_docs).astype(np.int32)
 
 
     @property
@@ -182,6 +201,7 @@ class DataSet:
             return self._order
 
         trimmed = False
+        original_num_docs = self.doc_count
         link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
         sufficient_docs = np.where(link_counts >= min_link_count)[0]
         while len(sufficient_docs) < self._links.shape[0]:
@@ -190,6 +210,11 @@ class DataSet:
             self._order = self._order[sufficient_docs]
             link_counts = np.squeeze(np.array(self._links.sum(axis=1)))
             sufficient_docs = np.where(link_counts >= min_link_count)[0]
+
+        if trimmed:
+             print ("Removed %d documents whose out-link counts were less than %d. %d documents remain" \
+                   % (original_num_docs - self.doc_count, min_link_count, self.doc_count))
+
 
         return self._order
 
