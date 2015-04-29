@@ -11,9 +11,9 @@ from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, Rtm, LdaGibbs
 from model.evals import Perplexity, MeanAveragePrecAllDocs
 
-AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL/"
-AclWordPath = AclPath + "words.pkl"
-AclCitePath = AclPath + "cites.pkl"
+AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/"
+AclWordPath = AclPath + "words-freq.pkl"
+AclCitePath = AclPath + "ref.pkl"
 
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
