@@ -91,3 +91,5 @@ src/model/lda_cvb_fast.c
 /.settings/
 
 **/__pycache__
+
+.idea/**
