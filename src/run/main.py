@@ -99,11 +99,9 @@ def run(args):
     K, P, Q = args.K, args.P, args.Q
     (input_dtype, output_dtype)  = parse_dtypes(args.dtype)
 
-    data = DataSet(args.words, args.feats, args.links) \
-            if args.limit == 0 \
-            else DataSet(args.words, args.feats, args.links, np.linspace(0, args.limit - 1, args.limit).astype(np.int32))
+    data = DataSet(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
-    data.prune_and_shuffle(min_doc_len=0.5, min_link_count=4)
+    data.prune_and_shuffle(min_doc_len=50, min_link_count=4)
 
     fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
 
@@ -150,7 +148,7 @@ def run(args):
     return modelFiles
 
 
-def parse_dtypes (dtype_str):
+def parse_dtypes(dtype_str):
     '''
     Parse one or two dtype strings, delimited by a colon if there are two
     '''
@@ -160,7 +158,7 @@ def parse_dtypes (dtype_str):
         if len(strs) == 1 \
         else (parse_dtype(strs[0]), parse_dtype(strs[1]))
 
-def parse_dtype (dtype_str):
+def parse_dtype(dtype_str):
     '''
     Parses a dtype string. Accepted values are f4 or f32, f8 or f64
     or i4 or i32. Case is not sensitive. Two may be optionally
