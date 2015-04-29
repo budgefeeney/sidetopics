@@ -3,7 +3,7 @@ Created on 15 Apr 2015
 
 @author: bryanfeeney
 '''
-
+import sys
 import numpy as np
 import numpy.random as rd
 import scipy.sparse as ssp
@@ -27,7 +27,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'W_list docLens topicDists'\
+    'docLens topicDists'\
 )
 
 ModelState = namedtuple ( \
@@ -78,16 +78,18 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     T = data.words.shape[1]
 
     if topicPrior is None:
-        topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K + 1,), 50.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.1 # Also from G&S
+        vocabPrior = 0.1 + 0.5 # Also from G&S
+
+    topicPrior[K] = 0
 
     vocabPriorVec = constantArray((T,), vocabPrior, dtype)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
 
     # Peturb to avoid zero probabilities
     wordDists += 1./T
-    wordDists /= (wordDists.sum(axis=1))[:,np.newaxis]
+    wordDists /= (wordDists.sum(axis=1))[:, np.newaxis]
 
     # The weight vector
     weights = np.ones ((K,1))
@@ -114,21 +116,17 @@ def newQueryState(data, modelState):
     Return:
     A QueryState object
     '''
-    K = modelState.K
-    D,_ = data.words.shape
-    
-    print("Converting Bag of Words matrix to List of List representation... ", end="")
-    W_list, docLens = toWordList(data.words)
-    print("Done")
+    docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
     # This is super-slow
-    topicPriorExt = np.hstack(modelState.topicPrior, 0)
-    topicDists = rd.dirichlet(topicPriorExt, size=D).astype(modelState.dtype)
-    topicDists[:,K] = docLens
+    topicDists  = rd.dirichlet(modelState.topicPrior, size=data.doc_count).astype(modelState.dtype)
+    topicDists *= docLens[:, np.newaxis]
+    topicDists += modelState.topicPrior[np.newaxis, :]
+    topicDists[:, modelState.K] = docLens
 
     # Now assign a topic to
-    return QueryState(W_list, docLens, topicDists)
+    return QueryState(docLens, topicDists)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -161,12 +159,19 @@ def topicDists (queryState):
     across all D documents
     '''
     K       = queryState.topicDists.shape[1] - 1
-    result  = queryState.topicDists[:,:K]
+    result  = queryState.topicDists[:, :K]
     norm    = np.sum(result, axis=1)
     result /= norm[:,np.newaxis]
 
     return result
 
+#@nb.jit
+def _log_likelihood_internal(data, model, query):
+    _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
+    result = log_likelihood(data, model, query)
+    _convertDirichletParamToMeans(query.docLens, query.topicDists, model.topicPrior)
+
+    return result
 
 
 def log_likelihood (data, modelState, queryState):
@@ -224,21 +229,26 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-@nb.jit
+#@nb.jit
 def _inplace_softmax(z):
     '''
     Softmax transform of the given vector of scores into a vector of
     probabilities. Safe against overflow.
 
     Transform happens in-place
-    '''
-    np.exp(z, out=z)
-    z_max = z.max(axis=1)
-    z -= z_max
-    z_sum = z.sum(axis=1)
-    z /= z_sum
 
-@nb.jit
+    :param z: a KxV matrix of the distributions over K topics for the T observed
+    words
+    '''
+    z_max = z.max(axis=0)
+    z -= z_max[np.newaxis, :]
+
+    np.exp(z, out=z)
+
+    z_sum = z.sum(axis=0)
+    z /= z_sum[np.newaxis, :]
+
+#@nb.jit
 def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -258,18 +268,42 @@ def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWo
     :return: the indices of the non-zero words in document d, and the KxV matrix of
             topic assignments for each of the V non-zero words.
     '''
-    K = topicMeans.shape[1]
+    K = diWordDists.shape[0]
+    wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+    topicMeans[d, :K] = np.dot(z, W[d, :].data) / docLens[d]
+    return wordIdx, z
+
+#@nb.jit
+def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
+    '''
+    Infers the topic assignments for all present words in the given document at
+    index d as stored in the sparse CSR matrix W. This does not affect topicMeans.
+    The indices of the non-zero words, and their probabilities, are returned.
+
+    :param d:  the document for which we update the topic distribution
+    :param W:  the DxT document-term matrix, a sparse CSR matrix.
+    :param docLens:  the length of each document
+    :param topicMeans: the DxK matrix, where the d-th row contains the mean of all
+                        per-token topic-assignments.
+    :param topicPrior: the prior over topics
+    :param diWordDists: the KxT matrix of word distributions, after the digamma funciton
+                        has been applied
+    :param diWordDistSums: the K-vector of the digamma of the sums of the Dirichlet
+                            parameter vectors for each per-topic word-distribution
+    :return: the indices of the non-zero words in document d, and the KxV matrix of
+            topic assignments for each of the V non-zero words.
+    '''
+    K = diWordDists.shape[0]
 
     wordIdx = W[d, :].indices
-    z = diWordDists[:, wordIdx]
-    z -= diWordDistSums
-    z += fns.digamma(topicPrior + docLens[d] * topicMeans[d, :K])
+    z  = diWordDists[:, wordIdx]
+    z -= diWordDistSums[:, np.newaxis]
+    z += fns.digamma(topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
     _inplace_softmax(z)
-    topicMeans[d, :] = np.dot(W[d, :].data, z) / docLens[d]
     return wordIdx, z
 
 
-@nb.jit
+#@nb.jit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -292,11 +326,17 @@ def train(data, model, query, plan, updateVocab=True):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
-    W_list, docLens, topicMeans = \
-        query.W_list, query.docLens, query.topicDists
+    docLens, topicMeans = \
+        query.docLens, query.topicDists
     K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
 
+    # Quick sanity check
+    if np.any(docLens < 1):
+        raise ValueError ("Input document-term matrix contains at least one document with no words")
+    assert dtype == np.float64, "Only implemented for 64-bit floats"
+
+    # Prepare the data for inference
     topicMeans = _convertDirichletParamToMeans(docLens, topicMeans, topicPrior)
 
     W   = data.words
@@ -305,34 +345,34 @@ def train(data, model, query, plan, updateVocab=True):
 
     iters, bnds, likes = [], [], []
 
-    # Quick sanity check
-    if np.any(docLens < 1):
-        raise ValueError ("Input document-term matrix contains at least one document with no words")
-    assert dtype == np.float64, "Only implemented for 64-bit floats"
-
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
     # we only store a 1xNxT = NxT part.
     z = np.empty((K,), dtype=dtype, order='F')
-    diWordDistSums = np.empty((T,), dtype=dtype)
-
+    diWordDistSums = np.empty((K,), dtype=dtype)
     diWordDists = np.empty(wordDists.shape, dtype=dtype)
 
     for itr in range(iterations):
+        printAndFlushNoNewLine("\n %4d: " % itr)
+
         diWordDistSums[:] = wordDists.sum(axis=1)
-        fns.diagamma(diWordDistSums, out=diWordDistSums)
-        fns.digamma (wordDists, out=diWordDists)
+        fns.digamma(diWordDistSums, out=diWordDistSums)
+        fns.digamma(wordDists, out=diWordDists)
 
         if updateVocab:
-            wordDists[:,:] = vocabPrior[np.newaxis,:]
+            wordDists[:, :] = vocabPrior
             for d in range(D):
+                if d % 100 == 0:
+                    printAndFlushNoNewLine(".")
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-                wordDists[:,wordIdx] += W[d,:].data[np.newaxis,:] * z
+                wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
             if itr % logFrequency == 0:
-                iters.append(iter)
-                bnds.append(var_bound(data, model, query))
-                likes.append(log_likelihood(data, model, query))
+                iters.append(itr)
+                bnds.append(_var_bound_internal(data, model, query))
+                likes.append(_log_likelihood_internal(data, model, query))
+
+                printAndFlushNoNewLine("  %.3f  " % bnds[-1])
         else:
             for d in range(D):
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
@@ -340,10 +380,15 @@ def train(data, model, query, plan, updateVocab=True):
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
-           QueryState(W_list, docLens, topicMeans), \
+           QueryState(docLens, topicMeans), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
-@nb.jit
+
+def printAndFlushNoNewLine (text):
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+#@nb.jit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -366,7 +411,16 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
+#@nb.jit
+def _var_bound_internal(data, model, query, z_dnk = None):
+    _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
+    result = var_bound(data, model, query, z_dnk)
+    _convertDirichletParamToMeans(query.docLens, query.topicDists, model.topicPrior)
 
+    return result
+
+
+#@nb.jit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
@@ -376,18 +430,15 @@ def var_bound(data, model, query, z_dnk = None):
     # Unpack the the structs, for ease of access and efficiency
     K, topicPrior, wordPrior, wordDists, weights, negCount, reg, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
-    W_list, docLens, topicDists = \
-        query.W_list, query.docLens, query.topicDists
+    docLens, topicDists = \
+        query.docLens, query.topicDists
 
     # Initialize z matrix if necessary
     W,X = data.words, data.links
     D,T = W.shape
-    maxN = docLens.max()
-    if z_dnk is None:
-        z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
         
     # Perform the digamma transform for E[ln \theta] etc.
-    diTopicDists    = fns.diagamma(topicPrior[np.newaxis,:] + topicDists * docLens[:,np.newaxis])
+    diTopicDists    = fns.digamma(topicDists)
     diSumTopicDists = fns.digamma(topicDists[:,:K].sum(axis=1))
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
@@ -396,7 +447,7 @@ def var_bound(data, model, query, z_dnk = None):
     # P(topics|topicPrior)
     #
     bound += D * fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum() \
-           + np.sum((topicPrior - 1)[np.newaxis,:] * (diTopicDists - diSumTopicDists[:,np.newaxis] ))
+           + np.sum((topicPrior - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis] ))
     
     # and its entropy
     bound += _dirichletEntropy(topicDists[:,:K])
@@ -417,17 +468,17 @@ def var_bound(data, model, query, z_dnk = None):
     # we make a single, simple estimate for this case.
     # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
     for d in range(D):
-        wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
+        wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
 
         # E[ln p(Z|topics) = sum_d sum_n sum_k E[z_dnk] E[ln topicDist_dk]
         exLnTopic = diTopicDists[d,:K] - diSumTopicDists[d]
-        bound += np.dot (W[d,:].data, z * exLnTopic[:,np.newaxis]).sum()
+        bound += np.dot (z * exLnTopic[:,np.newaxis], W[d,:].data).sum()
 
         # E[ln p(W|Z)] = sum_d sum_n sum_k sum_t E[z_dnk] w_dnt E[ln vocab_kt]
         bound += np.sum(W[d,:].data[np.newaxis,:] * z * (diWordDists[:,wordIdx] - diSumWordDists[:,np.newaxis]))
         
         # And finally the entropy of Z
-        bound -= np.dot(W[d,:].data, z * safe_log(z)).sum()
+        bound -= np.dot(z * safe_log(z), W[d,:].data).sum()
     
     # Next, the distribution over links - we just focus on the positives in this case
     # for d in range(D):
@@ -444,7 +495,7 @@ def var_bound(data, model, query, z_dnk = None):
     #     probs[:]   = 1 - probs
     #     lnProbs[:] = np.log(probs)
     #     bound     -= np.sum(probs * lnProbs)
-    
+
     topicDists = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
     return bound
 
