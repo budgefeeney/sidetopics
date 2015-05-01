@@ -79,7 +79,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     if topicPrior is None:
         topicPrior = constantArray((K + 1,), 50.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.1 + 0.5 # Also from G&S
+        vocabPrior = 5 #0.1 + 0.5 # Also from G&S
 
     topicPrior[K] = 0
 
@@ -160,7 +160,7 @@ def topicDists (queryState):
     K       = queryState.topicDists.shape[1] - 1
     result  = queryState.topicDists[:, :K]
     norm    = np.sum(result, axis=1)
-    result /= norm[:,np.newaxis]
+    result /= norm[:, np.newaxis]
 
     return result
 
@@ -356,7 +356,7 @@ def train(data, model, query, plan, updateVocab=True):
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
-        fns.digamma(wordDists, out=diWordDists)
+        fns.digamma(wordDists,      out=diWordDists)
 
         if updateVocab:
             wordDists[:, :] = vocabPrior
@@ -366,12 +366,14 @@ def train(data, model, query, plan, updateVocab=True):
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-            if itr % logFrequency == 0:
+            if True: # itr % logFrequency == 0:
                 iters.append(itr)
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                printAndFlushNoNewLine("  %.3f  " % bnds[-1])
+                if len(bnds) > 6 and ".3f" % bnds[-1] == ".3f" % bnds[-2]:
+                    break
+
         else:
             for d in range(D):
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
@@ -437,47 +439,70 @@ def var_bound(data, model, query, z_dnk = None):
     D,T = W.shape
         
     # Perform the digamma transform for E[ln \theta] etc.
-    diTopicDists    = fns.digamma(topicDists)
-    diSumTopicDists = fns.digamma(topicDists[:,:K].sum(axis=1))
+    debug           = topicDists.copy()
+    diTopicDists    = fns.digamma(topicDists[:, :K])
+    diSumTopicDists = fns.digamma(topicDists[:, :K].sum(axis=1))
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
     topicMeans      = _convertDirichletParamToMeans(docLens, topicDists, topicPrior)
-    
-    # P(topics|topicPrior)
+
+    print("")
+    pad = "       "
+
+    # E[ln p(topics|topicPrior)] according to q(topics)
     #
-    bound += D * fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum() \
-           + np.sum((topicPrior - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis] ))
-    
+    prob_topics = D * (fns.gammaln(topicPrior[:K].sum()) - fns.gammaln(topicPrior[:K]).sum()) \
+        + np.sum((topicPrior[:K] - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis]))
+
+    bound += prob_topics
+    print(pad + "E[ln p(topics|topicPrior)] = %.3f" % prob_topics)
+
     # and its entropy
-    bound += _dirichletEntropy(topicDists[:,:K])
+    ent_topics = _dirichletEntropy(topicDists[:, :K])
+    bound += ent_topics
+    print(pad + "H[q(topics)]                = %.3f" % ent_topics)
         
-    # P(vocabs|vocabPrior)
+    # E[ln p(vocabs|vocabPrior)]
     #
     if type(model.vocabPrior) is float:
-        bound += D * fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior) \
+        prob_vocabs  = D * (fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior)) \
                + np.sum((wordPrior - 1) * (diWordDists - diSumWordDists[:,np.newaxis] ))
     else:
-        bound += D * fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum() \
+        prob_vocabs  = D * (fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum()) \
                + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diSumWordDists[:,np.newaxis] ))
-    
+
+    bound += prob_vocabs
+    print(pad + "E[ln p(vocabs|vocabPrior)]  = %.3f" % prob_vocabs)
+
     # and its entropy
-    bound += _dirichletEntropy(wordDists)
+    ent_vocabs = _dirichletEntropy(wordDists)
+    bound += ent_vocabs
+    print(pad + "H[q(vocabs)                 = %.3f " % ent_vocabs)
 
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
     # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
+    prob_words = 0
+    prob_z     = 0
+    ent_z      = 0
     for d in range(D):
         wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
 
         # E[ln p(Z|topics) = sum_d sum_n sum_k E[z_dnk] E[ln topicDist_dk]
-        exLnTopic = diTopicDists[d,:K] - diSumTopicDists[d]
-        bound += np.dot (z * exLnTopic[:,np.newaxis], W[d,:].data).sum()
+        exLnTopic = diTopicDists[d, :K] - diSumTopicDists[d]
+        prob_z += np.dot(z * exLnTopic[:, np.newaxis], W[d, :].data).sum()
 
         # E[ln p(W|Z)] = sum_d sum_n sum_k sum_t E[z_dnk] w_dnt E[ln vocab_kt]
-        bound += np.sum(W[d,:].data[np.newaxis,:] * z * (diWordDists[:,wordIdx] - diSumWordDists[:,np.newaxis]))
+        prob_words += np.sum(W[d, :].data[np.newaxis, :] * z * (diWordDists[:, wordIdx] - diSumWordDists[:, np.newaxis]))
         
         # And finally the entropy of Z
-        bound -= np.dot(z * safe_log(z), W[d,:].data).sum()
+        ent_z -= np.dot(z * safe_log(z), W[d, :].data).sum()
+
+    bound += (prob_z + ent_z + prob_words)
+
+    print(pad + "E[ln p(Z|topics)            = %.3f" % prob_z)
+    print(pad + "H[q(Z)]                     = %.3f" % ent_z)
+    print(pad + "E[ln p(W|Z,vocabs)          = %.3f" % prob_words)
     
     # Next, the distribution over links - we just focus on the positives in this case
     # for d in range(D):
@@ -496,6 +521,7 @@ def var_bound(data, model, query, z_dnk = None):
     #     bound     -= np.sum(probs * lnProbs)
 
     topicDists = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
+    print(pad + "Bound                       = %.3f" % bound)
     return bound
 
 
@@ -506,7 +532,7 @@ def _dirichletEntropy (P):
     '''
     D,K    = P.shape
     psums  = P.sum(axis=1)
-    lnB   = fns.gammaln(P).sum(axis = 1) - fns.gammaln(psums)
+    lnB   = fns.gammaln(P).sum(axis=1) - fns.gammaln(psums)
     term1 = (psums - K) * fns.digamma(psums)
     term2 = (P - 1) * fns.digamma(P)
     
