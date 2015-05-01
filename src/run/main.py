@@ -99,7 +99,7 @@ def run(args):
     K, P, Q = args.K, args.P, args.Q
     (input_dtype, output_dtype)  = parse_dtypes(args.dtype)
 
-    data = DataSet(args.words, args.feats, args.links, limit=args.limit)
+    data = DataSet.from_files(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
     data.prune_and_shuffle(min_doc_len=50, min_link_count=2)
 

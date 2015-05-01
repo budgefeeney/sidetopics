@@ -10,9 +10,7 @@ class DataSet:
 
     def __init__(self, words, feats=None, links=None, order=None, limit=0):
         '''
-        The three matrices that make up our features. Can be specified directly
-        as ndarray objects, or indirectly as strings that point to pickle files
-        containing a single ndarray object.
+        The three matrices that make up our features.
 
         The order specifies the subset of rows to consider (and columns in the
         case that links is square). Matrix objects are not altered by this.
@@ -20,34 +18,6 @@ class DataSet:
         If limit is greater than zero, then only the first "limit" documents are
         considered.
         '''
-        if type(words) == str:
-            with open(words, 'rb') as f:
-                _words = pkl.load(f)
-        else:
-            _words = words
-
-        if feats is not None:
-            if type(feats) == str:
-                with open(feats, 'rb') as f:
-                    _feats = pkl.load(f)
-            else:
-                _feats = feats
-        else:
-            _feats = None
-
-        if links is not None:
-            if type(links) == str:
-                with open(links, 'rb') as f:
-                    _links = pkl.load(f)
-            else:
-                _links = links
-        else:
-            _links = None
-
-        self._check_and_assign_matrices(_words, _feats, _links, order, limit)
-
-
-    def _check_and_assign_matrices(self, words, feats=None, links=None, order=None, limit=0):
         assert words.shape[0] > 0, "No rows in the document-words matrix"
         assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
 
@@ -75,6 +45,38 @@ class DataSet:
             self._reorder(order)
         else:
             self._order = np.linspace(0, num_docs - 1, num_docs).astype(np.int32)
+
+    @classmethod
+    def from_files(cls, words_file, feats_file=None, links_file=None, order=None, limit=0):
+        '''
+        The three matrices that make up our features. Each one is loaded in from
+        the given pickle file.
+
+        The order specifies the subset of rows to consider (and columns in the
+        case that links is square). Matrix objects are not altered by this.
+
+        If limit is greater than zero, then only the first "limit" documents are
+        considered.
+        '''
+        with open(words_file, 'rb') as f:
+            words = pkl.load(f)
+
+
+        if feats_file is not None:
+            with open(feats_file, 'rb') as f:
+                feats = pkl.load(f)
+        else:
+            feats = None
+
+        if links_file is not None:
+            with open(links_file, 'rb') as f:
+                links = pkl.load(f)
+        else:
+            links = None
+
+        return DataSet(words, feats, links, order, limit)
+
+
 
 
     @property
