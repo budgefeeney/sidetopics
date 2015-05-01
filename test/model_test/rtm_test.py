@@ -28,7 +28,7 @@ class Test(unittest.TestCase):
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
-        data = DataSet.from_files(words = AclWordPath, links=AclCitePath)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
         with open(AclDictPath, "rb") as f:
             d = pkl.load(f)
 
@@ -42,10 +42,10 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
 
         # Initialise the model
-        K = 10
+        K = 16
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
-        trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=3, fastButInaccurate=False, debug=True)
+        trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=2, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = rtm.train (data, model, queryState, trainPlan)
@@ -66,11 +66,11 @@ class Test(unittest.TestCase):
         plt.show()
 
         vocab = rtm.wordDists(model)
-        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.imshow(vocab, interpolation="nearest", cmap = cm.Greys_r)
         plt.show()
 
         # Print out the most likely topic words
-        topWordCount = 10
+        topWordCount = 15
         kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
 
