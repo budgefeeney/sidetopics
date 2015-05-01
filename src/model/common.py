@@ -7,48 +7,44 @@ import pickle as pkl
 from math import ceil
 
 class DataSet:
-    '''
-    The input to one of our algorithms. Contains at a minimum words. May also contain
-    features and a matrix of links.
-    '''
+
     def __init__(self, words, feats=None, links=None, order=None, limit=0):
         '''
-        The three matrices that make up our features. The order vector gives
-        the postions of rows in the original matrices. Specifying an order does
-        _not_ change these matrices, however if these matrices were changed before
-        this DataSet object was created, you should specify the order there.
+        The three matrices that make up our features. Can be specified directly
+        as ndarray objects, or indirectly as strings that point to pickle files
+        containing a single ndarray object.
+
+        The order specifies the subset of rows to consider (and columns in the
+        case that links is square). Matrix objects are not altered by this.
 
         If limit is greater than zero, then only the first "limit" documents are
         considered.
         '''
-        self._check_and_assign_matrices(words, feats, links, order, limit)
-
-
-    def __init__(self, words_file, feats_file=None, links_file=None, order=None, limit=0):
-        '''
-        The three matrices that make up our features, loaded from the given
-        files. The order vector gives the positions of rows in the original matrices.
-        Specifying an order does _not_ change these matrices,
-
-        If limit is greater than zero, then only the first "limit" documents are
-        considered.
-        '''
-        with open(words_file, 'rb') as f:
-            words = pkl.load(f)
-
-        if feats_file is not None:
-            with open(feats_file, 'rb') as f:
-                feats = pkl.load(f)
+        if type(words) == str:
+            with open(words, 'rb') as f:
+                _words = pkl.load(f)
         else:
-            feats = None
+            _words = words
 
-        if links_file is not None:
-            with open(links_file, 'rb') as f:
-                links = pkl.load(f)
+        if feats is not None:
+            if type(feats) == str:
+                with open(feats, 'rb') as f:
+                    _feats = pkl.load(f)
+            else:
+                _feats = feats
         else:
-            links = None
+            _feats = None
 
-        self._check_and_assign_matrices(words, feats, links, order, limit)
+        if links is not None:
+            if type(links) == str:
+                with open(links, 'rb') as f:
+                    _links = pkl.load(f)
+            else:
+                _links = links
+        else:
+            _links = None
+
+        self._check_and_assign_matrices(_words, _feats, _links, order, limit)
 
 
     def _check_and_assign_matrices(self, words, feats=None, links=None, order=None, limit=0):
