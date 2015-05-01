@@ -73,7 +73,7 @@ class Test(unittest.TestCase):
         topWordCount = 10
         kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
 
-        like = lda.log_likelihood(data, model, query)
+        like = rtm.log_likelihood(data, model, query)
         perp = perplexity_from_like(like, data.word_count)
 
         print ("Prior %s" % (str(model.topicPrior)))
