@@ -10,11 +10,10 @@ import scipy.sparse as ssp
 import scipy.special as fns
 import numba as nb
 
-import model.rtm_fast as compiled
+#import model.rtm_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged, clamp
-from model.lda_cvb import toWordList
 
 from collections import namedtuple
 

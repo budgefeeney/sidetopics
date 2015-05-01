@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_gibbs as lda
+import model.rtm as rtm
 from model.common import DataSet
 from model.evals import perplexity_from_like
 
@@ -32,7 +32,7 @@ class Test(unittest.TestCase):
         with open(AclDictPath, "rb") as f:
             d = pkl.load(f)
 
-        data.convert_to_dtype(np.int32)
+        data.convert_to_dtype(dtype)
         data.prune_and_shuffle(min_doc_len=50, min_link_count=2)
         data.convert_to_undirected_graph()
         data.convert_to_binary_link_matrix()
@@ -43,12 +43,12 @@ class Test(unittest.TestCase):
 
         # Initialise the model
         K = 10
-        model      = lda.newModelAtRandom(data, K, dtype=dtype)
-        queryState = lda.newQueryState(data, model)
-        trainPlan  = lda.newTrainPlan(iterations=300, logFrequency=50, fastButInaccurate=False, debug=True)
+        model      = rtm.newModelAtRandom(data, K, dtype=dtype)
+        queryState = rtm.newQueryState(data, model)
+        trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=3, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = rtm.train (data, model, queryState, trainPlan)
 #        with open(newModelFileFromModel(model), "wb") as f:
 #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
 
@@ -65,7 +65,7 @@ class Test(unittest.TestCase):
         fig.show()
         plt.show()
 
-        vocab = lda.wordDists(model)
+        vocab = rtm.wordDists(model)
         plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
         plt.show()
 
@@ -74,7 +74,7 @@ class Test(unittest.TestCase):
         kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
 
-        like = lda.log_likelihood(data, model, query)
+        like = rtm.log_likelihood(data, model, query)
         perp = perplexity_from_like(like, data.word_count)
 
         print ("Prior %s" % (str(model.topicPrior)))
@@ -97,6 +97,7 @@ class Test(unittest.TestCase):
         for wordIdx in words:
             print("%s" % wordDict[wordIdx])
         print("")
+
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']
