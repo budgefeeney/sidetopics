@@ -71,8 +71,7 @@ class Test(unittest.TestCase):
 
         # Print out the most likely topic words
         topWordCount = 10
-        kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
-                        for k in range(K)]
+        kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
 
         like = lda.log_likelihood(data, model, query)
         perp = perplexity_from_like(like, data.word_count)
@@ -89,7 +88,7 @@ class Test(unittest.TestCase):
         return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]
 
 
-    def topWordInds (self, wordDict, vocab, count=10):
+    def topWordInds (self, vocab, count=10):
         return vocab.argsort()[-count:][::-1]
 
     def printTopics(self, wordDict, vocab, count=10):
