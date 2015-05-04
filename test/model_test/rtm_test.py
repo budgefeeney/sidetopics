@@ -28,7 +28,7 @@ class Test(unittest.TestCase):
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
-        data = DataSet(words = AclWordPath, links=AclCitePath)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
         with open(AclDictPath, "rb") as f:
             d = pkl.load(f)
 
@@ -42,7 +42,7 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
 
         # Initialise the model
-        K = 10
+        K = 16
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
         trainPlan  = rtm.newTrainPlan(iterations=20, logFrequency=3, fastButInaccurate=False, debug=True)
