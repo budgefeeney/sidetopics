@@ -83,12 +83,15 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
 
     topicPrior[K] = 0
 
-    vocabPriorVec = constantArray((T,), vocabPrior, dtype)
-    wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
+    wordDists = rd.dirichlet(constantArray((T,), 10, dtype), size=K).astype(dtype)
 
     # Peturb to avoid zero probabilities
     wordDists += 1./T
     wordDists /= (wordDists.sum(axis=1))[:, np.newaxis]
+
+    # Scale up so it properly resembles something inferred from this dataset
+    # (this avoids catastrophic underflow in softmax)
+    wordDists *= data.word_count / K
 
     # The weight vector
     weights = np.ones ((K,1))
@@ -145,8 +148,8 @@ def wordDists (modelState):
     '''
     The K x T matrix of  word distributions inferred for the K topics
     '''
-    result = modelState.wordDists
-    norm   = np.sum(modelState.wordDists, axis=1)
+    result = modelState.wordDists.copy()
+    norm   = result.sum(axis=1)
     result /= norm[:,np.newaxis]
 
     return result
@@ -229,15 +232,15 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     return topicMeans
 
 #@nb.jit
-def _inplace_softmax(z):
+def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
     probabilities. Safe against overflow.
 
     Transform happens in-place
 
-    :param z: a KxV matrix of the distributions over K topics for the T observed
-    words
+    :param z: a KxN matrix representing N unnormalised distributions over K
+    possibilities, and returns N normalized distributions
     '''
     z_max = z.max(axis=0)
     z -= z_max[np.newaxis, :]
@@ -246,6 +249,55 @@ def _inplace_softmax(z):
 
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
+
+#@nb.jit
+def _inplace_softmax_rowwise(z):
+    '''
+    Softmax transform of the given vector of scores into a vector of
+    probabilities. Safe against overflow.
+
+    Transform happens in-place
+
+    :param z: a NxK matrix representing N unnormalised distributions over K
+    possibilities, and returns N normalized distributions
+    '''
+    z_max = z.max(axis=1)
+    z -= z_max[:, np.newaxis]
+
+    np.exp(z, out=z)
+
+    z_sum = z.sum(axis=1)
+    z /= z_sum[:, np.newaxis]
+
+#
+# ------ <DEBUG> ------
+#
+
+def _softmax_rowwise(z):
+    r = z.copy()
+    _inplace_softmax_rowwise(r)
+    return r
+
+def _softmax_colwise(z):
+    r = z.copy()
+    _inplace_softmax_colwise(r)
+    return r
+
+def _vec_softmax(z):
+    r = z.copy()
+    r -= r.max()
+    np.exp(r, out=r)
+
+    r /= r.sum()
+    return r
+
+def _vocab_softmax(k, diWordDist, diWordDistSums):
+    return _vec_softmax (diWordDist[k,:] - diWordDistSums[k])
+
+#
+# -------- </DEBUG> -------
+#
+
 
 #@nb.jit
 def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
@@ -297,8 +349,13 @@ def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWor
     wordIdx = W[d, :].indices
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
-    z += fns.digamma(topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
-    _inplace_softmax(z)
+
+    distAtD = (topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
+
+    z += fns.digamma(distAtD)
+    z -= fns.digamma(distAtD.sum())
+
+    _inplace_softmax_colwise(z)
     return wordIdx, z
 
 
@@ -356,7 +413,7 @@ def train(data, model, query, plan, updateVocab=True):
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
-        fns.digamma(wordDists, out=diWordDists)
+        fns.digamma(wordDists,      out=diWordDists)
 
         if updateVocab:
             wordDists[:, :] = vocabPrior
