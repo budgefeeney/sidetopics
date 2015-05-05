@@ -45,7 +45,7 @@ class Test(unittest.TestCase):
         K = 16
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
-        trainPlan  = rtm.newTrainPlan(iterations=20, logFrequency=3, fastButInaccurate=False, debug=True)
+        trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=3, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = rtm.train (data, model, queryState, trainPlan)
@@ -70,6 +70,7 @@ class Test(unittest.TestCase):
         plt.show()
 
         # Print out the most likely topic words
+        # scale = np.reciprocal(1 + np.squeeze(np.array(data.words.sum(axis=0))))
         topWordCount = 10
         kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
 
