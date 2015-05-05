@@ -28,7 +28,7 @@ class Test(unittest.TestCase):
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
-        data = DataSet(words = AclWordPath, links=AclCitePath)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
         with open(AclDictPath, "rb") as f:
             d = pkl.load(f)
 

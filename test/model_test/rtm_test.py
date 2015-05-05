@@ -42,7 +42,7 @@ class Test(unittest.TestCase):
         scale = np.reciprocal(1 + freq)
 
         # Initialise the model
-        K = 16
+        K = 10
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
         trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=3, fastButInaccurate=False, debug=True)
