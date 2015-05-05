@@ -24,8 +24,9 @@ LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
 LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
+Mtm           = "mtm_vb"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm,Mtm])
 
 
 
@@ -131,6 +132,9 @@ def run(args):
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Rtm:
         import model.rtm as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == Mtm:
+        import model.mtm as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
