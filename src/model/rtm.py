@@ -94,7 +94,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     wordDists *= data.word_count / K
 
     # The weight vector
-    weights = np.ones ((K,1))
+    weights = np.ones((K, 1))
 
     # Count of dummy negative observations. Assume that for every
     # twp papers cited, 1 was considered and discarded
