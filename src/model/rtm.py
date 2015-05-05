@@ -79,11 +79,11 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     if topicPrior is None:
         topicPrior = constantArray((K + 1,), 50.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 5 #0.1 + 0.5 # Also from G&S
+        vocabPrior = 0.1 + 0.5 # Also from G&S
 
     topicPrior[K] = 0
 
-    wordDists = rd.dirichlet(constantArray((T,), 10, dtype), size=K).astype(dtype)
+    wordDists = rd.dirichlet(constantArray((T,), 2, dtype), size=K).astype(dtype)
 
     # Peturb to avoid zero probabilities
     wordDists += 1./T
@@ -496,12 +496,11 @@ def var_bound(data, model, query, z_dnk = None):
     D,T = W.shape
         
     # Perform the digamma transform for E[ln \theta] etc.
-    debug           = topicDists.copy()
+    topicDists      = topicDists.copy()
     diTopicDists    = fns.digamma(topicDists[:, :K])
     diSumTopicDists = fns.digamma(topicDists[:, :K].sum(axis=1))
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
-    topicMeans      = _convertDirichletParamToMeans(docLens, topicDists, topicPrior)
 
     print("")
     pad = "       "
@@ -521,11 +520,11 @@ def var_bound(data, model, query, z_dnk = None):
         
     # E[ln p(vocabs|vocabPrior)]
     #
-    if type(model.vocabPrior) is float:
-        prob_vocabs  = D * (fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior)) \
+    if type(model.vocabPrior) is float or type(model.vocabPrior) is int:
+        prob_vocabs  = K * (fns.gammaln(wordPrior * T) - T * fns.gammaln(wordPrior)) \
                + np.sum((wordPrior - 1) * (diWordDists - diSumWordDists[:,np.newaxis] ))
     else:
-        prob_vocabs  = D * (fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum()) \
+        prob_vocabs  = K * (fns.gammaln(wordPrior.sum()) - fns.gammaln(wordPrior).sum()) \
                + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diSumWordDists[:,np.newaxis] ))
 
     bound += prob_vocabs
@@ -539,6 +538,8 @@ def var_bound(data, model, query, z_dnk = None):
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
     # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
+    topicMeans = _convertDirichletParamToMeans(docLens, topicDists, topicPrior)
+
     prob_words = 0
     prob_z     = 0
     ent_z      = 0
@@ -560,7 +561,8 @@ def var_bound(data, model, query, z_dnk = None):
     print(pad + "E[ln p(Z|topics)            = %.3f" % prob_z)
     print(pad + "H[q(Z)]                     = %.3f" % ent_z)
     print(pad + "E[ln p(W|Z,vocabs)          = %.3f" % prob_words)
-    
+
+
     # Next, the distribution over links - we just focus on the positives in this case
     # for d in range(D):
     #     links   = links_up_to(d, X)
