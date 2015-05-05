@@ -83,15 +83,21 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
 
     topicPrior[K] = 0
 
-    wordDists = rd.dirichlet(constantArray((T,), 2, dtype), size=K).astype(dtype)
+    # wordDists = rd.dirichlet(constantArray((T,), 2, dtype), size=K).astype(dtype)
 
-    # Peturb to avoid zero probabilities
-    wordDists += 1./T
-    wordDists /= (wordDists.sum(axis=1))[:, np.newaxis]
+    # # Peturb to avoid zero probabilities
+    # wordDists += 1./T
+    # wordDists /= (wordDists.sum(axis=1))[:, np.newaxis]
+    #
+    # # Scale up so it properly resembles something inferred from this dataset
+    # # (this avoids catastrophic underflow in softmax)
+    # wordDists *= data.word_count / K
 
-    # Scale up so it properly resembles something inferred from this dataset
-    # (this avoids catastrophic underflow in softmax)
-    wordDists *= data.word_count / K
+    wordDists = np.ones((K,T), dtype=dtype)
+    doc_ids = rd.randint(0, data.doc_count, size=K)
+    for k in range(K):
+        sample_doc = data.words[doc_ids[k], :]
+        wordDists[k, sample_doc.indices] += sample_doc.data
 
     # The weight vector
     weights = np.ones((K, 1))
@@ -345,17 +351,18 @@ def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWor
             topic assignments for each of the V non-zero words.
     '''
     K = diWordDists.shape[0]
-
     wordIdx = W[d, :].indices
+
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
 
     distAtD = (topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
 
     z += fns.digamma(distAtD)
-    z -= fns.digamma(distAtD.sum())
+    # z -= fns.digamma(distAtD.sum())
 
     _inplace_softmax_colwise(z)
+
     return wordIdx, z
 
 
@@ -423,17 +430,16 @@ def train(data, model, query, plan, updateVocab=True):
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-            if True: # itr % logFrequency == 0:
+            if False: # itr % logFrequency == 0:
                 iters.append(itr)
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                if len(bnds) > 6 and ".3f" % bnds[-1] == ".3f" % bnds[-2]:
+                if len(bnds) > 6 and ("%.3f" % bnds[-1]) == ("%.3f" % bnds[-2]):
                     break
-
         else:
             for d in range(D):
-                wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+                _ = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
 
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
 
@@ -442,7 +448,7 @@ def train(data, model, query, plan, updateVocab=True):
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-def printAndFlushNoNewLine (text):
+def printAndFlushNoNewLine(text):
     sys.stdout.write(text)
     sys.stdout.flush()
 
