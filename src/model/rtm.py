@@ -11,7 +11,7 @@ import scipy.sparse as ssp
 import scipy.special as fns
 import numba as nb
 
-#import model.rtm_fast as compiled
+
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged
@@ -104,7 +104,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
         wordDists[k, sample_doc.indices] += sample_doc.data
 
     # The weight vector
-    weights = np.ones((K, 1))
+    weights = np.ones((K + 1,))
 
     # Count of dummy negative observations. Assume that for every
     # twp papers cited, 1 was considered and discarded
@@ -310,7 +310,7 @@ def _vocab_softmax(k, diWordDist, diWordDistSums):
 
 
 #@nb.jit
-def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
+def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This are used to update the
@@ -330,12 +330,12 @@ def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWo
             topic assignments for each of the V non-zero words.
     '''
     K = diWordDists.shape[0]
-    wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-    topicMeans[d, :K] = np.dot(z, W[d, :].data) / docLens[d]
+    wordIdx, z = _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+    topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
 #@nb.jit
-def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
+def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This does not affect topicMeans.
@@ -355,7 +355,7 @@ def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWor
             topic assignments for each of the V non-zero words.
     '''
     K = diWordDists.shape[0]
-    wordIdx = W[d, :].indices
+    wordIdx = data.words[d, :].indices
 
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
@@ -365,9 +365,22 @@ def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWor
     z += fns.digamma(distAtD)
     # z -= fns.digamma(distAtD.sum())
 
+    z += _sum_of_scores_at_d(d, data, docLens, weights, topicMeans)
+
     _inplace_softmax_colwise(z)
 
     return wordIdx, z
+
+
+def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
+    '''
+
+    :return:
+    '''
+
+
+    probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
+    mins[d] = _probit_inplace(probs).min()
 
 
 #@nb.jit
@@ -427,13 +440,15 @@ def train(data, model, query, plan, updateVocab=True):
         fns.digamma(wordDists,      out=diWordDists)
 
         if updateVocab:
+            # Perform inference, updating the vocab
             wordDists[:, :] = vocabPrior
             for d in range(D):
                 if d % 100 == 0:
                     printAndFlushNoNewLine(".")
-                wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+                wordIdx, z = _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
+            # Log bound and the determine if we can stop early
             if itr % logFrequency == 0:
                 iters.append(itr)
                 bnds.append(_var_bound_internal(data, model, query))
@@ -443,6 +458,8 @@ def train(data, model, query, plan, updateVocab=True):
                 if converged(iters, bnds, len(bnds) - 1, minIters=5):
                     break
 
+            # Update hyperparameters (do this after bound, to make sure bound
+            # calculation is internally consistent)
             if itr > 0 and itr % HyperParamUpdateInterval == 0:
                 print ("Topic Prior was " + str(topicPrior))
                 _updateTopicHyperParamsFromMeans(model, query)
@@ -457,6 +474,32 @@ def train(data, model, query, plan, updateVocab=True):
            QueryState(docLens, topicMeans), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
+
+SqrtTwoPi = 2.5066282746310002
+OneOverSqrtTwoPi = 1. / SqrtTwoPi
+def _normpdf_inplace(x):
+    '''
+    Evalate PDF of every element of X according to a standard normal distribution, and
+    do it in-place
+    '''
+    x *= x
+    x *= -0.5
+    np.exp(x, out=x)
+    x *= OneOverSqrtTwoPi
+    return x
+
+
+SqrtTwo = 1.414213562373095048801688724209
+OneOverSqrtTwo = 1. / SqrtTwo
+def _probit_inplace(x):
+    '''
+    Probit of every element of the given array, calculated in-place
+    '''
+    x *= -OneOverSqrtTwo
+    fns.erfc(x, out=x)
+    x /= 2
+
+    return x
 
 def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
     '''
@@ -531,6 +574,14 @@ def printAndFlushNoNewLine(text):
     sys.stdout.write(text)
     sys.stdout.flush()
 
+def _infer_weights():
+    '''
+    Do a plain old gradient descent to evaluate the weights. Altered in-place.
+    :return:
+    '''
+
+
+
 #@nb.jit
 def query(data, model, query, plan):
     '''
@@ -563,7 +614,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-#@nb.jit
+@nb.jit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
@@ -622,7 +673,7 @@ def var_bound(data, model, query, z_dnk = None):
     prob_z     = 0
     ent_z      = 0
     for d in range(D):
-        wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
+        wordIdx, z = _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
 
         # E[ln p(Z|topics) = sum_d sum_n sum_k E[z_dnk] E[ln topicDist_dk]
         exLnTopic = diTopicDists[d, :K] - diSumTopicDists[d]
@@ -637,22 +688,19 @@ def var_bound(data, model, query, z_dnk = None):
     bound += (prob_z + ent_z + prob_words)
 
     # Next, the distribution over links - we just focus on the positives in this case
-    # for d in range(D):
-    #     links   = links_up_to(d, X)
-    #     scales  = topicMeans[links,:].dot(weights * topicMeans[d])
-    #     probs   = compiled.probit(scales)
-    #     lnProbs = np.log(probs)
-    #
-    #     # expected probability of all links from d to p < d such that y_dp = 1
-    #     bound += lnProbs
-    #
-    #     # and the entropy
-    #     bound     -= np.sum(probs * lnProbs)
-    #     probs[:]   = 1 - probs
-    #     lnProbs[:] = np.log(probs)
-    #     bound     -= np.sum(probs * lnProbs)
+    for d in range(D):
+        links   = links_up_to(d, X)
+        if len(links) == 0:
+            continue
 
-    topicDists = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
+        scores  = topicMeans[links, :].dot(weights * topicMeans[d])
+        probs   = _probit_inplace(scores)
+        lnProbs = np.log(probs, out=probs)
+
+        # expected probability of all links from d to p < d such that y_dp = 1
+        bound += lnProbs.sum()
+
+    _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
     return bound
 
 
@@ -703,7 +751,7 @@ def is_undirected_link_predictor():
     return True
 
 
-@nb.jit
+#@nb.jit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the
@@ -718,30 +766,22 @@ def min_link_probs(model, topics, links):
         link
     '''
     weights    = model.weights
-    topicMeans = topics.topicDists
+    topicMeans = _convertDirichletParamToMeans(topics.docLens, topics.topicDists, model.topicPrior)
     D = topicMeans.shape[0]
-
-    # derive topic means from the topic distributions
-    # note there is a risk of loss of precision in all this which I just accept
-    topicPriorExt = extend_topic_prior(model.topicPrior, 0)
-    topicMeans -= topicPriorExt[np.newaxis,:]
-    topicMeans /= topics.docLens[:, np.newaxis]
 
     # use the topics means to predict links
     mins = np.ones((D,), dtype=model.dtype)
     for d in range(D):
         probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
-        mins[d] = compiled.probit(probs).min()
+        mins[d] = _probit_inplace(probs).min()
 
-    # return from topic means to the topic distributions
-    topicMeans *= topics.docLens[:, np.newaxis]
-    topicMeans += topicPriorExt[np.newaxis,:]
-
+    _convertMeansToDirichletParam(topics.docLens, topics.topicDists, model.topicPrior) # revert topicDists / topicMeans
     return mins
 
 def extend_topic_prior (prior_vec, extra_field):
     return np.hstack ((prior_vec, extra_field))
 
+@nb.jit
 def link_probs(model, topics, min_link_probs):
     '''
     Generate the probability of a link for all possible pairs of documents,
@@ -757,35 +797,27 @@ def link_probs(model, topics, min_link_probs):
     :return: a (hopefully) sparse DxD matrix of link probabilities
     '''
     weights    = model.weights
-    topicMeans = topics.topicDists
-    D = topicMeans.shape[0]
 
     # We build the result up as a COO matrix
     rows = []
     cols = []
     vals = []
 
-    # derive topic means from the topic distributions
-    # note there is a risk of loss of precision in all this which I just accept
-    topicPriorExt = extend_topic_prior(model.topicPrior, 0)
-    topicMeans -= topicPriorExt[np.newaxis,:]
-    topicMeans /= topics.docLens[:, np.newaxis]
+    topicMeans = _convertDirichletParamToMeans(topics.docLens, topics.topicDists, model.topicPrior)
+    D = topicMeans.shape[0]
 
     # use the topics means to predict links
-    mins = np.ones((D,), dtype=model.dtype)
     for d in range(D):
         probs = (topicMeans[d] * topicMeans).dot(weights)
-        probs = compiled.probit(probs)
-        relevant = np.where(probs >= mins[d])[0]
-        print ("Non-neglible links: %d / %d" % (len(relevant), D))
+        probs = _probit_inplace(probs)
+        relevant = np.where(probs >= min_link_probs[d])[0]
 
-        rows.extend[[d] * len(relevant)]
+        rows.extend([d] * len(relevant))
         cols.extend(relevant)
         vals.extend(probs[relevant])
 
     # return from topic means to the topic distributions
-    topicMeans *= topics.docLens[:, np.newaxis]
-    topicMeans += topicPriorExt[np.newaxis,:]
+    _convertMeansToDirichletParam(topics.docLens, topics.topicDists, model.topicPrior)
 
     # Build the COO matrix, then covert it to CSR. Converts lists to numpy
     # arrays to ensure appropriate dtypes
@@ -793,7 +825,7 @@ def link_probs(model, topics, min_link_probs):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v (r, c)), shape=(D,D)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
 
 
 if __name__ == '__main__':
