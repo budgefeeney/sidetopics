@@ -28,7 +28,7 @@ def constantArray(shape, defaultValue, dtype):
     return result
 
 
-def converged (boundIters, boundValues, bvIdx, epsilon, minIters = 100):
+def converged (boundIters, boundValues, bvIdx, epsilon=10, minIters=100):
     '''
     Returns true if we've converged. To measure convergence we consider the angle between
     the last two bound measurements, and a horizontal plane, and if this angle (measured

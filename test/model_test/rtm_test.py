@@ -45,7 +45,7 @@ class Test(unittest.TestCase):
         K = 10
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
-        trainPlan  = rtm.newTrainPlan(iterations=10, logFrequency=3, fastButInaccurate=False, debug=True)
+        trainPlan  = rtm.newTrainPlan(iterations=40, logFrequency=5, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = rtm.train (data, model, queryState, trainPlan)

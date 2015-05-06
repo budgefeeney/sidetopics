@@ -6,6 +6,7 @@ Created on 15 Apr 2015
 import sys
 import numpy as np
 import numpy.random as rd
+import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.special as fns
 import numba as nb
@@ -13,12 +14,15 @@ import numba as nb
 #import model.rtm_fast as compiled
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
-from util.misc import constantArray, converged, clamp
+from util.misc import constantArray, converged
 
 from collections import namedtuple
 
 MODEL_NAME = "rtm/vb"
 DTYPE      = np.float64
+
+# After how many training iterations should we stop to update the hyperparameters
+HyperParamUpdateInterval = 5
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
@@ -167,7 +171,7 @@ def topicDists (queryState):
     across all D documents
     '''
     K       = queryState.topicDists.shape[1] - 1
-    result  = queryState.topicDists[:, :K]
+    result  = queryState.topicDists[:, :K].copy()
     norm    = np.sum(result, axis=1)
     result /= norm[:, np.newaxis]
 
@@ -430,13 +434,19 @@ def train(data, model, query, plan, updateVocab=True):
                 wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-            if False: # itr % logFrequency == 0:
+            if itr % logFrequency == 0:
                 iters.append(itr)
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                if len(bnds) > 6 and ("%.3f" % bnds[-1]) == ("%.3f" % bnds[-2]):
+                print("%.3f < %.3f" % (bnds[-1], likes[-1]))
+                if converged(iters, bnds, len(bnds) - 1, minIters=5):
                     break
+
+            if itr > 0 and itr % HyperParamUpdateInterval == 0:
+                print ("Topic Prior was " + str(topicPrior))
+                _updateTopicHyperParamsFromMeansUsingNR(model, query)
+                print ("Topic Prior is now " + str(topicPrior))
         else:
             for d in range(D):
                 _ = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
@@ -446,6 +456,75 @@ def train(data, model, query, plan, updateVocab=True):
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
            QueryState(docLens, topicMeans), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
+
+
+def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
+    '''
+    Update the hyperparameters on the Dirichlet prior over topics.
+
+    This is a Newton Raphson method. We iterate until convergence or
+    the maximum number of iterations is hit. We converge if the 1-norm of
+    the difference between the previous and current estimate is less than
+    0.001 / K where K is the number of topics.
+
+    This is taken from Tom Minka's tech-note on "Estimating a Dircihlet
+    Distribution", specifically the section on estimating a Polya distribution,
+    which performed best in experiments. We'll be substituted in the expected
+    count of topic assignments to variables.
+
+    At each iteration, the new value of a_k is set to
+
+     \sum_d \Psi(n_dk + a_k) - \Psi (a_k)
+    -------------------------------------- * a_k
+     \sum_d \Psi(n_d + \sum_j a_j) - \Psi(a_k)
+
+    where the n_dk is the count of times topic k was assigned to tokens in
+    document d, and its expected value is the same as the parameter of the
+    posterior over topics for that document d, minus the hyper-parameter used
+    to estimate that posterior. In this case, we assume that this method have
+    been called from within the training routine, so we topicDists is essentially
+    the mean of per-token topic-assignments, and thus needs to be scaled
+    appropriately
+
+    :param model: all the model parameters, notably the topicPrior, which is
+    mutated IN-PLACE.
+    :param query: all the document-level parameters, notably the topicDists,
+    from which an appropriate prior is noted. It's expected that this contain
+    the topic hyper-parameters, as usual, and not any intermediate reprsentations
+    (i.e. means) used by the inference procedure.
+    '''
+    topic_prior      = model.topicPrior
+    old_topic_prior  = topic_prior.copy()
+
+    doc_lens          = query.docLens
+    doc_topic_counts  = query.topicDists * doc_lens[:, np.newaxis] + old_topic_prior[np.newaxis, :]
+
+    D, K = doc_topic_counts.shape
+    K -= 1 # recall topic prior is augmented by one with zero at the last position
+
+    psi_old_tprior = np.ndarray(topic_prior.shape, dtype=topic_prior.dtype)
+    topic_prior[K] = 1     # replace the zero augment with 1 to avoid NaNs etc.
+    old_topic_prior[K] = 1
+
+    for _ in range(max_iters):
+        doc_topic_counts += (topic_prior - old_topic_prior)[np.newaxis, :]
+        old_topic_prior[:] = topic_prior
+
+        fns.digamma(old_topic_prior, out=psi_old_tprior)
+
+        numer = fns.psi(doc_topic_counts).sum(axis=0) - D * psi_old_tprior
+        denom = fns.psi(doc_lens + old_topic_prior[:K].sum()).sum() - D * psi_old_tprior
+        topic_prior[:] = old_topic_prior * (numer / denom)
+        topic_prior[K] = 1
+
+        if la.norm(np.subtract(old_topic_prior, topic_prior), 1) < (0.001 * K):
+            break
+
+    # Undo the in-place changes we've been making to the topic distributions
+
+    doc_topic_counts -= old_topic_prior[np.newaxis, :]
+    doc_topic_counts /= doc_lens[:, np.newaxis]
+    topic_prior[K]    = 0
 
 
 def printAndFlushNoNewLine(text):
@@ -508,21 +587,16 @@ def var_bound(data, model, query, z_dnk = None):
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
 
-    print("")
-    pad = "       "
-
     # E[ln p(topics|topicPrior)] according to q(topics)
     #
     prob_topics = D * (fns.gammaln(topicPrior[:K].sum()) - fns.gammaln(topicPrior[:K]).sum()) \
         + np.sum((topicPrior[:K] - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis]))
 
     bound += prob_topics
-    print(pad + "E[ln p(topics|topicPrior)] = %.3f" % prob_topics)
 
     # and its entropy
     ent_topics = _dirichletEntropy(topicDists[:, :K])
     bound += ent_topics
-    print(pad + "H[q(topics)]                = %.3f" % ent_topics)
         
     # E[ln p(vocabs|vocabPrior)]
     #
@@ -534,12 +608,10 @@ def var_bound(data, model, query, z_dnk = None):
                + np.sum((wordPrior - 1)[np.newaxis,:] * (diWordDists - diSumWordDists[:,np.newaxis] ))
 
     bound += prob_vocabs
-    print(pad + "E[ln p(vocabs|vocabPrior)]  = %.3f" % prob_vocabs)
 
     # and its entropy
     ent_vocabs = _dirichletEntropy(wordDists)
     bound += ent_vocabs
-    print(pad + "H[q(vocabs)                 = %.3f " % ent_vocabs)
 
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
@@ -564,11 +636,6 @@ def var_bound(data, model, query, z_dnk = None):
 
     bound += (prob_z + ent_z + prob_words)
 
-    print(pad + "E[ln p(Z|topics)            = %.3f" % prob_z)
-    print(pad + "H[q(Z)]                     = %.3f" % ent_z)
-    print(pad + "E[ln p(W|Z,vocabs)          = %.3f" % prob_words)
-
-
     # Next, the distribution over links - we just focus on the positives in this case
     # for d in range(D):
     #     links   = links_up_to(d, X)
@@ -586,7 +653,6 @@ def var_bound(data, model, query, z_dnk = None):
     #     bound     -= np.sum(probs * lnProbs)
 
     topicDists = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
-    print(pad + "Bound                       = %.3f" % bound)
     return bound
 
 
