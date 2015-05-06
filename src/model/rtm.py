@@ -445,7 +445,7 @@ def train(data, model, query, plan, updateVocab=True):
 
             if itr > 0 and itr % HyperParamUpdateInterval == 0:
                 print ("Topic Prior was " + str(topicPrior))
-                _updateTopicHyperParamsFromMeansUsingNR(model, query)
+                _updateTopicHyperParamsFromMeans(model, query)
                 print ("Topic Prior is now " + str(topicPrior))
         else:
             for d in range(D):
