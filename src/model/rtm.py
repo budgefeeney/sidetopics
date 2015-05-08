@@ -241,7 +241,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -260,7 +260,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -309,7 +309,7 @@ def _vocab_softmax(k, diWordDist, diWordDistSums):
 #
 
 
-#@nb.autojit
+@nb.autojit
 def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -334,7 +334,7 @@ def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWor
     topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-#@nb.autojit
+@nb.autojit
 def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -371,7 +371,7 @@ def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWord
 
     return wordIdx, z
 
-#@nb.autojit
+@nb.autojit
 def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     '''
 
@@ -391,7 +391,7 @@ def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     return scores.dot(weights[:K] * topicMeans[linked_docs, :K])
 
 
-#@nb.autojit
+@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -486,7 +486,7 @@ def train(data, model, query, plan, updateVocab=True):
 
 
 
-#@nb.autojit
+@nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use graident ascent to update the weights in-place.
@@ -649,7 +649,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-#@nb.autojit
+@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -672,7 +672,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.autojit
+@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -818,7 +818,7 @@ def is_undirected_link_predictor():
     return True
 
 
-#@nb.jit
+@nb.jit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the
