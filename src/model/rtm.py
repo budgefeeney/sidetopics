@@ -81,7 +81,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     T = data.words.shape[1]
 
     if topicPrior is None:
-        topicPrior = constantArray((K + 1,), 50.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K + 1,), 5.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.1 + 0.5 # Also from G&S
 
@@ -177,7 +177,7 @@ def topicDists (queryState):
 
     return result
 
-#@nb.jit
+
 def _log_likelihood_internal(data, model, query):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = log_likelihood(data, model, query)
@@ -241,7 +241,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-#@nb.jit
+#@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -260,7 +260,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.jit
+#@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -309,7 +309,7 @@ def _vocab_softmax(k, diWordDist, diWordDistSums):
 #
 
 
-#@nb.jit
+#@nb.autojit
 def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -334,7 +334,7 @@ def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWor
     topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-#@nb.jit
+#@nb.autojit
 def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -365,25 +365,33 @@ def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWord
     z += fns.digamma(distAtD)
     # z -= fns.digamma(distAtD.sum())
 
-    z += _sum_of_scores_at_d(d, data, docLens, weights, topicMeans)
+    z += _sum_of_scores_at_d(d, data, docLens, weights, topicMeans)[:,np.newaxis]
 
     _inplace_softmax_colwise(z)
 
     return wordIdx, z
 
-
+#@nb.autojit
 def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     '''
 
     :return:
     '''
+    K           = topicMeans.shape[1] - 1
+    links       = data.links
+    linked_docs = links[d, :].indices
+
+    param = (topicMeans[d] * topicMeans[linked_docs, :]).dot(weights)
+
+    scores  = _normpdf_inplace(param.copy())
+    scores /= _probit_inplace(param)
+
+    scores /= docLens[d]
+
+    return scores.dot(weights[:K] * topicMeans[linked_docs, :K])
 
 
-    probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
-    mins[d] = _probit_inplace(probs).min()
-
-
-#@nb.jit
+#@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -448,6 +456,8 @@ def train(data, model, query, plan, updateVocab=True):
                 wordIdx, z = _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
+            _infer_weights(data, weights, topicMeans, topicPrior, negCount, reg)
+
             # Log bound and the determine if we can stop early
             if itr % logFrequency == 0:
                 iters.append(itr)
@@ -473,6 +483,69 @@ def train(data, model, query, plan, updateVocab=True):
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, negCount, reg, dtype, model.name), \
            QueryState(docLens, topicMeans), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
+
+
+
+#@nb.autojit
+def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
+    '''
+    Use graident ascent to update the weights in-place.
+
+    :param data: the dataaset, only the links are used
+    :param weights:  the weights to alter, these are altered IN-PLACE
+    :param topicMeans: the means of the topic assignments
+    :param topicPrior:  the topic prior
+    :param pseudoNegCount: the number of documents that we expect were deliberated excluded for
+    every document in the corpus
+    :param reg:  the strength of the L2 regularization over weights
+    :param t_0: used in the formula step-size = (t_0 + t)^{-kappa}, gives the step size
+    at iteration t. t_0, a non-negative integer, slows down converged in early stages of the algorithm
+    :param kappa: in the range (0.5, 1], controls the forgetting weight.
+    :param max_iters: the maximum number of iterations to execute, regardless of convergence.
+    :return: the weights object passed in, which has been mutated in place.
+    '''
+    old_weights = weights.copy()
+
+    links  = data.links
+    D, K   = topicMeans.shape
+    K     -= 1 # the final element is just checked in for the intercept
+
+    # Figure out our "error" accumulated by not including the deliberately unlinked
+    # documents.
+    pseudoDoc    = (topicPrior * topicPrior) / topicPrior.sum()
+    pseudoDoc[K] = 1
+    pseudoParam = np.array(weights.dot(pseudoDoc), dtype=weights.dtype)
+    pseudoScore = _normpdf_inplace(pseudoParam.copy()) / _probit_inplace(pseudoParam)
+    pseudoError = -pseudoNegCount * pseudoScore * pseudoDoc
+
+    grad = np.ndarray(shape=weights.shape, dtype=weights.dtype)
+    for t in range(max_iters):
+        old_weights = weights.copy()
+        step_size = pow(t_0 + t, -kappa)
+
+        # Figure out the gradient, first the regularizer
+        grad[:] = reg * weights
+
+        # then the error from the missed pseudo documents
+        grad += pseudoError
+
+        # finally the contribution of all linked documents (we count each
+        # pair once only).
+        for d in range(D):
+            linked_docs = _links_up_to(d, links)
+            if len (linked_docs) == 0:
+                continue
+
+            doc_diffs = topicMeans[d] * topicMeans[linked_docs,:]
+            param     = np.asarray(doc_diffs.dot(weights))
+            score     = _normpdf_inplace(param.copy()) / _probit_inplace(param)
+            grad     += score.dot(doc_diffs)
+
+        # Use the graident to do an update
+        weights[:] = (1 - step_size) * weights + step_size * grad
+
+        if la.norm(weights - old_weights, 1) < (0.01 / K):
+            break
 
 
 SqrtTwoPi = 2.5066282746310002
@@ -574,15 +647,9 @@ def printAndFlushNoNewLine(text):
     sys.stdout.write(text)
     sys.stdout.flush()
 
-def _infer_weights():
-    '''
-    Do a plain old gradient descent to evaluate the weights. Altered in-place.
-    :return:
-    '''
 
 
-
-#@nb.jit
+#@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -605,7 +672,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.jit
+#@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -614,7 +681,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-@nb.jit
+@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
@@ -689,7 +756,7 @@ def var_bound(data, model, query, z_dnk = None):
 
     # Next, the distribution over links - we just focus on the positives in this case
     for d in range(D):
-        links   = links_up_to(d, X)
+        links   = _links_up_to(d, X)
         if len(links) == 0:
             continue
 
@@ -718,7 +785,7 @@ def _dirichletEntropy (P):
     return (lnB + term1 - term2.sum(axis=1)).sum()
 
 
-def links_up_to (d, X):
+def _links_up_to (d, X):
     '''
     Gets all the links that exist to earlier documents in the corpus. Ensures
     that if we iterate through all documents, we only ever consider each link

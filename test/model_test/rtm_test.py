@@ -120,7 +120,7 @@ class RtmTest(unittest.TestCase):
         K = TopicCount
         model      = rtm.newModelAtRandom(trainData, K, dtype=dtype)
         queryState = rtm.newQueryState(trainData, model)
-        trainPlan  = rtm.newTrainPlan(iterations=2, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
+        trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, topics, (bndItrs, bndVals, bndLikes) = rtm.train(trainData, model, queryState, trainPlan)
