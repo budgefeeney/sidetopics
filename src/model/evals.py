@@ -19,7 +19,7 @@ def perplexity_from_like(log_likely, token_count):
 def word_perplexity(log_likely_fn, model, query, data):
     return perplexity_from_like(log_likely_fn(data, model, query), data.word_count)
 
-@nb.jit
+@nb.autojit
 def mean_average_prec(expected_links, estim_link_probs):
     '''
     Returns the average of all documents' average-precision scores.
