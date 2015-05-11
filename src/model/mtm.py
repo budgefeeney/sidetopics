@@ -8,6 +8,7 @@ import numpy as np
 import numpy.random as rd
 import scipy.sparse as ssp
 import scipy.special as fns
+import scipy.linalg as la
 import numba as nb
 
 from model.rtm import _links_up_to
@@ -19,8 +20,12 @@ from collections import namedtuple
 
 from sklearn.decomposition import PCA
 
+from math import log, pi, e
+
 MODEL_NAME = "mtm/vb"
 DTYPE      = np.float64
+
+Vagueness = 1E-6 # how vague should the priors over U and V be.
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
@@ -33,7 +38,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K Q topicPrior vocabPrior wordDists dtype name'
+    'K Q topicPrior vocabPrior wordDists topicCov dtype name'
 )
 
 def newModelFromExisting(model):
@@ -46,6 +51,7 @@ def newModelFromExisting(model):
         model.topicPrior.copy(),
         model.vocabPrior,
         None if model.wordDists is None else model.wordDists.copy(),
+        None if model.topicCov is None else model.topicCov,
         model.dtype,
         model.name)
 
@@ -89,7 +95,7 @@ def newModelAtRandom(data, K, Q, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     # (this avoids catastrophic underflow in softmax)
     wordDists *= data.word_count / K
 
-    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, dtype=dtype, name=MODEL_NAME)
+    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, Vagueness * np.eye((K, K)), dtype=dtype, name=MODEL_NAME)
 
 
 def newQueryState(data, model):
@@ -350,8 +356,8 @@ def train(data, model, query, plan, updateVocab=True):
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
     docLens, topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
         query.docLens, query.topics, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
-    K, Q, topicPrior, vocabPrior, wordDists, dtype, name = \
-	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.dtype, model.name
+    K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
+	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
     # Quick sanity check
     if np.any(docLens < 1):
@@ -450,13 +456,37 @@ def var_bound(data, model, query, z_dnk = None):
     # Unpack the the structs, for ease of access and efficiency
     docLens, topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
         query.docLens, query.topics, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
-    K, Q, topicPrior, vocabPrior, wordDists, dtype, name = \
-	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.dtype, model.name
+    K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
+	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
-    # Initialize z matrix if necessary
-    W,X = data.words, data.links
-    D,T = W.shape
-        
+    W, X = data.words, data.links
+    D, T = W.shape
+    bound = 0
+
+    # ln p(U)
+    bound += -log(2*pi) - D * Q * log(Vagueness) - 0.5 *  1./Vagueness * 1./Vagueness * np.sum(U * U) # trace of U U'
+
+    # H[q(U)]
+    bound += -(D * Q * 0.5) * log(2 * pi * e) - D * Q * log(Vagueness)
+
+    # ln p(V)
+    bound += -log(2*pi) - D * Q * log(Vagueness) - 0.5 *  1./Vagueness * 1./Vagueness * np.sum(V * V) # trace of U U'
+
+    # H[q(V)]
+    bound += -(D * Q * 0.5) * log(2 * pi * e) - D * Q * log(Vagueness)
+
+    # ln p(Topics|U, V)
+    logDetCov = log (la.det(topicCov))
+    kernel = topics.copy()
+    kernel -= U.T.dot(V)
+    kernel **= 2
+    bound -= -log(2*pi) - D * K * 0.5 * log (Vagueness) \
+             -D * 0.5 * logDetCov \
+             - 0.5 * np.sum(kernel)
+
+
+
+
     return 0
 
 
