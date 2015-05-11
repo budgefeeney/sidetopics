@@ -13,7 +13,7 @@ import numba as nb
 from model.rtm import _links_up_to
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
-from util.misc import constantArray, converged, clamp
+from util.misc import constantArray, converged
 
 from collections import namedtuple
 
@@ -174,7 +174,7 @@ def topicDists (queryState):
     The D x K matrix of topics distributions inferred for the K topics
     across all D documents
     '''
-    result  = np.exp(queryState.topics - queryState.topics.max(axis=1))
+    result  = np.exp(queryState.topics - queryState.topics.max(axis=1)[:, np.newaxis])
     norm    = np.sum(result, axis=1)
     result /= norm[:, np.newaxis]
 
@@ -392,7 +392,7 @@ def train(data, model, query, plan, updateVocab=True):
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                if len(bnds) > 6 and ".3f" % bnds[-1] == ".3f" % bnds[-2]:
+                if converged(iters, bnds, len(bnds) - 1, minIters=5):
                     break
 
         else:
