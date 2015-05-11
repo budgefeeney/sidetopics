@@ -440,7 +440,7 @@ def train(data, model, query, plan, updateVocab=True):
     diWordDists = np.empty(wordDists.shape, dtype=dtype)
 
     for itr in range(iterations):
-        printAndFlushNoNewLine("\n %4d: " % itr)
+        if debug: printAndFlushNoNewLine("\n %4d: " % itr)
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
@@ -463,16 +463,16 @@ def train(data, model, query, plan, updateVocab=True):
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                print("%.3f < %.3f" % (bnds[-1], likes[-1]))
+                if debug: print("%.3f < %.3f" % (bnds[-1], likes[-1]))
                 if converged(iters, bnds, len(bnds) - 1, minIters=5):
                     break
 
             # Update hyperparameters (do this after bound, to make sure bound
             # calculation is internally consistent)
             if itr > 0 and itr % HyperParamUpdateInterval == 0:
-                print ("Topic Prior was " + str(topicPrior))
+                if debug: print("Topic Prior was " + str(topicPrior))
                 _updateTopicHyperParamsFromMeans(model, query)
-                print ("Topic Prior is now " + str(topicPrior))
+                if debug: print("Topic Prior is now " + str(topicPrior))
         else:
             for d in range(D):
                 _ = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
