@@ -64,7 +64,7 @@ class RtmTest(unittest.TestCase):
         K = TopicCount
         model      = rtm.newModelAtRandom(data, K, dtype=dtype)
         queryState = rtm.newQueryState(data, model)
-        trainPlan  = rtm.newTrainPlan(iterations=Iters, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
+        trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = rtm.train (data, model, queryState, trainPlan)
@@ -116,14 +116,14 @@ class RtmTest(unittest.TestCase):
 
         trainData, testData = data.doc_completion_split()
 
-        for pseudoNegCount in (1000, 1, 5, 10, 25, 50, 100):
+        for pseudoNegCount in (0, 5, 10, 25, 50, 100):
             rd.seed(0xC0FFEE)
 
             # Initialise the model
             K = TopicCount
-            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=pseudoNegCount)
+            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=trainData.doc_count * pseudoNegCount)
             queryState = rtm.newQueryState(trainData, model)
-            trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
+            trainPlan  = rtm.newTrainPlan(iterations=5, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
             # Train the model, and the immediately save the result to a file for subsequent inspection
             model, topics, (bndItrs, bndVals, bndLikes) = rtm.train(trainData, model, queryState, trainPlan)
@@ -147,7 +147,7 @@ class RtmTest(unittest.TestCase):
             # scale = np.reciprocal(1 + np.squeeze(np.array(data.words.sum(axis=0))))
             vocab = rtm.wordDists(model)
             topWordCount = 10
-            kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
+            kTopWordInds = [self.topWordInds(vocab[k, :], topWordCount) for k in range(K)]
 
             like = rtm.log_likelihood(trainData, model, topics)
             perp = perplexity_from_like(like, trainData.word_count)
@@ -162,7 +162,10 @@ class RtmTest(unittest.TestCase):
 
             min_probs  = rtm.min_link_probs(model, topics, testData.links)
             link_probs = rtm.link_probs(model, topics, min_probs)
-            map = mean_average_prec(testData.links, link_probs)
+            try:
+                map = mean_average_prec(testData.links, link_probs)
+            except:
+                print ("Unexpected error")
 
             print("\tThe Mean-Average-Precision is %.3f" % map)
 
