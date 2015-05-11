@@ -109,7 +109,7 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
     # Count of dummy negative observations. Assume that for every
     # twp papers cited, 1 was considered and discarded
     if pseudoNegCount is None:
-        pseudoNegCount = 0.5 * np.mean(data.links.sum(axis=1).astype(DTYPE))
+        pseudoNegCount = data.doc_count * 0.5 * np.mean(data.links.sum(axis=1).astype(DTYPE))
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, weights, pseudoNegCount, regularizer, dtype, MODEL_NAME)
 
@@ -137,7 +137,6 @@ def newQueryState(data, modelState):
     topicDists += modelState.topicPrior[np.newaxis, :]
     topicDists[:, modelState.K] = docLens
 
-    # Now assign a topic to
     return QueryState(docLens, topicDists)
 
 
@@ -485,8 +484,7 @@ def train(data, model, query, plan, updateVocab=True):
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-
-
+@nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use graident ascent to update the weights in-place.
@@ -533,10 +531,10 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
         # pair once only).
         for d in range(D):
             linked_docs = _links_up_to(d, links)
-            if len (linked_docs) == 0:
+            if len(linked_docs) == 0:
                 continue
 
-            doc_diffs = topicMeans[d] * topicMeans[linked_docs,:]
+            doc_diffs = topicMeans[d] * topicMeans[linked_docs, :]
             param     = np.asarray(doc_diffs.dot(weights))
             score     = _normpdf_inplace(param.copy()) / _probit_inplace(param)
             grad     += score.dot(doc_diffs)
@@ -546,6 +544,9 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
         grad    *= step_size
         weights += grad
 
+        if np.any(np.isnan(weights)):
+            print ("Ruh-ro")
+            raise ValueError("Inference went tits up")
         if la.norm(weights - old_weights, 1) < (0.01 / K):
             break
 
@@ -793,11 +794,11 @@ def _links_up_to (d, X):
     that if we iterate through all documents, we only ever consider each link
     once.
     '''
-    return links_up_to_csr(d, X.indptr, X.indices)
+    return _links_up_to_csr(d, X.indptr, X.indices)
 
 
-nb.jit
-def links_up_to_csr(d, Xptr, Xindices):
+nb.autojit
+def _links_up_to_csr(d, Xptr, Xindices):
     '''
     Gets all the links that exist to earlier documents in the corpus. Ensures
     that if we iterate through all documents, we only ever consider each link
@@ -820,7 +821,7 @@ def is_undirected_link_predictor():
     return True
 
 
-@nb.jit
+@nb.autojit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the
@@ -850,7 +851,7 @@ def min_link_probs(model, topics, links):
 def extend_topic_prior (prior_vec, extra_field):
     return np.hstack ((prior_vec, extra_field))
 
-@nb.jit
+@nb.autojit
 def link_probs(model, topics, min_link_probs):
     '''
     Generate the probability of a link for all possible pairs of documents,
