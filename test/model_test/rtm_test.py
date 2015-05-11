@@ -116,51 +116,55 @@ class RtmTest(unittest.TestCase):
 
         trainData, testData = data.doc_completion_split()
 
-        # Initialise the model
-        K = TopicCount
-        model      = rtm.newModelAtRandom(trainData, K, dtype=dtype)
-        queryState = rtm.newQueryState(trainData, model)
-        trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
+        for pseudoNegCount in (1000, 1, 5, 10, 25, 50, 100):
+            rd.seed(0xC0FFEE)
 
-        # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, topics, (bndItrs, bndVals, bndLikes) = rtm.train(trainData, model, queryState, trainPlan)
-#        with open(newModelFileFromModel(model), "wb") as f:
-#            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+            # Initialise the model
+            K = TopicCount
+            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=pseudoNegCount)
+            queryState = rtm.newQueryState(trainData, model)
+            trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
-        # Plot the evolution of the bound during training.
-        fig, ax1 = plt.subplots()
-        ax1.plot(bndItrs, bndVals, 'b-')
-        ax1.set_xlabel('Iterations')
-        ax1.set_ylabel('Bound', color='b')
+            # Train the model, and the immediately save the result to a file for subsequent inspection
+            model, topics, (bndItrs, bndVals, bndLikes) = rtm.train(trainData, model, queryState, trainPlan)
+    #        with open(newModelFileFromModel(model), "wb") as f:
+    #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
 
-        ax2 = ax1.twinx()
-        ax2.plot(bndItrs, bndLikes, 'r-')
-        ax2.set_ylabel('Likelihood', color='r')
+            # Plot the evolution of the bound during training.
+            fig, ax1 = plt.subplots()
+            ax1.plot(bndItrs, bndVals, 'b-')
+            ax1.set_xlabel('Iterations')
+            ax1.set_ylabel('Bound', color='b')
 
-        fig.show()
-        plt.show()
+            ax2 = ax1.twinx()
+            ax2.plot(bndItrs, bndLikes, 'r-')
+            ax2.set_ylabel('Likelihood', color='r')
 
-        # Print out the most likely topic words
-        # scale = np.reciprocal(1 + np.squeeze(np.array(data.words.sum(axis=0))))
-        vocab = rtm.wordDists(model)
-        topWordCount = 10
-        kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
+            fig.show()
+            plt.show()
 
-        like = rtm.log_likelihood(trainData, model, topics)
-        perp = perplexity_from_like(like, trainData.word_count)
+            # Print out the most likely topic words
+            # scale = np.reciprocal(1 + np.squeeze(np.array(data.words.sum(axis=0))))
+            vocab = rtm.wordDists(model)
+            topWordCount = 10
+            kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
 
-        print ("Prior %s" % (str(model.topicPrior)))
-        print ("Train Perplexity: %f\n\n" % perp)
+            like = rtm.log_likelihood(trainData, model, topics)
+            perp = perplexity_from_like(like, trainData.word_count)
 
-        for k in range(model.K):
-            print ("\nTopic %d\n=============================" % k)
-            print ("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
+            # print ("Prior %s" % (str(model.topicPrior)))
+            print ("Pseudo Neg-Count: %d " % pseudoNegCount)
+            print ("\tTrain Perplexity: %f\n\n" % perp)
 
-        min_probs  = rtm.min_link_probs(model, topics, testData.links)
-        link_probs = rtm.link_probs(model, topics, min_probs)
-        map = mean_average_prec(testData.links, link_probs)
+            # for k in range(model.K):
+            #     print ("\nTopic %d\n=============================" % k)
+            #     print ("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
-        print("The Mean-Average-Precision is %.3f" % map)
+            min_probs  = rtm.min_link_probs(model, topics, testData.links)
+            link_probs = rtm.link_probs(model, topics, min_probs)
+            map = mean_average_prec(testData.links, link_probs)
+
+            print("\tThe Mean-Average-Precision is %.3f" % map)
 
 
 #

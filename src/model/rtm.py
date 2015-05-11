@@ -486,7 +486,7 @@ def train(data, model, query, plan, updateVocab=True):
 
 
 
-@nb.autojit
+
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use graident ascent to update the weights in-place.
@@ -520,7 +520,7 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
 
     grad = np.ndarray(shape=weights.shape, dtype=weights.dtype)
     for t in range(max_iters):
-        old_weights = weights.copy()
+        old_weights[:] = weights.copy()
         step_size = pow(t_0 + t, -kappa)
 
         # Figure out the gradient, first the regularizer
@@ -542,7 +542,9 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
             grad     += score.dot(doc_diffs)
 
         # Use the graident to do an update
-        weights[:] = (1 - step_size) * weights + step_size * grad
+        weights *= (1 - step_size)
+        grad    *= step_size
+        weights += grad
 
         if la.norm(weights - old_weights, 1) < (0.01 / K):
             break
