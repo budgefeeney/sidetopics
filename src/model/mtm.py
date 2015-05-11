@@ -174,7 +174,7 @@ def topicDists (queryState):
     The D x K matrix of topics distributions inferred for the K topics
     across all D documents
     '''
-    result  = np.exp(queryState.topicDist - queryState.topicDist.max(axis=1))
+    result  = np.exp(queryState.topics - queryState.topics.max(axis=1))
     norm    = np.sum(result, axis=1)
     result /= norm[:, np.newaxis]
 
@@ -182,9 +182,7 @@ def topicDists (queryState):
 
 #@nb.jit
 def _log_likelihood_internal(data, model, query):
-    _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = log_likelihood(data, model, query)
-    _convertDirichletParamToMeans(query.docLens, query.topicDists, model.topicPrior)
 
     return result
 

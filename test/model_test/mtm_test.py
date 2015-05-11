@@ -22,12 +22,12 @@ AclCitePath = AclPath + "ref.pkl"
 AclDictPath = AclPath + "words-freq-dict.pkl"
 
 MinDocLen = 50
-MinLinkCount = 8
+MinLinkCount = 2
 Iters = 200
 LogFreq = 5
 TopicCount = 10
 
-class Test(unittest.TestCase):
+class MtmTest(unittest.TestCase):
 
 
     def topWords (self, wordDict, vocab, count=10):
@@ -53,8 +53,6 @@ class Test(unittest.TestCase):
             d = pkl.load(f)
 
         data.convert_to_dtype(dtype)
-        data.convert_to_undirected_graph()
-        data.convert_to_binary_link_matrix()
         data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
         # IDF frequency for when we print out the vocab later
@@ -63,7 +61,7 @@ class Test(unittest.TestCase):
 
         # Initialise the model
         K = TopicCount
-        model      = mtm.newModelAtRandom(data, K, dtype=dtype)
+        model      = mtm.newModelAtRandom(data, K, K - 1, dtype=dtype)
         queryState = mtm.newQueryState(data, model)
         trainPlan  = mtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
@@ -98,8 +96,8 @@ class Test(unittest.TestCase):
         print ("Perplexity: %f\n\n" % perp)
 
         for k in range(model.K):
-            print ("\nTopic %d\n=============================" % k)
-            print ("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
+            print("\nTopic %d\n=============================" % k)
+            print("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
 
     def _testMapOnRealData(self):
@@ -111,8 +109,6 @@ class Test(unittest.TestCase):
             d = pkl.load(f)
 
         data.convert_to_dtype(dtype)
-        data.convert_to_undirected_graph()
-        data.convert_to_binary_link_matrix()
         data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
         trainData, testData = data.doc_completion_split()
@@ -170,9 +166,3 @@ class Test(unittest.TestCase):
 
             print("\tThe Mean-Average-Precision is %.3f" % map)
 
-
-#
-
-if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
-   
