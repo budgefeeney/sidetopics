@@ -513,7 +513,7 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
     pseudoDoc    = (topicPrior * topicPrior) / topicPrior.sum()
     pseudoDoc[K] = 1
     pseudoParam = np.array(weights.dot(pseudoDoc), dtype=weights.dtype)
-    pseudoScore = _normpdf_inplace(pseudoParam.copy()) / _probit_inplace(pseudoParam)
+    pseudoScore = _normpdf_inplace(pseudoParam.copy()) / (_probit_inplace(pseudoParam) + 1E-50)
     pseudoError = -pseudoNegCount * pseudoScore * pseudoDoc
 
     grad = np.ndarray(shape=weights.shape, dtype=weights.dtype)
@@ -535,14 +535,16 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
                 continue
 
             doc_diffs = topicMeans[d] * topicMeans[linked_docs, :]
-            param     = np.asarray(doc_diffs.dot(weights))
-            score     = _normpdf_inplace(param.copy()) / _probit_inplace(param)
+            param = np.asarray(doc_diffs.dot(weights))
+            score = _normpdf_inplace(param.copy())
+            denom = _probit_inplace(param)
+            denom[denom == 0] = 1E-50
+            score /= denom
 
-            if np.any(np.isnan(score)):
-                print ("Ruh-ro")
-                raise ValueError("Inference went tits up")
+            if np.any(np.isnan(score)) or np.any(np.isinf(score)):
+                raise ValueError("Ninfs")
 
-            grad     += score.dot(doc_diffs)
+            grad += score.dot(doc_diffs)
 
         # Use the graident to do an update
         weights *= (1 - step_size)
