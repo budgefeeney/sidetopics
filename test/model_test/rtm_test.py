@@ -49,7 +49,7 @@ class RtmTest(unittest.TestCase):
         rd.seed(0xBADB055)
         data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
         with open(AclDictPath, "rb") as f:
-            d = pkl.load(f)
+            dic = pkl.load(f)
 
         data.convert_to_dtype(dtype)
         data.convert_to_undirected_graph()
@@ -107,7 +107,7 @@ class RtmTest(unittest.TestCase):
         rd.seed(0xBADB055)
         data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
         with open(AclDictPath, "rb") as f:
-            d = pkl.load(f)
+            dic = pkl.load(f)
 
         data.convert_to_dtype(dtype)
         data.convert_to_undirected_graph()
@@ -116,7 +116,7 @@ class RtmTest(unittest.TestCase):
 
         trainData, testData = data.doc_completion_split()
 
-        for pseudoNegCount in (0, 5, 10, 25, 50, 100):
+        for pseudoNegCount in (5, 10, 25, 50, 100):
             rd.seed(0xC0FFEE)
 
             # Initialise the model

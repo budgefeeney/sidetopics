@@ -484,7 +484,7 @@ def train(data, model, query, plan, updateVocab=True):
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-@nb.autojit
+#@nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use graident ascent to update the weights in-place.
@@ -537,6 +537,11 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
             doc_diffs = topicMeans[d] * topicMeans[linked_docs, :]
             param     = np.asarray(doc_diffs.dot(weights))
             score     = _normpdf_inplace(param.copy()) / _probit_inplace(param)
+
+            if np.any(np.isnan(score)):
+                print ("Ruh-ro")
+                raise ValueError("Inference went tits up")
+
             grad     += score.dot(doc_diffs)
 
         # Use the graident to do an update
@@ -544,9 +549,6 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
         grad    *= step_size
         weights += grad
 
-        if np.any(np.isnan(weights)):
-            print ("Ruh-ro")
-            raise ValueError("Inference went tits up")
         if la.norm(weights - old_weights, 1) < (0.01 / K):
             break
 
