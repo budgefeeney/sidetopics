@@ -95,7 +95,7 @@ def newModelAtRandom(data, K, Q, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     # (this avoids catastrophic underflow in softmax)
     wordDists *= data.word_count / K
 
-    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, Vagueness * np.eye((K, K)), dtype=dtype, name=MODEL_NAME)
+    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, Vagueness * np.eye(K), dtype=dtype, name=MODEL_NAME)
 
 
 def newQueryState(data, model):
@@ -379,7 +379,11 @@ def train(data, model, query, plan, updateVocab=True):
     diWordDists = np.empty(wordDists.shape, dtype=dtype)
 
     for itr in range(iterations):
-        printAndFlushNoNewLine("\n %4d: " % itr)
+        if debug: printAndFlushNoNewLine("\n %4d: " % itr)
+
+        # U and V
+        U[:] = la.lstsq(V.T, topics.T)[0].T
+        V[:] = la.lstsq(U, topics)[0]
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
@@ -407,7 +411,7 @@ def train(data, model, query, plan, updateVocab=True):
                 # wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
 
 
-    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, dtype, model.name), \
+    return ModelState(K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, model.name), \
            QueryState(docLens, topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
@@ -478,7 +482,7 @@ def var_bound(data, model, query, z_dnk = None):
     # ln p(Topics|U, V)
     logDetCov = log (la.det(topicCov))
     kernel = topics.copy()
-    kernel -= U.T.dot(V)
+    kernel -= U.dot(V)
     kernel **= 2
     bound -= -log(2*pi) - D * K * 0.5 * log (Vagueness) \
              -D * 0.5 * logDetCov \
@@ -487,7 +491,7 @@ def var_bound(data, model, query, z_dnk = None):
 
 
 
-    return 0
+    return bound
 
 
 def _dirichletEntropy (P):
