@@ -450,8 +450,7 @@ def train(data, model, query, plan, updateVocab=True):
             # Perform inference, updating the vocab
             wordDists[:, :] = vocabPrior
             for d in range(D):
-                if d % 100 == 0:
-                    printAndFlushNoNewLine(".")
+                if debug and d % 100 == 0: printAndFlushNoNewLine(".")
                 wordIdx, z = _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
@@ -537,7 +536,7 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
             doc_diffs = topicMeans[d] * topicMeans[linked_docs, :]
             param = np.asarray(doc_diffs.dot(weights))
             score = _normpdf_inplace(param.copy())
-            denom = _probit_inplace(param)
+            denom = _probit_inplace(param.copy())
             denom[denom == 0] = 1E-50
             score /= denom
 
