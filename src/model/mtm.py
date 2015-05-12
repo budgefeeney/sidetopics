@@ -128,6 +128,11 @@ def newQueryState(data, model):
     U[:, :] = pca.components_.T
     V       = pca.transform(topics.T).T
 
+    # DEBUG
+    U[:, :] = rd.random((D, Q))
+    V[:, :] = rd.random((Q, K))
+    # END_DEBUG
+
     # The sums
     tsums_bydoc[:] = topics.sum(axis=1)
     tsums_bytop    = topics.sum(axis=0)
@@ -379,11 +384,18 @@ def train(data, model, query, plan, updateVocab=True):
     diWordDists = np.empty(wordDists.shape, dtype=dtype)
 
     for itr in range(iterations):
+        if True: # itr % logFrequency == 0:
+            iters.append(itr)
+            bnds.append(_var_bound_internal(data, model, query))
+            likes.append(_log_likelihood_internal(data, model, query))
+
+            if converged(iters, bnds, len(bnds) - 1, minIters=5):
+                break
         if debug: printAndFlushNoNewLine("\n %4d: " % itr)
 
         # U and V
-        U[:] = la.lstsq(V.T, topics.T)[0].T
-        V[:] = la.lstsq(U, topics)[0]
+        U[:, :] = la.lstsq(V.T, topics.T)[0].T
+        V[:, :] = la.lstsq(U, topics)[0]
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
@@ -396,14 +408,6 @@ def train(data, model, query, plan, updateVocab=True):
                     printAndFlushNoNewLine(".")
                 # wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 # wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
-
-            if True: # itr % logFrequency == 0:
-                iters.append(itr)
-                bnds.append(_var_bound_internal(data, model, query))
-                likes.append(_log_likelihood_internal(data, model, query))
-
-                if converged(iters, bnds, len(bnds) - 1, minIters=5):
-                    break
 
         else:
             for d in range(D):
@@ -467,29 +471,43 @@ def var_bound(data, model, query, z_dnk = None):
     D, T = W.shape
     bound = 0
 
-    # ln p(U)
-    bound += -log(2*pi) - D * Q * log(Vagueness) - 0.5 *  1./Vagueness * 1./Vagueness * np.sum(U * U) # trace of U U'
+    # Pre-calculate some repeated expressinos
+    logVagueness = log(Vagueness)
+    halfDQ, halfQK, halfDK = 0.5*D*Q, 0.5*Q*K, 0.5*D*K
+    logTwoPi  = log(2 * pi)
+    logTwoPiE = log(2 * pi * e)
+
+    # E[ln p(U)]
+    bound += -halfDQ * logTwoPi - D * Q * logVagueness - 0.5 * 1./Vagueness * 1./Vagueness * np.sum(U * U) # trace of U U'
 
     # H[q(U)]
-    bound += -(D * Q * 0.5) * log(2 * pi * e) - D * Q * log(Vagueness)
+    bound += -halfDQ * logTwoPiE - D * Q * logVagueness
 
-    # ln p(V)
-    bound += -log(2*pi) - D * Q * log(Vagueness) - 0.5 *  1./Vagueness * 1./Vagueness * np.sum(V * V) # trace of U U'
+    # E[ln p(V)]
+    bound += -halfQK * logTwoPi - Q * K * logVagueness - 0.5 * 1./Vagueness * 1./Vagueness * np.sum(V * V) # trace of U U'
 
     # H[q(V)]
-    bound += -(D * Q * 0.5) * log(2 * pi * e) - D * Q * log(Vagueness)
+    bound += -halfQK * logTwoPiE - D * Q * logVagueness
 
     # ln p(Topics|U, V)
-    logDetCov = log (la.det(topicCov))
+    logDetCov = log(la.det(topicCov))
     kernel = topics.copy()
     kernel -= U.dot(V)
     kernel **= 2
-    bound -= -log(2*pi) - D * K * 0.5 * log (Vagueness) \
+    kernel[:] = kernel.dot(topicCov)
+    kernel /= (2 * Vagueness)
+    bound += -halfDK * logTwoPi - halfDK * logVagueness \
              -D * 0.5 * logDetCov \
-             - 0.5 * np.sum(kernel)
+             -np.sum(kernel)
+
+    # check = 0.5 * la.inv(Vagueness * np.eye(D)).dot(topics - U.dot(V)).dot(topicCov).dot((topics - U.dot(V)).T)
+    # value_of_check = np.trace(check)
+    # value_of_kernel_sum = np.sum(kernel)
+    # value_of_simple_err = np.sum((topics - U.dot(V))**2)
 
 
-
+    # H[q(topics)]
+    bound += -halfDK * logTwoPiE - halfDK * logVagueness - D * 0.5 * logDetCov
 
     return bound
 
