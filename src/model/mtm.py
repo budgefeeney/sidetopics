@@ -477,17 +477,17 @@ def var_bound(data, model, query, z_dnk = None):
     logTwoPi  = log(2 * pi)
     logTwoPiE = log(2 * pi * e)
 
-    # E[ln p(U)]
-    bound += -halfDQ * logTwoPi - D * Q * logVagueness - 0.5 * 1./Vagueness * 1./Vagueness * np.sum(U * U) # trace of U U'
-
-    # H[q(U)]
-    bound += -halfDQ * logTwoPiE - D * Q * logVagueness
-
-    # E[ln p(V)]
-    bound += -halfQK * logTwoPi - Q * K * logVagueness - 0.5 * 1./Vagueness * 1./Vagueness * np.sum(V * V) # trace of U U'
-
-    # H[q(V)]
-    bound += -halfQK * logTwoPiE - D * Q * logVagueness
+    # # E[ln p(U)]
+    # bound += -halfDQ * logTwoPi - D * Q * logVagueness - 0.5 * np.sum(U * U) # trace of U U'
+    #
+    # # H[q(U)]
+    # bound += -halfDQ * logTwoPiE - D * Q * logVagueness
+    #
+    # # E[ln p(V)]
+    # bound += -halfQK * logTwoPi - Q * K * logVagueness - 0.5 * np.sum(V * V) # trace of U U'
+    #
+    # # H[q(V)]
+    # bound += -halfQK * logTwoPiE - D * Q * logVagueness
 
     # ln p(Topics|U, V)
     logDetCov = log(la.det(topicCov))
