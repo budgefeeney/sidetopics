@@ -97,8 +97,8 @@ class RtmTest(unittest.TestCase):
         print ("Perplexity: %f\n\n" % perp)
 
         for k in range(model.K):
-            print ("\nTopic %d\n=============================" % k)
-            print ("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
+            print("\nTopic %d\n=============================" % k)
+            print("\n".join("%-20s\t%0.4f" % (dic[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
 
     def testMapOnRealData(self):
@@ -121,9 +121,9 @@ class RtmTest(unittest.TestCase):
 
             # Initialise the model
             K = TopicCount
-            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=trainData.doc_count * pseudoNegCount)
+            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=1000*pseudoNegCount)
             queryState = rtm.newQueryState(trainData, model)
-            trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=False)
+            trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 
             # Train the model, and the immediately save the result to a file for subsequent inspection
             model, topics, (bndItrs, bndVals, bndLikes) = rtm.train(trainData, model, queryState, trainPlan)
@@ -158,7 +158,7 @@ class RtmTest(unittest.TestCase):
 
             # for k in range(model.K):
             #     print ("\nTopic %d\n=============================" % k)
-            #     print ("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
+            #     print ("\n".join("%-20s\t%0.4f" % (dic[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
             min_probs  = rtm.min_link_probs(model, topics, testData.links)
             link_probs = rtm.link_probs(model, topics, min_probs)
