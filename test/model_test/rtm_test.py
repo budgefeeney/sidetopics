@@ -121,7 +121,7 @@ class RtmTest(unittest.TestCase):
 
             # Initialise the model
             K = TopicCount
-            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=1000*pseudoNegCount)
+            model      = rtm.newModelAtRandom(trainData, K, dtype=dtype, pseudoNegCount=data.doc_count * pseudoNegCount)
             queryState = rtm.newQueryState(trainData, model)
             trainPlan  = rtm.newTrainPlan(iterations=50, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
 

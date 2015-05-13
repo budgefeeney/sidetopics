@@ -87,16 +87,6 @@ def newModelAtRandom(data, K, pseudoNegCount=None, regularizer=0.001, topicPrior
 
     topicPrior[K] = 0
 
-    # wordDists = rd.dirichlet(constantArray((T,), 2, dtype), size=K).astype(dtype)
-
-    # # Peturb to avoid zero probabilities
-    # wordDists += 1./T
-    # wordDists /= (wordDists.sum(axis=1))[:, np.newaxis]
-    #
-    # # Scale up so it properly resembles something inferred from this dataset
-    # # (this avoids catastrophic underflow in softmax)
-    # wordDists *= data.word_count / K
-
     wordDists = np.ones((K,T), dtype=dtype)
     doc_ids = rd.randint(0, data.doc_count, size=K)
     for k in range(K):
@@ -483,7 +473,7 @@ def train(data, model, query, plan, updateVocab=True):
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-#@nb.autojit
+@nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use graident ascent to update the weights in-place.
