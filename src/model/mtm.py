@@ -33,7 +33,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'docLens topics U V tsums_bydoc tsums_bytop exp_tsums_bydoc exp_tsums_bytop out_counts in_counts'\
+    'docLens topics postTopicCov, U V tsums_bydoc tsums_bytop exp_tsums_bydoc exp_tsums_bytop out_counts in_counts'\
 )
 
 ModelState = namedtuple ( \
@@ -120,17 +120,12 @@ def newQueryState(data, model):
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
     # This is super-slow
-    topics[:] = rd.random((D, K)) + 0.001
+    topics[:] = (rd.random((D, K)) + 0.001).astype(model.dtype)
+    postTopicCov = np.zeros((D,K), dtype=model.dtype)
 
     # Use this initialisation to create the factorization topicDists = U V
-    pca = PCA(n_components=model.Q)
-    pca.fit(topics.T)
-    U[:, :] = pca.components_.T
-    V       = pca.transform(topics.T).T
-
-    # DEBUG
-    U[:, :] = rd.random((D, Q))
-    V[:, :] = rd.random((Q, K))
+    U[:, :] = rd.random((D, Q)).astype(model.dtype)
+    V[:, :] = rd.random((Q, K)).astype(model.dtype)
     # END_DEBUG
 
     # The sums
@@ -147,7 +142,7 @@ def newQueryState(data, model):
     in_counts.fill(data.links.sum() / K)
 
     # Now assign a topic to
-    return QueryState(docLens,topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts)
+    return QueryState(docLens,topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -277,7 +272,7 @@ def _inplace_softmax_rowwise(z):
 
 
 #@nb.jit
-def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
+def _update_topics_at_d(d, data, docLens, topics, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This are used to update the
@@ -286,8 +281,7 @@ def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWo
     :param d:  the document for which we update the topic distribution
     :param W:  the DxT document-term matrix, a sparse CSR matrix.
     :param docLens:  the length of each document
-    :param topicMeans: the DxK matrix, where the d-th row contains the mean of all
-                        per-token topic-assignments.
+    :param topics: the DxK matrix, where the d-th row contains the topic distribution hyper-parameter
     :param topicPrior: the prior over topics
     :param diWordDists: the KxT matrix of word distributions, after the digamma funciton
                         has been applied
@@ -297,12 +291,13 @@ def _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWo
             topic assignments for each of the V non-zero words.
     '''
     K = diWordDists.shape[0]
-    wordIdx, z = _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-    topicMeans[d, :K] = np.dot(z, W[d, :].data) / docLens[d]
+    wordIdx, z = _infer_word_topics_at_d(d, data.words, docLens, topics, topicPrior, diWordDists, diWordDistSums)
+    linkIdx, y = _infer_link_topics_at_d(d, data.words, docLens, topics, topicPrior, diWordDists, diWordDistSums)
+    # topicMeans[d, :K] = np.dot(z, W[d, :].data) / docLens[d]
     return wordIdx, z
 
 #@nb.jit
-def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
+def _infer_word_topics_at_d(d, W, diTopicDist, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This does not affect topicMeans.
@@ -310,30 +305,57 @@ def _infer_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWor
 
     :param d:  the document for which we update the topic distribution
     :param W:  the DxT document-term matrix, a sparse CSR matrix.
-    :param docLens:  the length of each document
-    :param topicMeans: the DxK matrix, where the d-th row contains the mean of all
-                        per-token topic-assignments.
-    :param topicPrior: the prior over topics
-    :param diWordDists: the KxT matrix of word distributions, after the digamma funciton
-                        has been applied
-    :param diWordDistSums: the K-vector of the digamma of the sums of the Dirichlet
-                            parameter vectors for each per-topic word-distribution
-    :return: the indices of the non-zero words in document d, and the KxV matrix of
-            topic assignments for each of the V non-zero words.
+    :param diTopicDist: the digamma of the hyperparameter of the posterior Dirichlet over
+    documents for document d
+    :param diWordDists: the digamma of the hyperparameter of the posterior Dirichet
+    over all T words in all K topics, as a KxT matrix.
+    :param diWordDistSums: the digamma of the sum of hyperparameters of the posterior
+    Dirichlet over words for all K topics, a K-vector
+    :return: a NxK matrix of probabilities that each of the N words in document d
+    were generated by each of the K possible topics.
     '''
     K = diWordDists.shape[0]
 
     wordIdx = W[d, :].indices
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
-
-    distAtD = (topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
-
-    z += fns.digamma(distAtD)
-    z -= fns.digamma(distAtD.sum())
+    z += fns.digamma(diTopicDist)
 
     _inplace_softmax_colwise(z)
     return wordIdx, z
+
+#@nb.jit
+def _infer_link_topics_at_d(d, Y, diTopicDist, topicDists, approx=False):
+    '''
+    Infers the posterior probability for every possible topic that it generated
+    each of the links
+    :param d: the document to consider
+    :param Y: the matrix of links for all documents.
+    :param diTopicDist: the digamma of the hyperparameter of the posterior Dirichlet over
+    documents for document d
+    :param topicDists: the hyperparamers of the posterior Dirichlet over documents
+    for all documents.
+    :return: a PxK matrix of posterior probabilites for all P linked documents of
+    being generated by all K possible topics. Note that this is the opposite order
+    of _infer_word_topics_at_d()
+    '''
+    K = diTopicDist.shape[0]
+
+    linkIdx = Y[d, :].indices
+
+    if not approx:
+        y  = fns.digamma(topicDists[linkIdx, :])
+        y -= fns.digamma(topicDists[linkIdx, :].sum())[:, np.newaxis]
+
+        y += fns.digamma(diTopicDist)[:, np.newaxis]
+        _inplace_softmax_colwise(y)
+    else:
+        y = topicDists[linkIdx, :] - 0.5
+        y /= (topicDists[linkIdx, :].sum() - 0.5)
+        y *= (topicDists[d,:] - 0.5)
+
+
+    return linkIdx, y
 
 
 #@nb.jit
@@ -359,8 +381,8 @@ def train(data, model, query, plan, updateVocab=True):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
-    docLens, topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
-        query.docLens, query.topics, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
+    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
+        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
     K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
 	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
@@ -401,18 +423,13 @@ def train(data, model, query, plan, updateVocab=True):
         fns.digamma(diWordDistSums, out=diWordDistSums)
         fns.digamma(wordDists,      out=diWordDists)
 
-        if updateVocab:
-            wordDists[:, :] = vocabPrior
-            for d in range(D):
-                if d % 100 == 0:
-                    printAndFlushNoNewLine(".")
-                # wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-                # wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
+        wordDists[:, :] = vocabPrior
+        for d in range(D):
+            if d % 100 == 0:
+                printAndFlushNoNewLine(".")
+            wordIdx, z = _update_topics_at_d(d, data, docLens, topics, topicPrior, diWordDists, diWordDistSums)
+            wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-        else:
-            for d in range(D):
-                pass
-                # wordIdx, z = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
 
 
     return ModelState(K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, model.name), \
@@ -462,8 +479,8 @@ def var_bound(data, model, query, z_dnk = None):
     bound = 0
     
     # Unpack the the structs, for ease of access and efficiency
-    docLens, topics, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
-        query.docLens, query.topics, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
+    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
+        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
     K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
 	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
@@ -498,13 +515,8 @@ def var_bound(data, model, query, z_dnk = None):
     kernel /= (2 * Vagueness)
     bound += -halfDK * logTwoPi - halfDK * logVagueness \
              -D * 0.5 * logDetCov \
-             -np.sum(kernel)
-
-    # check = 0.5 * la.inv(Vagueness * np.eye(D)).dot(topics - U.dot(V)).dot(topicCov).dot((topics - U.dot(V)).T)
-    # value_of_check = np.trace(check)
-    # value_of_kernel_sum = np.sum(kernel)
-    # value_of_simple_err = np.sum((topics - U.dot(V))**2)
-
+             -np.sum(kernel) \
+             -np.sum(postTopicCov)
 
     # H[q(topics)]
     bound += -halfDK * logTwoPiE - halfDK * logVagueness - D * 0.5 * logDetCov
