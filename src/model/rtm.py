@@ -729,7 +729,6 @@ def var_bound(data, model, query, z_dnk = None):
 
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
-    # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
     topicMeans = _convertDirichletParamToMeans(docLens, topicDists, topicPrior)
 
     prob_words = 0
