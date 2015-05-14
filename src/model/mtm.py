@@ -10,16 +10,13 @@ import scipy.sparse as ssp
 import scipy.special as fns
 import scipy.linalg as la
 import numba as nb
-from sklearn.utils.extmath import fast_dot
 
-from model.rtm import _links_up_to
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged
 
 from collections import namedtuple
 
-from sklearn.decomposition import PCA
 
 from math import log, pi, e, fabs
 
@@ -34,7 +31,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'docLens topics postTopicCov, U V tsums_bydoc tsums_bytop exp_tsums_bydoc exp_tsums_bytop out_counts in_counts'\
+    'docLens topics postTopicCov, U V tsums_bydoc tsums_bytop exp_tsums_bydoc exp_tsums_bytop lse_at_k out_counts in_counts'\
 )
 
 ModelState = namedtuple ( \
@@ -143,7 +140,7 @@ def newQueryState(data, model):
     in_counts.fill(data.links.sum() / K)
 
     # Now assign a topic to
-    return QueryState(docLens,topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts)
+    return QueryState(docLens,topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, lse_at_k, out_counts, in_counts)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -273,7 +270,7 @@ def _inplace_softmax_rowwise(z):
 
 
 #@nb.jit
-def _update_topics_at_d(d, data, docLens, topics, topicPrior, diWordDists, diWordDistSums, use_approx):
+def _update_topics_at_d(d, data, docLens, topics, topicPrior, lse_at_k, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This are used to update the
@@ -284,24 +281,23 @@ def _update_topics_at_d(d, data, docLens, topics, topicPrior, diWordDists, diWor
     :param docLens:  the length of each document
     :param topics: the DxK matrix, where the d-th row contains the topic distribution hyper-parameter
     :param topicPrior: the prior over topics
+    :param lse_at_k: The log of the sum of exp applied to all document-level topic distributions
+    for all topics k
     :param diWordDists: the KxT matrix of word distributions, after the digamma funciton
                         has been applied
     :param diWordDistSums: the K-vector of the digamma of the sums of the Dirichlet
                             parameter vectors for each per-topic word-distribution
-    :param use_approx: if True we use approximations to the digamma function when determining
-    link memberships.
     :return: the indices of the non-zero words in document d, and the KxV matrix of
             topic assignments for each of the V non-zero words.
     '''
     K = diWordDists.shape[0]
-    diTopicDists = fns.digamma(topics[d, :])
-    linkIdx, y = _infer_link_topics_at_d(d, data.links, diTopicDists, topics, use_approx)
+    linkIdx, y = _infer_link_topics_at_d(d, data.links, topics, lse_at_k)
     wordIdx, z = _infer_word_topics_at_d(d, data.words, docLens, topics, topicPrior, diWordDists, diWordDistSums)
     topics[d, :] = np.dot(z, data.words[d, :].data) * docLens[d] + topicPrior
     return wordIdx, z, linkIdx, y
 
 #@nb.jit
-def _infer_word_topics_at_d(d, W, diTopicDistAtD, diWordDists, diWordDistSums, approx=False):
+def _infer_word_topics_at_d(d, W, topicsDists, diWordDists, diWordDistSums, approx=False):
     '''
     Infers the topic assignments for all present words in the given document at
     index d as stored in the sparse CSR matrix W. This does not affect topicMeans.
@@ -309,8 +305,8 @@ def _infer_word_topics_at_d(d, W, diTopicDistAtD, diWordDists, diWordDistSums, a
 
     :param d:  the document for which we update the topic distribution
     :param W:  the DxT document-term matrix, a sparse CSR matrix.
-    :param diTopicDistAtD: the digamma of the hyperparameter of the posterior Dirichlet over
-    documents for document d
+    :param topicDists: DxK matrix unnormalised topic probabilties, for all D documents
+    across all K possible tpics.
     :param diWordDists: the digamma of the hyperparameter of the posterior Dirichet
     over all T words in all K topics, as a KxT matrix.
     :param diWordDistSums: the digamma of the sum of hyperparameters of the posterior
@@ -324,43 +320,34 @@ def _infer_word_topics_at_d(d, W, diTopicDistAtD, diWordDists, diWordDistSums, a
 
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
-    z += fns.digamma(diTopicDistAtD)[:, np.newaxis]
+    z += (topicDists[d, :])[:, np.newaxis]
 
     _inplace_softmax_colwise(z)
     return wordIdx, z
 
 #@nb.jit
-def _infer_link_topics_at_d(d, L, diTopicDistAtD, topicDists, use_approx=False):
+def _infer_link_topics_at_d(d, L, topicDists, lse_at_k):
     '''
     Infers the posterior probability for every possible topic that it generated
     each of the links
     :param d: the document to consider
     :param L: the matrix of links for all documents.
-    :param diTopicDist: the digamma of the hyperparameter of the posterior Dirichlet over
-    documents for document d
     :param topicDists: the hyperparamers of the posterior Dirichlet over documents
     for all documents.
-    :param approx: if True we use approximations to the digamma function when
-    calculating link memberships.
+    :param lse_at_k: the log-sum-exp function applied along topics to the
+    topic scores.
     :return: a PxK matrix of posterior probabilites for all P linked documents of
     being generated by all K possible topics. Note that this is the opposite order
     of _infer_word_topics_at_d()
     '''
-    K = diTopicDistAtD.shape[0]
 
     linkIdx = L[d, :].indices
 
-    if not use_approx:
-        y  = fns.digamma(topicDists[linkIdx, :])
-        y -= fns.digamma(topicDists[linkIdx, :].sum(axis=1))[:, np.newaxis]
+    y  = topicDists[linkIdx, :]
+    y -= lse_at_k[np.newaxis, :]
 
-        y += fns.digamma(diTopicDistAtD)[np.newaxis, :]
-        _inplace_softmax_rowwise(y)
-    else:
-        y  = topicDists[linkIdx, :] - 0.5
-        y /= (topicDists[linkIdx, :].sum() - 0.5)
-        y *= (topicDists[d, :] - 0.5)[np.newaxis, :]
-        y /= y.sum()
+    y += (topicDists[d, :])[np.newaxis, :]
+    _inplace_softmax_rowwise(y)
 
     return linkIdx, y
 
@@ -388,8 +375,8 @@ def train(data, model, query, plan, updateVocab=True):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
-    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
-        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
+    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, lse_at_k, out_counts, in_counts = \
+        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.lse_at_k, uery.out_counts, query.in_counts
     K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
 	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
@@ -484,8 +471,8 @@ def var_bound(data, model, query, z_dnk = None):
     bound = 0
     
     # Unpack the the structs, for ease of access and efficiency
-    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, out_counts, in_counts = \
-        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.out_counts, query.in_counts
+    docLens, topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, lse_at_k, out_counts, in_counts = \
+        query.docLens, query.topics, query.postTopicCov, query.U, query.V, query.tsums_bydoc, query.tsums_bytop, query.exp_tsums_bydoc, query.exp_tsums_bytop, query.lse_at_k, query.out_counts, query.in_counts
     K, Q, topicPrior, vocabPrior, wordDists, topicCov, dtype, name = \
 	    model.K, model.Q, model.topicPrior, model.vocabPrior, model.wordDists, model.topicCov, model.dtype, model.name
 
@@ -528,8 +515,6 @@ def var_bound(data, model, query, z_dnk = None):
     bound += -halfDK * logTwoPiE - halfDK * logVagueness - D * 0.5 * logDetCov
 
     # We'll need these for the next steps
-    diTopicDists    = fns.digamma(topics)
-    diTopicDistSums = fns.digamma(topics.sum(axis=1))
     diWordDists     = fns.digamma(wordDists)
     diWordDistSums  = fns.digamma(wordDists.sum(axis=1))
 
@@ -539,6 +524,7 @@ def var_bound(data, model, query, z_dnk = None):
     prob_z, ent_z = 0, 0
     prob_y, ent_y   = 0, 0
     for d in range(D):
+        # FIXME need to use bound here, as this is an expectation, so just plugging in the LSE is a bit daft
         exLnTopic = diTopicDists[d, :] - diTopicDistSums[d]
 
         # First the word-topic assignments, note this is a KxV matrix
@@ -560,7 +546,7 @@ def var_bound(data, model, query, z_dnk = None):
         prob_y += np.dot(L[d, :].data, y * exLnTopic[np.newaxis, :]).sum()
 
         # E[ln p(L|Y)] = sum_d sum_m sum_k sum_t E[y_dmk] l_dmp E[ln topics_pk]
-        exLnLinkProb = diTopicDists[linkIdx, :] - (diTopicDistSums[linkIdx])[:, np.newaxis]
+        exLnLinkProb = topics[linkIdx, :] - (lse_at_k)[np.newaxis, :]
         prob_links += np.sum(L[d, :].data[:, np.newaxis] * y * exLnLinkProb)
 
         # And finally the entropy of Y
