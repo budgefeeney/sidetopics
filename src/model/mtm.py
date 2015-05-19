@@ -139,6 +139,8 @@ def newQueryState(data, model):
     in_counts = np.empty((K,), dtype=model.dtype) # Just invent a nonsense value
     in_counts.fill(data.links.sum() / K)
 
+    lse_at_k = np.log(np.sum(np.exp(topics), axis=0))
+
     # Now assign a topic to
     return QueryState(docLens,topics, postTopicCov, U, V, tsums_bydoc, tsums_bytop, exp_tsums_bydoc, exp_tsums_bytop, lse_at_k, out_counts, in_counts)
 
