@@ -187,7 +187,7 @@ def topicDists (queryState):
 
     return result
 
-#@nb.jit
+@nb.autojit
 def _log_likelihood_internal(data, model, query):
     result = log_likelihood(data, model, query)
 
@@ -231,7 +231,7 @@ def log_likelihood (data, modelState, queryState):
 
 
 
-#@nb.jit
+@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -250,7 +250,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.jit
+@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -282,7 +282,7 @@ def softmax(x):
     return p
 
 
-#@nb.jit
+@nb.autojit
 def _update_topics_at_d(d, data, docLens, topics, topicPrior, lse_at_k, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -315,7 +315,7 @@ def _update_topics_at_d(d, data, docLens, topics, topicPrior, lse_at_k, diWordDi
 
     return wordIdx, z, linkIdx, y
 
-#@nb.jit
+@nb.autojit
 def _infer_word_topics_at_d(d, W, topics, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -344,7 +344,7 @@ def _infer_word_topics_at_d(d, W, topics, diWordDists, diWordDistSums):
     _inplace_softmax_colwise(z)
     return wordIdx, z
 
-#@nb.jit
+@nb.autojit
 def _infer_link_topics_at_d(d, L, topics, lse_at_k):
     '''
     Infers the posterior probability for every possible topic that it generated
@@ -370,7 +370,7 @@ def _infer_link_topics_at_d(d, L, topics, lse_at_k):
     return linkIdx, y
 
 
-#@nb.jit
+@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -417,6 +417,8 @@ def train(data, model, query, plan, updateVocab=True):
 
     new_in_counts = in_counts.copy()
 
+    newCov = np.ndarray(shape=(K, K), dtype=model.dtype)
+    newCov.fill(0)
     invCov = la.inv(topicCov)
     S      = topicCov.copy()
     rhs    = np.ndarray(shape=(K,), dtype=model.dtype)
@@ -424,28 +426,31 @@ def train(data, model, query, plan, updateVocab=True):
     new_maxes_bytop = np.ndarray(shape=(K,), dtype=model.dtype)
     maxes_bytop     = topics.max(axis=0)
 
+    topicCov = np.eye(K) # DEBUG FIXME DEBUG
     for itr in range(iterations):
-        if True: # itr % logFrequency == 0:
+        if itr % logFrequency == 0:
             iters.append(itr)
             bnds.append(_var_bound_internal(data, model, query))
             likes.append(_log_likelihood_internal(data, model, query))
 
+            if debug: print ("Bound : %f \t Likelihood %f  \t Perplexity %.2f" % (bnds[-1], likes[-1], np.exp(-likes[-1]/docLens.sum())))
             if converged(iters, bnds, len(bnds) - 1, minIters=5):
                 break
         if debug: printAndFlushNoNewLine("\n %4d: " % itr)
 
+        newCov[:, :] = 0
         new_in_counts[:] = 0
 
-        # U and V
-        U[:, :] = la.lstsq(V.T, topics.T)[0].T
-        V[:, :] = la.lstsq(U, topics)[0]
+        # U and V FIXME DEBUG
+        # U[:, :] = la.lstsq(V.T, topics.T)[0].T
+        # V[:, :] = la.lstsq(U, topics)[0]
 
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
         fns.digamma(wordDists,      out=diWordDists)
 
         wordDists[:, :] = vocabPrior
-        new_maxes_bytop.fill (1E-300)
+        new_maxes_bytop.fill(1E-300)
         for d in range(D):
             if d % 100 == 0:
                 printAndFlushNoNewLine(".")
@@ -460,37 +465,52 @@ def train(data, model, query, plan, updateVocab=True):
             S[np.diag_indices_from(S)] += docLens[d] + out_counts[d]
             S[:, :] -= 1. / (K+1)
             S[np.diag_indices_from(S)] += (K - 1.) / K * in_counts
+            S = la.inv(S)
 
             # Topics Step 2, the actual right-hand side
             rhs[:]  = invCov.dot(U[d, :].dot(V))
+            rhs.fill(0) # DEBUG FIXME DEBUG FIXME
             rhs    += (z * W[d, :].data[np.newaxis, :]).sum(axis=1)
             ysum    = (y * L[d, :].data[:, np.newaxis]).sum(axis=0)
-            rhs    += ysum
+            #rhs    += ysum DEBUG FIXME
 
             b[:] = topics[d, :] - 1./(K+1) * topics[d, :].sum() - softmax(topics[d, :])
-            b *= (docLens[d] + out_counts[d])
+            b *= docLens[d] # FIXME (docLens[d] + out_counts[d])
             rhs += b
 
-            f[:] = topics[d, :] - 1./(D + 1) * tsums_bytop - np.exp(topics[d, :] - maxes_bytop) / exp_tsums_bytop
-            f *= in_counts
-            rhs += f
-
-            rhs[:] += 1./(2 * D + 2) * (in_counts * topics[linkIdx, :]).sum()
+            # f[:] = topics[d, :] - 1./(D + 1) * tsums_bytop - np.exp(topics[d, :] - maxes_bytop) / exp_tsums_bytop
+            # f *= in_counts
+            # rhs += f
+            #
+            # rhs[:] += (D - 1)/(2 * D + 2) * (in_counts * (tsums_bytop - topics[d, :]))
 
             # Topics Step 3: solve
-            new_topics = la.inv(S).dot(rhs)
+            new_topics = S.dot(rhs)
 
-            # Topics Step 4: update the running counts, then assign the new topics to "topics'
+            # Topics Step 4: update the running counts and covariance, then assign the new topics to "topics'
             tsums_bytop -= topics[d, :]
             tsums_bytop += new_topics
 
             new_maxes_bytop = np.maximum(new_maxes_bytop, new_topics)
             new_in_counts += ysum
 
+            vec = new_topics - U[d, :].dot(V)
+            newCov += np.outer (vec, vec)
+            newCov += np.diag(S)
+
             topics[d, :] = new_topics
 
+            # Next step is the posterior covariance
+            postTopicCov[d, :] = np.diag(S)
+
+        # The covariance hyper-parameter
+        topicCov[:, :] = newCov
+        topicCov[:, :] = np.eye(K) # FIXME DEBUG FIXME DEBUG
+        invCov[:, :]   = la.inv(topicCov)
+
+        # The remaining running counts, and the column-wise softmax adjustment
         maxes_bytop[:] = new_maxes_bytop
-        in_counts[:] = new_in_counts
+        in_counts[:]   = new_in_counts
         exp_tsums_bytop[:] = np.sum(np.exp(topics - maxes_bytop[np.newaxis, :]), axis=0)
 
 
@@ -503,7 +523,7 @@ def printAndFlushNoNewLine (text):
     sys.stdout.write(text)
     sys.stdout.flush()
 
-#@nb.jit
+@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -526,14 +546,14 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.jit
+@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     result = var_bound(data, model, query, z_dnk)
 
     return result
 
 
-#@nb.jit
+@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
