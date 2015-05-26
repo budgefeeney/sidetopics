@@ -63,7 +63,7 @@ class MtmTest(unittest.TestCase):
         K = TopicCount
         model      = mtm.newModelAtRandom(data, K, K - 1, dtype=dtype)
         queryState = mtm.newQueryState(data, model)
-        trainPlan  = mtm.newTrainPlan(iterations=10, logFrequency=LogFreq, fastButInaccurate=False, debug=True)
+        trainPlan  = mtm.newTrainPlan(iterations=500, logFrequency=10, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = mtm.train (data, model, queryState, trainPlan)
@@ -80,6 +80,11 @@ class MtmTest(unittest.TestCase):
         ax2.plot(bndItrs, bndLikes, 'r-')
         ax2.set_ylabel('Likelihood', color='r')
 
+        fig.show()
+        plt.show()
+
+        fig, ax1 = plt.subplots()
+        ax1.imshow(model.topicCov, interpolation="nearest", cmap=cm.Greys_r)
         fig.show()
         plt.show()
 
