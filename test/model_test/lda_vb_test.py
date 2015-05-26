@@ -67,7 +67,7 @@ class Test(unittest.TestCase):
         plt.show()
         
         vocab = lda.vocab(model)
-        plt.imshow(vocab, interpolation="none", cmap = cm.Greys_r)
+        plt.imshow(vocab, interpolation="nearest", cmap=cm.Greys_r)
         plt.show()
             
         # Print out the most likely topic words
