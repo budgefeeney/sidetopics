@@ -26,14 +26,12 @@ from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot
-from util.misc import printStderr, static_var, converged, clamp
+from util.misc import printStderr, static_var
 from util.overflow_safe import safe_log_det
+from model.evals import perplexity_from_like
 
 from math import isnan
-    
-from model.ctm import vocab
 
-from sklearn.covariance import oas
     
 # ==============================================================
 # CONSTANTS
@@ -78,6 +76,14 @@ ModelState = namedtuple ( \
 # PUBLIC API
 # ==============================================================
 
+def wordDists(model):
+    return model.vocab
+
+def topicDists(query):
+    result  = np.exp(query.topicMean - query.topicMean.sum(axis=1))
+    result /= result.sum(axis=1)
+    return result
+
 def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
@@ -101,7 +107,15 @@ def newModelAtRandom(data, K, dtype=DTYPE):
     assert K > 1, "There must be at least two topics"
     
     _,T = data.words.shape
-    vocab     = normalizerows_ip(rd.random((K,T)).astype(dtype))
+
+    # Pick some random documents as the vocabulary
+    vocab = np.ones((K, T), dtype=dtype)
+    doc_ids = rd.randint(0, data.doc_count, size=K)
+    for k in range(K):
+        sample_doc = data.words[doc_ids[k], :]
+        vocab[k, sample_doc.indices] += sample_doc.data # use plus equals in case we
+        vocab[k, :] /= vocab[k, :].sum()                # later use multiple docs per
+                                                        # vocab component
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
     
@@ -130,7 +144,7 @@ def newQueryState(data, modelState):
     
     D,T = data.words.shape
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
-    docLens = np.squeeze(np.asarray(W.sum(axis=1)))
+    docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
     
     means = normalizerows_ip(rd.random((D,K)).astype(dtype))
     varcs = np.ones((D,K), dtype=dtype)
@@ -138,7 +152,7 @@ def newQueryState(data, modelState):
     return QueryState(means, varcs, docLens)
 
 
-def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
+def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -174,11 +188,8 @@ def train (data, modelState, queryState, trainPlan):
     K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
     
     # Book-keeping for logs
-    boundIters   = np.zeros(shape=(iterations // logFrequency + 1,))
-    boundValues  = np.zeros(shape=(iterations // logFrequency + 1,))
-    likelyValues = np.zeros(shape=(iterations // logFrequency + 1,))
+    boundIters, boundValues, likelyValues = [], [], []
     
-    bvIdx = 0
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
@@ -255,7 +266,7 @@ def train (data, modelState, queryState, trainPlan):
             means = varcs * rhs
         else:
             for d in range(D):
-                means[d,:] = la.inv(isigT + docLens[d] * A).dot(rhs[d,:])
+                means[d, :] = la.inv(isigT + docLens[d] * A).dot(rhs[d, :])
         
 #         means -= (means[:,0])[:,np.newaxis]
         
@@ -265,26 +276,24 @@ def train (data, modelState, queryState, trainPlan):
             modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, docLens)
             
-            boundValues[bvIdx]  = var_bound(W, modelState, queryState)
-            likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
-            boundIters[bvIdx]   = itr
+            boundValues.append(var_bound(data, modelState, queryState))
+            likelyValues.append(log_likelihood(data, modelState, queryState))
+            boundIters.append(itr)
             
-            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
-            if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
-                printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
-#             print ("Means: min=%f, avg=%f, max=%f\docLens\docLens" % (means.min(), means.mean(), means.max()))
-            bvIdx += 1
+            print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
+            if len(boundValues) > 1:
+                if boundValues[-2] > boundValues[-1]:
+                    printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
         
-            # Check to see if the improvement in the bound has fallen below the threshold
-#             if converged (boundIters, boundValues, bvIdx, epsilon):
-#                 boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-#                 return modelState, queryState, (boundIters, boundValues, likelyValues)
+                # Check to see if the improvement in the bound has fallen below the threshold
+                if itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                    break
         
     
     return \
         ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
         QueryState(means, varcs, docLens), \
-        (boundIters, boundValues, likelyValues)
+        (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
 
 def query(data, modelState, queryState, queryPlan):
     '''
