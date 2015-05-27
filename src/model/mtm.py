@@ -370,7 +370,7 @@ def _infer_link_topics_at_d(d, L, topics, lse_at_k):
     return linkIdx, y
 
 
-@nb.autojit
+#@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -505,7 +505,7 @@ def train(data, model, query, plan, updateVocab=True):
 
         # The covariance hyper-parameter
         topicCov[:, :] = newCov
-        topicCov[:, :] = np.eye(K) # FIXME DEBUG FIXME DEBUG
+        # topicCov[:, :] = np.eye(K) # FIXME DEBUG FIXME DEBUG
         invCov[:, :]   = la.inv(topicCov)
 
         # The remaining running counts, and the column-wise softmax adjustment
