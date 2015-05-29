@@ -21,11 +21,12 @@ import scipy.special as fns
 import numpy.random as rd
 
 from util.array_utils import normalizerows_ip
-from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
+from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot, \
+    colwise_softmax
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarQuotientOfNormedDot, sparseScalarProductOfSafeLnDot
 from util.misc import printStderr, static_var
-from util.overflow_safe import safe_log_det
+from util.overflow_safe import safe_log_det, safe_log
 from model.evals import perplexity_from_like
 
 from math import isnan
@@ -179,11 +180,12 @@ def train (data, modelState, queryState, trainPlan):
     '''
     W, L, X = data.words, data.links, data.feats
     D,_ = W.shape
+    out_links = np.squeeze(np.asarray(data.links.sum(axis=1)))
 
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
+    K, topicMean, topicCov, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.topicCov, modelState.vocab, modelState.A, modelState.dtype
 
     # Book-keeping for logs
     boundIters, boundValues, likelyValues = [], [], []
@@ -191,8 +193,9 @@ def train (data, modelState, queryState, trainPlan):
     debugFn = _debug_with_bound if debug else _debug_with_nothing
 
     # Initialize some working variables
-    isigT = la.inv(sigT)
+    itopicCov = la.inv(topicCov)
     W_weight = W.copy()
+    L_weight = L.copy()
 
     pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
     pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
@@ -200,6 +203,7 @@ def train (data, modelState, queryState, trainPlan):
     priorSigT_diag.fill (NIW_PSI)
 
     lse_at_k = np.sum(np.exp(means), axis=0)
+    in_counts = np.ndarray(shape=(K,))
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -211,31 +215,32 @@ def train (data, modelState, queryState, trainPlan):
         topicMean = means.sum(axis = 0) / (D + pseudoObsMeans) \
                   if USE_NIW_PRIOR \
                   else means.mean(axis=0)
-        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, topicMean, "topicMean", W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         if USE_NIW_PRIOR:
             diff = means - topicMean[np.newaxis,:]
-            sigT = diff.T.dot(diff) \
+            topicCov = diff.T.dot(diff) \
                  + pseudoObsVar * np.outer(topicMean, topicMean)
-            sigT += np.diag(varcs.mean(axis=0) + priorSigT_diag)
-            sigT /= (D + pseudoObsVar - K)
+            topicCov += np.diag(varcs.mean(axis=0) + priorSigT_diag)
+            topicCov /= (D + pseudoObsVar - K)
         else:
-            sigT = np.cov(means.T) if sigT.dtype == np.float64 else np.cov(means.T).astype(dtype)
-            sigT += np.diag(varcs.mean(axis=0))
+            topicCov = np.cov(means.T) if topicCov.dtype == np.float64 else np.cov(means.T).astype(dtype)
+            topicCov += np.diag(varcs.mean(axis=0))
 
         if diagonalPriorCov:
-            diag = np.diag(sigT)
-            sigT = np.diag(diag)
-            isigT = np.diag(1./ diag)
+            diag = np.diag(topicCov)
+            topicCov = np.diag(diag)
+            itopicCov = np.diag(1./ diag)
         else:
-            isigT = la.inv(sigT)
+            itopicCov = la.inv(topicCov)
 
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
-#        print("                sigT.det = " + str(la.det(sigT)))
+        debugFn (itr, topicCov, "topicCov", W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
+#        print("                topicCov.det = " + str(la.det(topicCov)))
 
 
         # Building Blocks - temporarily replaces means with exp(means)
         expMeans   = np.exp(means, out=means)
+        lse_at_k   = (expMeans - expMeans.max(axis=0)[np.newaxis, :]).sum(axis=0)
         W_weight   = sparseScalarQuotientOfDot(W, expMeans, vocab, out=W_weight)
         w_top_sums = W_weight.dot(vocab.T) * expMeans
 
@@ -248,39 +253,51 @@ def train (data, modelState, queryState, trainPlan):
         W_weight = sparseScalarQuotientOfDot(W, expMeans, vocab, out=W_weight)
         w_top_sums = W_weight.dot(vocab.T) * expMeans
 
-        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, vocab, "vocab", W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
-        # Now do likewise for the links
-        L_weight = sparseScalarQuotientOfNormedDot(W, expMeans, expMeans, lse_at_k, out=W_weight)
-        l_top_sums = L_weight.dot(expMeans) * np.reciprocal(lse_at_k)[np.newaxis, :] * expMeans
+        # Now do likewise for the links, do it twice to model in-counts (first) and
+        # out-counts (Second). The difference is the transpose
+        L_weight = sparseScalarQuotientOfNormedDot(L.T, expMeans, expMeans, lse_at_k, out=L_weight)
+        l_top_sums = L_weight.dot(expMeans) / lse_at_k[np.newaxis, :] * expMeans
+        in_counts = l_top_sums.sum(axis=0)
 
-        # Reset the means
-        means = np.log(expMeans, out=expMeans)
+        L_weight = sparseScalarQuotientOfNormedDot(L, expMeans, expMeans, lse_at_k, out=L_weight)
+        l_top_sums = L_weight.dot(expMeans) / lse_at_k[np.newaxis, :] * expMeans
+
+        # Reset the means and use them to calculate the weighted sum of means
+        means = safe_log(expMeans, out=expMeans)
+        meanSum = means.dot(in_counts).sum(axis=0)
 
         # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
 
-        # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
-        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + np.diagonal(sigT))
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        # Update the Variances: var_d = (2 N_d * A + itopicCov)^{-1}
+        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + np.diagonal(topicCov))
+        debugFn (itr, varcs, "varcs", W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         # Update the Means
         rhs = w_top_sums.copy()
         rhs += l_top_sums
-        rhs += docLens[:, np.newaxis] * means.dot(A) + isigT.dot(topicMean)
+        rhs += itopicCov.dot(topicMean)
+        rhs += docLens[:, np.newaxis] * means.dot(A)
         rhs -= docLens[:, np.newaxis] * rowwise_softmax(means, out=means)
         if diagonalPriorCov:
-            means = varcs * rhs
+            raise ValueError("Not implemented")
         else:
             for d in range(D):
-                means[d, :] = la.inv(isigT + docLens[d] * A).dot(rhs[d, :])
+                rhs_         = rhs[d, :] - (D / (2 * D + 2)) * meanSum + means[d, :]
+                means[d, :]  = la.inv(itopicCov + (out_links[d] + docLens[d]) * A).dot(rhs_)
+                means[d, :] -= means[d, :].max()
+                if np.any(np.isnan(means[d, :])) or np.any (np.isinf(means[d, :])):
+                    print ("Ruh-ro")
 
-#         means -= (means[:,0])[:,np.newaxis]
+                if np.any(np.isnan(np.exp(means[d, :]))) or np.any (np.isinf(np.exp(means[d, :]))):
+                    print ("Ruh-ro")
 
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, means, "means", W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
+            modelState = ModelState(K, topicMean, topicCov, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, docLens)
 
             boundValues.append(var_bound(data, modelState, queryState))
@@ -298,7 +315,7 @@ def train (data, modelState, queryState, trainPlan):
 
 
     return \
-        ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
+        ModelState(K, topicMean, topicCov, vocab, A, dtype, MODEL_NAME), \
         QueryState(means, varcs, docLens), \
         (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
 
@@ -363,13 +380,26 @@ def log_likelihood (data, modelState, queryState):
     and the parameters inferred for the entries in W stored in the 
     queryState object.
     '''
-    return np.sum( \
+    probs = rowwise_softmax(queryState.means)
+    doc_dist = colwise_softmax(queryState.means)
+
+    word_likely = np.sum( \
         sparseScalarProductOfSafeLnDot(\
             data.words, \
-            rowwise_softmax(queryState.means), \
+            probs, \
             modelState.vocab \
         ).data \
     )
+
+    link_likely = np.sum( \
+        sparseScalarProductOfSafeLnDot(\
+            data.links, \
+            probs, \
+            doc_dist \
+        ).data \
+    )
+
+    return word_likely + link_likely
     
 def var_bound(data, modelState, queryState):
     '''
@@ -379,7 +409,7 @@ def var_bound(data, modelState, queryState):
     '''
     
     # Unpack the the structs, for ease of access and efficiency
-    W   = data.words
+    W, L, X  = data.words, data.links, data.feats
     D,_ = W.shape
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, topicCov, vocab, A = modelState.K, modelState.topicMean, modelState.topicCov, modelState.vocab, modelState.A
@@ -420,24 +450,29 @@ def var_bound(data, modelState, queryState):
        
     # And its entropy
 #     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
-    
+
+    lse_at_k = np.sum(np.exp(means), axis=0)
+
     # Distribution over word-topic assignments and words and the formers
-    # entropy. This is somewhat jumbled to avoid repeatedly taking the
-    # exp and log of the means
-    expMeans = np.exp(means, out=means)
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    V = expMeans * (R.dot(vocab.T)) # D x K
+    # entropy, and similaarly for out-links. This is somewhat jumbled to
+    # avoid repeatedly taking the exp and log of the means
+    expMeans   = np.exp(means, out=means)
+    W_weights  = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
+    w_top_sums = expMeans * (W_weights.dot(vocab.T)) # D x K
+
+    L_weights  = sparseScalarQuotientOfNormedDot(L, expMeans, expMeans, lse_at_k)
+    l_top_sums = L_weights.dot(expMeans) / lse_at_k[np.newaxis, :] * expMeans
     
     bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
     means = np.log(expMeans, out=expMeans)
     
-    bound += np.sum(means * V)
+    bound += np.sum(means * w_top_sums)
     bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
     bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
+    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * w_top_sums * (np.diag(A))[np.newaxis,:])
     
-    bound -= np.sum(means * V) 
+    bound -= np.sum(means * w_top_sums)
     
     
     return bound
