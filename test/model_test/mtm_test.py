@@ -130,7 +130,7 @@ class MtmTest(unittest.TestCase):
         trainPlan  = mtm2.newTrainPlan(iterations=200, logFrequency=10, fastButInaccurate=False, debug=False)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals, bndLikes) = mtm2.train (data, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = mtm2.train(data, model, queryState, trainPlan)
 #        with open(newModelFileFromModel(model), "wb") as f:
 #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
 
@@ -148,7 +148,7 @@ class MtmTest(unittest.TestCase):
         plt.show()
 
         fig, ax1 = plt.subplots()
-        ax1.imshow(model.sigT, interpolation="nearest", cmap=cm.Greys_r)
+        ax1.imshow(model.topicCov, interpolation="nearest", cmap=cm.Greys_r)
         fig.show()
         plt.show()
 
@@ -161,13 +161,21 @@ class MtmTest(unittest.TestCase):
         like = mtm2.log_likelihood(data, model, query)
         perp = perplexity_from_like(like, data.word_count)
 
-        print ("Perplexity: %f\n\n" % perp)
+        print("Perplexity: %f\n\n" % perp)
 
         for k in range(model.K):
             print("\nTopic %d\n=============================" % k)
             print("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
+        print ("Most likely documents for each topic")
+        print ("====================================")
+        with open ("/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/doc_ids.pkl", 'rb') as f:
+            fileIds = pkl.load (f)
+        docs_dict = [fileIds[fi] for fi in data.order]
 
+        for k in range(model.K):
+            max_prob = np.argmax(query.means[:, k])
+            print("K=%2d  Document ID = %s" % (k, docs_dict[max_prob]))
 
     def testPerplexityOnRealDataWithCtm(self):
         dtype = np.float64 # DTYPE
