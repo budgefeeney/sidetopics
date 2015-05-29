@@ -145,6 +145,32 @@ def sparseScalarQuotientOfDot (A, B, C, out=None):
         _sparseScalarQuotientOfDot_py(A,B,C, out)
     return out
 
+def sparseScalarQuotientOfNormedDot (A, B, C, d, out=None):
+    '''
+    Returns A / np.dot(B, C/D), however it does so keeping in  mind
+    the sparsity of A, calculating values only where required.
+
+    Params
+    A         - a sparse CSR matrix
+    B         - a dense matrix
+    C         - a dense matrix
+    d         - a dense vector whose dimensionality matches the column-count of C
+    out       - if specified, must be a sparse CSR matrix with identical
+                non-zero pattern to A (i.e. same indices and indptr)
+
+    Returns
+    out_data, though note that this is the same parameter passed in and overwitten.
+    '''
+    if out is None:
+        out = A.copy()
+
+    if A.dtype == np.float64:
+        compiled.sparseScalarQuotientOfNormedDot_f8(A.data, A.indices, A.indptr, B, C, d, out.data)
+    elif A.dtype == np.float32:
+        compiled.sparseScalarQuotientOfNormedDot_f4(A.data, A.indices, A.indptr, B, C, d, out.data)
+    else:
+        raise ValueError ("No implementation for the datatype " + str(A.dtype))
+    return out
 
 def sparseScalarProductOfDot (A, B, C, out=None):
     '''

@@ -318,6 +318,77 @@ def sparseScalarQuotientOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
+def sparseScalarQuotientOfNormedDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] d, double[:] out_data):
+    '''
+    Returns A / np.dot(B, C/D), however it does so keeping in  mind
+    the sparsity of A, calculating values only where required.
+
+    Params
+    A         - a sparse CSR matrix
+    B         - a dense matrix
+    C         - a dense matrix
+    D         - a dense vector whose dimensionality matches the column-count of C
+    out       - if specified, must be a sparse CSR matrix with identical
+                non-zero pattern to A (i.e. same indices and indptr)
+
+    Returns
+    out_data, though note that this is the same parameter passed in and overwitten.
+    '''
+    cdef int rowCount = len(A_ptr) - 1
+    cdef int elemCount = 0, e = 0
+    cdef int row = 0, col = 0, i = 0
+    with nogil:
+        while row < rowCount:
+            elemCount = A_ptr[row+1] - A_ptr[row]
+            e = 0
+            while e < elemCount:
+                col = A_indices[i]
+                out_data[i] = A_data[i] / dotProductNormed_f8(row,col,B,C,d)
+                i += 1
+                e += 1
+            row += 1
+
+    return out_data
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def sparseScalarQuotientOfNormedDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] d, float[:] out_data):
+    '''
+    Returns A / np.dot(B, C/D), however it does so keeping in  mind
+    the sparsity of A, calculating values only where required.
+
+    Params
+    A         - a sparse CSR matrix
+    B         - a dense matrix
+    C         - a dense matrix
+    D         - a dense vector whose dimensionality matches the column-count of C
+    out       - if specified, must be a sparse CSR matrix with identical
+                non-zero pattern to A (i.e. same indices and indptr)
+
+    Returns
+    out_data, though note that this is the same parameter passed in and overwitten.
+    '''
+    cdef int rowCount = len(A_ptr) - 1
+    cdef int elemCount = 0, e = 0
+    cdef int row = 0, col = 0, i = 0
+    with nogil:
+        while row < rowCount:
+            elemCount = A_ptr[row+1] - A_ptr[row]
+            e = 0
+            while e < elemCount:
+                col = A_indices[i]
+                out_data[i] = A_data[i] / dotProductNormed_f4(row,col,B,C,d)
+                i += 1
+                e += 1
+            row += 1
+
+    return out_data
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
 def sparseScalarProductOfDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
     '''
     Returns A * np.dot(B, C), however it does so keeping in  mind 
@@ -508,3 +579,41 @@ cdef float dotProduct_f4 (int r, int c, float[:,:] B, float[:,:] C) nogil:
     return result
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef double dotProductNormed_f8 (int r, int c, double[:,:] B, double[:,:] C, double[:] d) nogil:
+    '''
+    Returns the dot product of B[r,:] and C[:,c] / d[:]
+    Done directly with a for-loop, no BLAS, SSE or anything. Still
+    pretty fast though - just as quick as a numpy dot
+    '''
+    cdef double result = 0
+    cdef int innerDim = B.shape[1]
+
+    cdef int i = 0
+    while i < innerDim:
+        result += B[r,i] * C[i,c] / d[i]
+        i += 1
+
+    return result
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+cdef float dotProductNormed_f4 (int r, int c, float[:,:] B, float[:,:] C, float[:] d) nogil:
+    '''
+    Returns the dot product of B[r,:] and C[:,c] / d[:]
+    Done directly with a for-loop, no BLAS, SSE or anything. Still
+    pretty fast though - just as quick as a numpy dot
+    '''
+    cdef float result = 0
+    cdef int innerDim = B.shape[1]
+
+    cdef int i = 0
+    while i < innerDim:
+        result += B[r,i] * C[i,c] / d[i]
+        i += 1
+
+    return result
