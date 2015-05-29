@@ -46,10 +46,7 @@ def newModelFromExisting(model):
         model.K, \
         model.topicPrior.copy(), \
         model.vocabPrior, \
-        None if model.wordDists is None else model.wordDists.copy(), \
-        None if model.weights is None else model.weights.copy(), \
-        model.pseudoNegCount, \
-        model.regularizer, \
+        None if model.wordDists is None else model.wordDists.copy(),
         model.dtype, \
         model.name)
 
@@ -304,12 +301,10 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
-    each individual datapoint, and additionally learns the weights
-    needed to predict new links.
+    each individual datapoint,
 
     Params:
-    W - the DxT document-term matrix
-    X - The DxD document-document matrix
+    data - the training data, we just use the DxT document-term matrix
     model - the initial model configuration. This is MUTATED IN-PLACE
     qyery - the query results - essentially all the "local" variables
             matched to the given observations. Also MUTATED IN-PLACE
@@ -509,8 +504,8 @@ def var_bound(data, model, query, z_dnk = None):
     bound = 0
     
     # Unpack the the structs, for ease of access and efficiency
-    K, topicPrior, wordPrior, wordDists, weights, negCount, reg, dtype = \
-        model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.weights, model.pseudoNegCount, model.regularizer, model.dtype
+    K, topicPrior, wordPrior, wordDists, dtype = \
+        model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.dtype
     docLens, topicDists = \
         query.docLens, query.topicDists
 
@@ -559,7 +554,7 @@ def var_bound(data, model, query, z_dnk = None):
     prob_z     = 0
     ent_z      = 0
     for d in range(D):
-        wordIdx, z = _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
+        wordIdx, z = _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
 
         # E[ln p(Z|topics) = sum_d sum_n sum_k E[z_dnk] E[ln topicDist_dk]
         exLnTopic = diTopicDists[d, :K] - diSumTopicDists[d]
