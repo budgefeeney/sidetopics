@@ -25,6 +25,20 @@ def rowwise_softmax (matrix, out=None):
     out /= out.sum(axis=1)[:,np.newaxis]
     return out
 
+def colwise_softmax (matrix, out=None):
+    '''
+    Assumes each row of the given matrix is an unnormalized distribution and
+    uses the softmax metric to normalize it. This additionally uses some
+    scaling to ensure that we never overflow.
+    '''
+    if out is None:
+        out = np.ndarray(shape=matrix.shape, dtype=matrix.dtype)
+
+    col_maxes = matrix.max(axis=0) # Underflow makes sense i.e. Pr(K=k) = 0. Overflow doesn't, i.e Pr(K=k) = \infty
+    np.exp(matrix - col_maxes[np.newaxis, :], out=out)
+    out /= out.sum(axis=0)[np.newaxis, :]
+    return out
+
 def lse(matrix):
     '''
     The log-sum-exp function. For each _row_ in the matrix, calculate the
