@@ -127,7 +127,7 @@ class MtmTest(unittest.TestCase):
         K = 10 # TopicCount
         model      = mtm2.newModelAtRandom(data, K, dtype=dtype)
         queryState = mtm2.newQueryState(data, model)
-        trainPlan  = mtm2.newTrainPlan(iterations=200, logFrequency=10, fastButInaccurate=False, debug=False)
+        trainPlan  = mtm2.newTrainPlan(iterations=4, logFrequency=10, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = mtm2.train(data, model, queryState, trainPlan)
@@ -174,8 +174,10 @@ class MtmTest(unittest.TestCase):
         docs_dict = [fileIds[fi] for fi in data.order]
 
         for k in range(model.K):
-            max_prob = np.argmax(query.means[:, k])
-            print("K=%2d  Document ID = %s" % (k, docs_dict[max_prob]))
+            arg_max_prob = np.argmax(query.means[:, k])
+            print("K=%2d  Document ID = %s (found at %d)" % (k, docs_dict[arg_max_prob], arg_max_prob))
+
+        print ("Done")
 
     def testPerplexityOnRealDataWithCtm(self):
         dtype = np.float64 # DTYPE
