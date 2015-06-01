@@ -195,8 +195,8 @@ def safe_log (x, out = None):
     if out is not x:
         out.fill (ln_0)
         out[x >= almostZero] = np.log(x[x >= almostZero])
-    else: # out and x refer to the same memoryview
+    else:
         x[x < almostZero] = almostZero
-        np.log (x, out=x)
+        np.log(x, out=x)
     
     return out
