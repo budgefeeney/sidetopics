@@ -426,7 +426,6 @@ def train(data, model, query, plan, updateVocab=True):
     new_maxes_bytop = np.ndarray(shape=(K,), dtype=model.dtype)
     maxes_bytop     = topics.max(axis=0)
 
-    topicCov = np.eye(K) # DEBUG FIXME DEBUG
     for itr in range(iterations):
         if itr % logFrequency == 0:
             iters.append(itr)
@@ -469,20 +468,19 @@ def train(data, model, query, plan, updateVocab=True):
 
             # Topics Step 2, the actual right-hand side
             rhs[:]  = invCov.dot(U[d, :].dot(V))
-            rhs.fill(0) # DEBUG FIXME DEBUG FIXME
             rhs    += (z * W[d, :].data[np.newaxis, :]).sum(axis=1)
             ysum    = (y * L[d, :].data[:, np.newaxis]).sum(axis=0)
-            #rhs    += ysum DEBUG FIXME
+            #rhs    += ysum
 
             b[:] = topics[d, :] - 1./(K+1) * topics[d, :].sum() - softmax(topics[d, :])
-            b *= docLens[d] # FIXME (docLens[d] + out_counts[d])
+            b *= docLens[d]
             rhs += b
 
-            # f[:] = topics[d, :] - 1./(D + 1) * tsums_bytop - np.exp(topics[d, :] - maxes_bytop) / exp_tsums_bytop
-            # f *= in_counts
-            # rhs += f
-            #
-            # rhs[:] += (D - 1)/(2 * D + 2) * (in_counts * (tsums_bytop - topics[d, :]))
+            f[:] = topics[d, :] - 1./(D + 1) * tsums_bytop - np.exp(topics[d, :] - maxes_bytop) / exp_tsums_bytop
+            f *= in_counts
+            rhs += f
+
+            rhs[:] += (D - 1)/(2 * D + 2) * (in_counts * (tsums_bytop - topics[d, :]))
 
             # Topics Step 3: solve
             new_topics = S.dot(rhs)
@@ -505,7 +503,6 @@ def train(data, model, query, plan, updateVocab=True):
 
         # The covariance hyper-parameter
         topicCov[:, :] = newCov
-        # topicCov[:, :] = np.eye(K) # FIXME DEBUG FIXME DEBUG
         invCov[:, :]   = la.inv(topicCov)
 
         # The remaining running counts, and the column-wise softmax adjustment
