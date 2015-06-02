@@ -280,10 +280,10 @@ def train (data, modelState, queryState, trainPlan):
             likelyValues.append(log_likelihood(data, modelState, queryState))
             boundIters.append(itr)
             
-            print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
+            if debug: print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
             if len(boundValues) > 1:
                 if boundValues[-2] > boundValues[-1]:
-                    printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
+                    if debug: printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
         
                 # Check to see if the improvement in the bound has fallen below the threshold
                 if itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
