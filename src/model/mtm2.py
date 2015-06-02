@@ -41,7 +41,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-USE_NIW_PRIOR=True
+USE_NIW_PRIOR=False
 NIW_PSI=0.1             # isotropic prior
 NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kappa in the code, go figure
 NIW_PSEUDO_OBS_VAR=+2   # related to K
@@ -242,15 +242,13 @@ def train (data, modelState, queryState, trainPlan):
 #        print("                topicCov.det = " + str(la.det(topicCov)))
 
         # Building Blocks - temporarily replaces means with exp(means)
-        expMeansOut   = np.exp(means - row_maxes[:, np.newaxis])
-        expMeansIn    = np.exp(means - col_maxes[np.newaxis, :])
-        lse_at_k      = np.sum(expMeansIn, axis=0)
+        expMeans = np.exp(means)
+        lse_at_k = np.sum(expMeans, axis=0)
         F = 0.5 * means \
-          - 0.5 * (1. / (2*D + 2)) * means.sum(axis=0) \
+          - (1. / (2*D + 2)) * means.sum(axis=0) \
           - expMeansIn / lse_at_k[np.newaxis, :]
 
         W_weight   = sparseScalarQuotientOfDot(W, expMeansOut, vocab, out=W_weight)
-        w_top_sums = W_weight.dot(vocab.T) * expMeansOut
 
         # Update the vocabulary
         vocab *= (W_weight.T.dot(expMeansOut)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
@@ -266,11 +264,11 @@ def train (data, modelState, queryState, trainPlan):
         # Now do likewise for the links, do it twice to model in-counts (first) and
         # out-counts (Second). The difference is the transpose
         L_weight = sparseScalarQuotientOfNormedDot(L.T, expMeansOut, expMeansIn, lse_at_k, out=L_weight)
-        l_top_sums = L_weight.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
-        in_counts = l_top_sums.sum(axis=0)
+        in_l_top_sums = L_weight.dot(expMeansOut) / lse_at_k[np.newaxis, :] * expMeansIn
+        in_counts = in_l_top_sums.sum(axis=0)
 
         L_weight   = sparseScalarQuotientOfNormedDot(L, expMeansOut, expMeansIn, lse_at_k, out=L_weight)
-        l_top_sums = L_weight.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
+        out_l_top_sums = L_weight.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
 
         # Reset the means and use them to calculate the weighted sum of means
         meanSum = (means * in_counts[np.newaxis, :]).sum(axis=0)
@@ -283,8 +281,9 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, varcs, "varcs", data, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         # Update the Means
-        rhs = w_top_sums.copy()
-        rhs += l_top_sums
+        rhs  = w_top_sums.copy()
+        rhs += in_l_top_sums
+        rhs += out_l_top_sums
         rhs += itopicCov.dot(topicMean)
         rhs += docLens[:, np.newaxis] * means.dot(A)
         rhs -= docLens[:, np.newaxis] * rowwise_softmax(means, out=means)
