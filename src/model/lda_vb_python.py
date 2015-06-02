@@ -258,7 +258,7 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     '''
     K = diWordDists.shape[0]
     wordIdx, z = _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-    topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
+    topicMeans[d, :] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
 #@nb.autojit
