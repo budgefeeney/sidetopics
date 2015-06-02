@@ -12,13 +12,16 @@ class DataSet:
         '''
         The three matrices that make up our features.
 
-        The order specifies the subset of rows to consider (and columns in the
-        case that links is square). Matrix objects are not altered by this.
+        If order is not none, then it means that the matrice were altered before
+        being passed in, and order is the set of indices applied to the original
+        (unseen) matrices before they were passed to this constructor. Thus,
+        unlike from_files(), providing an order to this constructor will not
+        cause the given matrices to be altered.
 
         If limit is greater than zero, then only the first "limit" documents are
         considered.
         '''
-        assert words.shape[0] > 0, "No rows in the document-words matrix"
+        assert words.shape[0] > 0,   "No rows in the document-words matrix"
         assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
 
         assert feats is None or feats.shape[0] == words.shape[0], "Differing row-counts for document-word and document-feature matrices"
@@ -42,7 +45,6 @@ class DataSet:
 
         if order is not None:
             self._order = order
-            self._reorder(order)
         else:
             self._order = np.linspace(0, num_docs - 1, num_docs).astype(np.int32)
 
@@ -53,14 +55,14 @@ class DataSet:
         the given pickle file.
 
         The order specifies the subset of rows to consider (and columns in the
-        case that links is square). Matrix objects are not altered by this.
+        case that links is square). This subset is extracted and passed to the
+        DataSet constructor to build the DataSet object.
 
         If limit is greater than zero, then only the first "limit" documents are
         considered.
         '''
         with open(words_file, 'rb') as f:
             words = pkl.load(f)
-
 
         if feats_file is not None:
             with open(feats_file, 'rb') as f:
@@ -74,9 +76,11 @@ class DataSet:
         else:
             links = None
 
-        return DataSet(words, feats, links, order, limit)
+        result = DataSet(words, feats, links, order=None, limit=limit)
+        if order is not None:
+            result._reorder(order)
 
-
+        return result
 
 
     @property
