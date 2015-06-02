@@ -581,10 +581,4 @@ def _dirichletEntropy (P):
     return (lnB + term1 - term2.sum(axis=1)).sum()
 
 
-def extend_topic_prior (prior_vec, extra_field):
-    return np.hstack ((prior_vec, extra_field))
 
-
-if __name__ == '__main__':
-    test = np.array([-1, 3, 5, -4 , 4, -3, 1], dtype=np.float64)
-    print (str (compiled.normpdf(test)))
