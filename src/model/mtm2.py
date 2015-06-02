@@ -51,7 +51,7 @@ VocabPrior = 0.1
 
 DEBUG=False
 
-MODEL_NAME="ctm/bohning"
+MODEL_NAME="mtm/vb2"
 
 # ==============================================================
 # TUPLES
