@@ -30,6 +30,8 @@ Iters = 200
 LogFreq = 5
 TopicCount = 10
 
+NumFolds = 5
+
 class MtmTest(unittest.TestCase):
 
 
@@ -127,7 +129,7 @@ class MtmTest(unittest.TestCase):
         K = 10 # TopicCount
         model      = mtm2.newModelAtRandom(data, K, dtype=dtype)
         queryState = mtm2.newQueryState(data, model)
-        trainPlan  = mtm2.newTrainPlan(iterations=4, logFrequency=10, fastButInaccurate=False, debug=True)
+        trainPlan  = mtm2.newTrainPlan(iterations=5, logFrequency=10, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = mtm2.train(data, model, queryState, trainPlan)
@@ -239,59 +241,91 @@ class MtmTest(unittest.TestCase):
             print("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
 
 
-    def testPerplexityOnRealDataWithCtmInc(self):
+    def testCrossValPerplexityOnRealDataWithCtmInc(self):
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
         data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
-        with open(AclDictPath, "rb") as f:
-            d = pkl.load(f)
 
         data.convert_to_dtype(dtype)
         data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
-        # IDF frequency for when we print out the vocab later
-        freq = np.squeeze(np.asarray(data.words.sum(axis=0)))
-        scale = np.reciprocal(1 + freq)
+        # Initialise the model
+        trainPlan = ctm.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
+        queryPlan = ctm.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=False)
+
+        topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        for K in topicCounts:
+            trainPerps = []
+            queryPerps = []
+            for fold in range(1): # range(NumFolds):
+                trainData, queryData = data.cross_valid_split(fold, NumFolds)
+
+                model = ctm.newModelAtRandom(trainData, K, dtype=dtype)
+                query = ctm.newQueryState(trainData, model)
+
+                # Train the model, and the immediately save the result to a file for subsequent inspection
+                model, trainResult, (_, _, _) = ctm.train (trainData, model, query, trainPlan)
+
+                like = ctm.log_likelihood(trainData, model, trainResult)
+                perp = perplexity_from_like(like, trainData.word_count)
+                trainPerps.append(perp)
+
+                query = ctm.newQueryState(queryData, model)
+                model, queryResult = ctm.query(queryData, model, query, queryPlan)
+
+                like = ctm.log_likelihood(queryData, model, queryResult)
+                perp = perplexity_from_like(like, queryData.word_count)
+                queryPerps.append(perp)
+
+            trainPerps.append(sum(trainPerps) / NumFolds)
+            queryPerps.append(sum(queryPerps) / NumFolds)
+            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
+            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
+
+
+    def testCrossValPerplexityOnRealDataWithLdaInc(self):
+        dtype = np.float64 # DTYPE
+
+        rd.seed(0xBADB055)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
+
+        data.convert_to_dtype(dtype)
+        data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
         # Initialise the model
+        trainPlan = lda.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
+        queryPlan = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=False)
+
         topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-        perps = []
         for K in topicCounts:
-            model      = ctm.newModelAtRandom(data, K, dtype=dtype)
-            queryState = ctm.newQueryState(data, model)
-            trainPlan  = ctm.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
+            trainPerps = []
+            queryPerps = []
+            for fold in range(1): # range(NumFolds):
+                trainData, queryData = data.cross_valid_split(fold, NumFolds)
 
-            # Train the model, and the immediately save the result to a file for subsequent inspection
-            model, query, (bndItrs, bndVals, bndLikes) = ctm.train (data, model, queryState, trainPlan)
-    #        with open(newModelFileFromModel(model), "wb") as f:
-    #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
+                model = lda.newModelAtRandom(trainData, K, dtype=dtype)
+                query = lda.newQueryState(trainData, model)
 
-            # Print out the most likely topic words
-            # scale = np.reciprocal(1 + np.squeeze(np.array(data.words.sum(axis=0))))
-            vocab = ctm.wordDists(model)
-            topWordCount = 10
-            kTopWordInds = [self.topWordInds(vocab[k,:], topWordCount) for k in range(K)]
+                # Train the model, and the immediately save the result to a file for subsequent inspection
+                model, trainResult, (_, _, _) = lda.train (trainData, model, query, trainPlan)
 
-            like = ctm.log_likelihood(data, model, query)
-            perp = perplexity_from_like(like, data.word_count)
+                like = lda.log_likelihood(trainData, model, trainResult)
+                perp = perplexity_from_like(like, trainData.word_count)
+                trainPerps.append(perp)
 
-            perps.append(perp)
+                query = lda.newQueryState(queryData, model)
+                model, queryResult = lda.query(queryData, model, query, queryPlan)
 
-            print ("K = %2d : Perplexity = %f\n\n" % (K, perp))
-            #
-            # for k in range(model.K):
-            #     print("\nTopic %d\n=============================" % k)
-            #     print("\n".join("%-20s\t%0.4f" % (d[kTopWordInds[k][c]], vocab[k][kTopWordInds[k][c]]) for c in range(topWordCount)))
+                like = lda.log_likelihood(queryData, model, queryResult)
+                perp = perplexity_from_like(like, queryData.word_count)
+                queryPerps.append(perp)
 
-        # Plot the evolution of the bound during training.
-        fig, ax1 = plt.subplots()
-        ax1.plot(topicCounts, perps, 'b-')
-        ax1.set_xlabel('Topic Count')
-        ax1.set_ylabel('Perplexity', color='b')
+            trainPerps.append(sum(trainPerps) / NumFolds)
+            queryPerps.append(sum(queryPerps) / NumFolds)
+            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
+            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
 
-        fig.show()
-        plt.show()
 
 
     def testPerplexityOnRealDataWithLdaInc(self):
