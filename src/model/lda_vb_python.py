@@ -75,11 +75,9 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     T = data.words.shape[1]
 
     if topicPrior is None:
-        topicPrior = constantArray((K + 1,), 5.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K,), 5.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.1 + 0.5 # Also from G&S
-
-    topicPrior[K] = 0
 
     wordDists = np.ones((K,T), dtype=dtype)
     doc_ids = rd.randint(0, data.doc_count, size=K)
@@ -109,10 +107,12 @@ def newQueryState(data, modelState):
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
     # This is super-slow
-    topicDists  = rd.dirichlet(modelState.topicPrior, size=data.doc_count).astype(modelState.dtype)
+    dist = modelState.topicPrior.copy()
+    dist /= dist.sum()
+
+    topicDists  = rd.dirichlet(dist, size=data.doc_count).astype(modelState.dtype)
     topicDists *= docLens[:, np.newaxis]
     topicDists += modelState.topicPrior[np.newaxis, :]
-    topicDists[:, modelState.K] = docLens
 
     return QueryState(docLens, topicDists)
 
@@ -195,7 +195,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -214,7 +214,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -236,7 +236,7 @@ def _inplace_softmax_rowwise(z):
 
 
 
-@nb.autojit
+#@nb.autojit
 def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -261,7 +261,7 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-@nb.autojit
+#@nb.autojit
 def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -297,7 +297,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-@nb.autojit
+#@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -378,7 +378,7 @@ def train(data, model, query, plan, updateVocab=True):
                 if debug: print("Topic Prior is now " + str(topicPrior))
         else:
             for d in range(D):
-                _ = _update_topics_at_d(d, W, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+                _ = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
 
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
 
@@ -431,11 +431,8 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
     doc_topic_counts  = query.topicDists * doc_lens[:, np.newaxis] + old_topic_prior[np.newaxis, :]
 
     D, K = doc_topic_counts.shape
-    K -= 1 # recall topic prior is augmented by one with zero at the last position
 
     psi_old_tprior = np.ndarray(topic_prior.shape, dtype=topic_prior.dtype)
-    topic_prior[K] = 1     # replace the zero augment with 1 to avoid NaNs etc.
-    old_topic_prior[K] = 1
 
     for _ in range(max_iters):
         doc_topic_counts += (topic_prior - old_topic_prior)[np.newaxis, :]
@@ -446,7 +443,6 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
         numer = fns.psi(doc_topic_counts).sum(axis=0) - D * psi_old_tprior
         denom = fns.psi(doc_lens + old_topic_prior[:K].sum()).sum() - D * psi_old_tprior
         topic_prior[:] = old_topic_prior * (numer / denom)
-        topic_prior[K] = 1
 
         if la.norm(np.subtract(old_topic_prior, topic_prior), 1) < (0.001 * K):
             break
@@ -455,7 +451,6 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
 
     doc_topic_counts -= old_topic_prior[np.newaxis, :]
     doc_topic_counts /= doc_lens[:, np.newaxis]
-    topic_prior[K]    = 0
 
 
 def printAndFlushNoNewLine(text):
@@ -464,7 +459,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-@nb.autojit
+#@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -487,7 +482,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) = train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-@nb.autojit
+#@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -496,7 +491,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-@nb.autojit
+#@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
