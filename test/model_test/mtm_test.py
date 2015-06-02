@@ -16,6 +16,7 @@ import model.mtm as mtm
 import model.mtm2 as mtm2
 import model.ctm_bohning as ctm
 import model.lda_vb_python as lda
+import model.lda_vb as lda_old
 from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec
 
@@ -285,6 +286,7 @@ class MtmTest(unittest.TestCase):
 
 
     def testCrossValPerplexityOnRealDataWithLdaInc(self):
+        ActiveFolds = 3
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
@@ -295,13 +297,13 @@ class MtmTest(unittest.TestCase):
 
         # Initialise the model
         trainPlan = lda.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
-        queryPlan = lda.newTrainPlan(iterations=100, logFrequency=10, fastButInaccurate=False, debug=False)
+        queryPlan = lda.newTrainPlan(iterations=24, logFrequency=8, fastButInaccurate=False, debug=False)
 
         topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
         for K in topicCounts:
             trainPerps = []
             queryPerps = []
-            for fold in range(1): # range(NumFolds):
+            for fold in range(ActiveFolds): # range(NumFolds):
                 trainData, queryData = data.cross_valid_split(fold, NumFolds)
 
                 model = lda.newModelAtRandom(trainData, K, dtype=dtype)
@@ -321,8 +323,8 @@ class MtmTest(unittest.TestCase):
                 perp = perplexity_from_like(like, queryData.word_count)
                 queryPerps.append(perp)
 
-            trainPerps.append(sum(trainPerps) / NumFolds)
-            queryPerps.append(sum(queryPerps) / NumFolds)
+            trainPerps.append(sum(trainPerps) / ActiveFolds)
+            queryPerps.append(sum(queryPerps) / ActiveFolds)
             print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
             print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
 
@@ -381,3 +383,47 @@ class MtmTest(unittest.TestCase):
 
         fig.show()
         plt.show()
+
+
+    def testCrossValPerplexityOnRealDataWithLdaOldInc(self):
+        ActiveFolds = 3
+        dtype = np.float64 # DTYPE
+
+        rd.seed(0xBADB055)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
+
+        data.convert_to_dtype(dtype)
+        data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
+
+        # Initialise the model
+        trainPlan = lda.newTrainPlan(iterations=800, logFrequency=200, fastButInaccurate=False, debug=False)
+        queryPlan = lda.newTrainPlan(iterations=24, logFrequency=12, fastButInaccurate=False, debug=False)
+
+        topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        for K in topicCounts:
+            trainPerps = []
+            queryPerps = []
+            for fold in range(ActiveFolds): # range(NumFolds):
+                trainData, queryData = data.cross_valid_split(fold, NumFolds)
+
+                model = lda_old.newModelAtRandom(trainData, K, dtype=dtype)
+                query = lda_old.newQueryState(trainData, model)
+
+                # Train the model, and the immediately save the result to a file for subsequent inspection
+                model, trainResult, (_, _, _) = lda_old.train (trainData, model, query, trainPlan)
+
+                like = lda_old.log_likelihood(trainData, model, trainResult)
+                perp = perplexity_from_like(like, trainData.word_count)
+                trainPerps.append(perp)
+
+                query = lda_old.newQueryState(queryData, model)
+                model, queryResult = lda_old.query(queryData, model, query, queryPlan)
+
+                like = lda_old.log_likelihood(queryData, model, queryResult)
+                perp = perplexity_from_like(like, queryData.word_count)
+                queryPerps.append(perp)
+
+            trainPerps.append(sum(trainPerps) / ActiveFolds)
+            queryPerps.append(sum(queryPerps) / ActiveFolds)
+            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
+            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
