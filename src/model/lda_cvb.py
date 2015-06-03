@@ -113,7 +113,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, dtype, MODEL_NAME)
 
 
-def newQueryState(data, modelState):
+def newQueryState(data, modelState, debug=False):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -130,13 +130,13 @@ def newQueryState(data, modelState):
     W   = data.words
     D,_ = W.shape
 
-    print("Converting document-term matrix to list of lists... ", end="")
+    if debug: print("Converting document-term matrix to list of lists... ", end="")
     W_list, docLens = toWordList(W)
-    print("Done")
+    if debug: print("Done")
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    print ("Sampling the " + str(D * maxN * K) + " per-token topic distributions... ", end="")
+    if debug: print ("Sampling the " + str(D * maxN * K) + " per-token topic distributions... ", end="")
     sys.stdout.flush()
 #     z_dnk = rd.dirichlet(modelState.topicPrior, size=D * maxN) \
 #           .astype(modelState.dtype) \
@@ -144,7 +144,7 @@ def newQueryState(data, modelState):
     z_dnk = rd.rand(D*maxN,K)
     z_dnk /= (z_dnk.sum(axis=1))[:,np.newaxis]
     z_dnk = z_dnk.reshape((D,maxN,K))
-    print ("Done")
+    if debug: print ("Done")
     sys.stdout.flush()
     
     n_dk, n_kt, n_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
@@ -233,7 +233,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
 #     print ("Topic prior : " + str(topicPrior))
     
     # Select the training iterations function appropriate for the dtype
-    print ("Starting Training")
+    if debug: print ("Starting Training")
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
@@ -250,8 +250,8 @@ def train (data, modelState, queryState, trainPlan, query=False):
         
         # Measure and record the improvement to the bound and log-likely
         boundIters[bvIdx]   = segment * segIters
-        boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
-        likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        boundValues[bvIdx]  = var_bound_intermediate(data, modelState, queryState, q_n_kt, q_n_k)
+        likelyValues[bvIdx] = log_likely_intermediate(data, modelState, queryState, q_n_kt, q_n_k)
         bvIdx += 1
         
         # Check to see if the improvement in the bound has fallen below the threshold
@@ -260,7 +260,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
             finishedTraining = True
             break
         
-        print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, -1, -1))
+        if debug: print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, -1, -1))
     
     # Final scheduled batch of iterations if we haven't already converged.
     if not finishedTraining:
@@ -270,8 +270,8 @@ def train (data, modelState, queryState, trainPlan, query=False):
                    topicPrior, vocabPrior)
     
         boundIters[bvIdx]   = iterations - 1
-        boundValues[bvIdx]  = var_bound_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
-        likelyValues[bvIdx] = log_likely_intermediate(W, modelState, queryState, q_n_kt, q_n_k)
+        boundValues[bvIdx]  = var_bound_intermediate(data, modelState, queryState, q_n_kt, q_n_k)
+        likelyValues[bvIdx] = log_likely_intermediate(data, modelState, queryState, q_n_kt, q_n_k)
         
     # Now return the results
     if query: # Model is unchanged, query is changed
@@ -361,7 +361,7 @@ def log_likelihood (data, modelState, queryState):
     
     # Use distributions to create log-likelihood. This could be made
     # faster still by not materializing the (admittedly sparse) matrix
-    ln_likely = sparseScalarProductOfSafeLnDot(W, n_dk, n_kt).sum()
+    ln_likely = sparseScalarProductOfSafeLnDot(data.words, n_dk, n_kt).sum()
     
     # Rescale back to word-counts
     n_dk *= doc_norm[:,np.newaxis]
@@ -380,6 +380,7 @@ def var_bound(data, modelState, queryState):
     manner.
     '''
     # Unpack the the structs, for ease of access and efficiency
+    W     = data.words
     D,T   = W.shape
     K     = modelState.K
     n_kt  = modelState.n_kt
