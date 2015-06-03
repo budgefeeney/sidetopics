@@ -167,7 +167,8 @@ def sample ( \
         np.ndarray[np.float64_t, ndim=2] vocabSum,   \
         double[:]   a, \
         double[:]   b, \
-        bint        isQuery):
+        bint        isQuery,
+        bint        debug):
     '''
     Uses a collapsed Gibbs sampler to infer the parameters for an
     LDA model
@@ -253,8 +254,9 @@ def sample ( \
                 start += docLens[d]
             # Check if this is one of the samples to take
             if (s + 1) % thin == 0:
-                with gil:
-                    print ("\nTaking sample " + str(trueSampleCount))
+                if debug:
+                    with gil:
+                        print ("\nTaking sample " + str(trueSampleCount))
                     
                 # Avoid fully vectorising so we don't materialise huge, temporary, DxK or KxV matrices
                 # TODO Consider doing this a row at a time, using numpy, for speedup
@@ -269,13 +271,13 @@ def sample ( \
                     
                 if trueSampleCount % 10 == 0:
                     with gil:
-                        print ("Updating hyperparameters...")
+                        if debug: print ("Updating hyperparameters...")
                         a[:] = inferPolyaHyper(ndk, docLens)
                         b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
                         
                         aSum = np.sum(a)
                         bSum = np.sum(b)
-                        print ("Done")
+                        if debug: print ("Done")
 
             
     return trueSampleCount

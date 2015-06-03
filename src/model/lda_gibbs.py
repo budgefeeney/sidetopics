@@ -114,7 +114,7 @@ def newModelFromExisting(model):
         model.dtype,      \
         model.name)
 
-def newQueryState(data, modelState):
+def newQueryState(data, modelState, debug=False):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -130,14 +130,14 @@ def newQueryState(data, modelState):
     K =  modelState.K
     
     D,T = data.words.shape
-    print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
+    if debug: print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
     w_list, docLens = compiled.flatten(data.words)
-    print("Done")
+    if debug: print("Done")
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
-    print ("Sampling the {:,} ({:,}) per-token topic distributions... ".format(w_list.shape[0], docLens.sum()), end="")
+    if debug: print ("Sampling the {:,} ({:,}) per-token topic distributions... ".format(w_list.shape[0], docLens.sum()), end="")
     z_list = rd.randint(0, K, w_list.shape[0]).astype(np.uint8)
-    print("Done")
+    if debug: print("Done")
     
     return QueryState(w_list, z_list, docLens, None, 0)
 
@@ -156,7 +156,7 @@ def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastBu
 
 
 def train (data, model, query, plan):
-    iterations, burnIn, thin, _, _ = \
+    iterations, burnIn, thin, _, debug = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
     w_list, z_list, docLens, _, _ = \
         query.w_list, query.z_list, query.docLens, query.topicSum, query.numSamples
@@ -177,16 +177,16 @@ def train (data, model, query, plan):
     compiled.sumSuffStats(w_list, z_list, docLens, ndk, nkv, nk)
     
     # Burn in
-    print ("Burning")
+    if debug: print ("Burning")
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, False)
+            topicPrior, vocabPrior, False, debug)
     
     # True samples
-    print ("Sampling")
+    if debug: print ("Sampling")
     numSamples = compiled.sample (iterations - burnIn, thin, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, False)
+            topicPrior, vocabPrior, False, debug)
     
 #     compiled.freeGlobalRng()
     
@@ -197,7 +197,7 @@ def train (data, model, query, plan):
 
 
 def query (data, model, query, plan):
-    iterations, burnIn, thin, _, _ = \
+    iterations, burnIn, thin, _, debug = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
     w_list, z_list, docLens, _, _ = \
         query.w_list, query.z_list, query.docLens, query.topicSum, query.numSamples
@@ -207,7 +207,7 @@ def query (data, model, query, plan):
     assert model.dtype == np.float64, "This is only implements for 64-bit floats"
     D = docLens.shape[0]
     
-    compiled.setGlobalRngSeed(0xC0FFEE)
+    compiled.initGlobalRng(0xC0FFEE)
     
     ndk = model.topicSum.copy()
     nkv = model.vocabSum.copy()
@@ -221,12 +221,12 @@ def query (data, model, query, plan):
     # Burn in
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True)
+            topicPrior, vocabPrior, True, debug)
     
     # True samples
     numSamples = compiled.sample (iterations - burnIn, thin, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True)
+            topicPrior, vocabPrior, True, debug)
     
     return \
         ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
