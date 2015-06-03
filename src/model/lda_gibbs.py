@@ -124,7 +124,7 @@ def newQueryState(data, modelState, debug=False):
     data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
     
-    REturn:
+    Return:
     A query object
     '''
     K =  modelState.K
