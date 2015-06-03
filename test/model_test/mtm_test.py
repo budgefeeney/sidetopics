@@ -17,7 +17,7 @@ import model.mtm2 as mtm2
 import model.ctm_bohning as ctm
 import model.lda_vb_python as lda
 import model.lda_vb as lda_old
-import model.lda_cvb as lda_cvb
+import model.lda_gibbs as lda_gibbs
 from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec
 
@@ -286,50 +286,6 @@ class MtmTest(unittest.TestCase):
             print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
 
 
-    def testCrossValPerplexityOnRealDataWithLdaInc(self):
-        ActiveFolds = 3
-        dtype = np.float64 # DTYPE
-
-        rd.seed(0xBADB055)
-        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
-
-        data.convert_to_dtype(dtype)
-        data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
-
-        # Initialise the model
-        trainPlan = lda.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
-        queryPlan = lda.newTrainPlan(iterations=24, logFrequency=8, fastButInaccurate=False, debug=False)
-
-        topicCounts = [30, 35, 40, 45, 50] # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
-        for K in topicCounts:
-            trainPerps = []
-            queryPerps = []
-            for fold in range(ActiveFolds): # range(NumFolds):
-                trainData, queryData = data.cross_valid_split(fold, NumFolds)
-
-                model = lda.newModelAtRandom(trainData, K, dtype=dtype)
-                query = lda.newQueryState(trainData, model)
-
-                # Train the model, and the immediately save the result to a file for subsequent inspection
-                model, trainResult, (_, _, _) = lda.train (trainData, model, query, trainPlan)
-
-                like = lda.log_likelihood(trainData, model, trainResult)
-                perp = perplexity_from_like(like, trainData.word_count)
-                trainPerps.append(perp)
-
-                query = lda.newQueryState(queryData, model)
-                model, queryResult = lda.query(queryData, model, query, queryPlan)
-
-                like = lda.log_likelihood(queryData, model, queryResult)
-                perp = perplexity_from_like(like, queryData.word_count)
-                queryPerps.append(perp)
-
-            trainPerps.append(sum(trainPerps) / ActiveFolds)
-            queryPerps.append(sum(queryPerps) / ActiveFolds)
-            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
-            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
-
-
 
     def testPerplexityOnRealDataWithLdaInc(self):
         dtype = np.float64 # DTYPE
@@ -386,6 +342,51 @@ class MtmTest(unittest.TestCase):
         plt.show()
 
 
+    def testCrossValPerplexityOnRealDataWithLdaInc(self):
+        ActiveFolds = 3
+        dtype = np.float64 # DTYPE
+
+        rd.seed(0xBADB055)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
+
+        data.convert_to_dtype(dtype)
+        data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
+
+        # Initialise the model
+        trainPlan = lda.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
+        queryPlan = lda.newTrainPlan(iterations=50, logFrequency=5, fastButInaccurate=False, debug=False)
+
+        topicCounts = [30, 35, 40, 45, 50] # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        for K in topicCounts:
+            trainPerps = []
+            queryPerps = []
+            for fold in range(ActiveFolds): # range(NumFolds):
+                trainData, queryData = data.cross_valid_split(fold, NumFolds)
+
+                model = lda.newModelAtRandom(trainData, K, dtype=dtype)
+                query = lda.newQueryState(trainData, model)
+
+                # Train the model, and the immediately save the result to a file for subsequent inspection
+                model, trainResult, (_, _, _) = lda.train (trainData, model, query, trainPlan)
+
+                like = lda.log_likelihood(trainData, model, trainResult)
+                perp = perplexity_from_like(like, trainData.word_count)
+                trainPerps.append(perp)
+
+                estData, evalData = queryData.doc_completion_split()
+                query = lda.newQueryState(estData, model)
+                model, queryResult = lda.query(estData, model, query, queryPlan)
+
+                like = lda.log_likelihood(evalData, model, queryResult)
+                perp = perplexity_from_like(like, evalData.word_count)
+                queryPerps.append(perp)
+
+            trainPerps.append(sum(trainPerps) / ActiveFolds)
+            queryPerps.append(sum(queryPerps) / ActiveFolds)
+            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
+            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
+
+
     def testCrossValPerplexityOnRealDataWithLdaOldInc(self):
         ActiveFolds = 3
         dtype = np.float64 # DTYPE
@@ -430,42 +431,49 @@ class MtmTest(unittest.TestCase):
             print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
 
 
-    def testCrossValPerplexityOnRealDataWithLdaCvbInc(self):
+    def testCrossValPerplexityOnRealDataWithLdaGibbsInc(self):
         ActiveFolds = 3
         dtype = np.float64 # DTYPE
 
         rd.seed(0xBADB055)
         data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
 
-        data.convert_to_dtype(dtype)
+        data.convert_to_dtype(np.int32) # Gibbs expects integers as input, regardless of model dtype
         data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
-        # Initialise the model
-        trainPlan = lda_cvb.newTrainPlan(iterations=800, logFrequency=5, fastButInaccurate=False, debug=False)
-        queryPlan = lda_cvb.newTrainPlan(iterations=24, logFrequency=3, fastButInaccurate=False, debug=False)
+        # Training setup
+        TrainSamplesPerTopic = 10
+        QuerySamplesPerTopic = 2
+        Thin = 2
+        Debug = False
 
+        # Start running experiments
         topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
         for K in topicCounts:
+            trainPlan = lda_gibbs.newTrainPlan(K * TrainSamplesPerTopic, thin=Thin, debug=Debug)
+            queryPlan = lda_gibbs.newTrainPlan(K * QuerySamplesPerTopic, thin=Thin, debug=Debug)
+
             trainPerps = []
             queryPerps = []
             for fold in range(ActiveFolds): # range(NumFolds):
                 trainData, queryData = data.cross_valid_split(fold, NumFolds)
+                estData, evalData = queryData.doc_completion_split()
 
-                model = lda_cvb.newModelAtRandom(trainData, K, dtype=dtype)
-                query = lda_cvb.newQueryState(trainData, model)
+                model = lda_gibbs.newModelAtRandom(trainData, K, dtype=dtype)
+                query = lda_gibbs.newQueryState(trainData, model)
 
                 # Train the model, and the immediately save the result to a file for subsequent inspection
-                model, trainResult, (_, _, _) = lda_cvb.train (trainData, model, query, trainPlan)
+                model, trainResult, (_, _, _) = lda_gibbs.train (trainData, model, query, trainPlan)
 
-                like = lda_cvb.log_likelihood(trainData, model, trainResult)
+                like = lda_gibbs.log_likelihood(trainData, model, trainResult)
                 perp = perplexity_from_like(like, trainData.word_count)
                 trainPerps.append(perp)
 
-                query = lda_cvb.newQueryState(queryData, model)
-                model, queryResult = lda_cvb.query(queryData, model, query, queryPlan)
+                query = lda_gibbs.newQueryState(estData, model)
+                model, queryResult = lda_gibbs.query(estData, model, query, queryPlan)
 
-                like = lda_cvb.log_likelihood(queryData, model, queryResult)
-                perp = perplexity_from_like(like, queryData.word_count)
+                like = lda_gibbs.log_likelihood(evalData, model, queryResult)
+                perp = perplexity_from_like(like, evalData.word_count)
                 queryPerps.append(perp)
 
             trainPerps.append(sum(trainPerps) / ActiveFolds)
