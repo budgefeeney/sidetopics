@@ -17,6 +17,7 @@ import model.mtm2 as mtm2
 import model.ctm_bohning as ctm
 import model.lda_vb_python as lda
 import model.lda_vb as lda_old
+import model.lda_cvb as lda_cvb
 from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec
 
@@ -299,7 +300,7 @@ class MtmTest(unittest.TestCase):
         trainPlan = lda.newTrainPlan(iterations=800, logFrequency=10, fastButInaccurate=False, debug=False)
         queryPlan = lda.newTrainPlan(iterations=24, logFrequency=8, fastButInaccurate=False, debug=False)
 
-        topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        topicCounts = [30, 35, 40, 45, 50] # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
         for K in topicCounts:
             trainPerps = []
             queryPerps = []
@@ -396,8 +397,8 @@ class MtmTest(unittest.TestCase):
         data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
 
         # Initialise the model
-        trainPlan = lda.newTrainPlan(iterations=800, logFrequency=200, fastButInaccurate=False, debug=False)
-        queryPlan = lda.newTrainPlan(iterations=24, logFrequency=12, fastButInaccurate=False, debug=False)
+        trainPlan = lda_old.newTrainPlan(iterations=800, logFrequency=200, fastButInaccurate=False, debug=False)
+        queryPlan = lda_old.newTrainPlan(iterations=24, logFrequency=12, fastButInaccurate=False, debug=False)
 
         topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
         for K in topicCounts:
@@ -420,6 +421,50 @@ class MtmTest(unittest.TestCase):
                 model, queryResult = lda_old.query(queryData, model, query, queryPlan)
 
                 like = lda_old.log_likelihood(queryData, model, queryResult)
+                perp = perplexity_from_like(like, queryData.word_count)
+                queryPerps.append(perp)
+
+            trainPerps.append(sum(trainPerps) / ActiveFolds)
+            queryPerps.append(sum(queryPerps) / ActiveFolds)
+            print("K=%d,Segment=Train,%s" % (K, ",".join([str(p) for p in trainPerps])))
+            print("K=%d,Segment=Query,%s" % (K, ",".join([str(p) for p in queryPerps])))
+
+
+    def testCrossValPerplexityOnRealDataWithLdaCvbInc(self):
+        ActiveFolds = 3
+        dtype = np.float64 # DTYPE
+
+        rd.seed(0xBADB055)
+        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
+
+        data.convert_to_dtype(dtype)
+        data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCount)
+
+        # Initialise the model
+        trainPlan = lda_cvb.newTrainPlan(iterations=800, logFrequency=5, fastButInaccurate=False, debug=False)
+        queryPlan = lda_cvb.newTrainPlan(iterations=24, logFrequency=3, fastButInaccurate=False, debug=False)
+
+        topicCounts = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        for K in topicCounts:
+            trainPerps = []
+            queryPerps = []
+            for fold in range(ActiveFolds): # range(NumFolds):
+                trainData, queryData = data.cross_valid_split(fold, NumFolds)
+
+                model = lda_cvb.newModelAtRandom(trainData, K, dtype=dtype)
+                query = lda_cvb.newQueryState(trainData, model)
+
+                # Train the model, and the immediately save the result to a file for subsequent inspection
+                model, trainResult, (_, _, _) = lda_cvb.train (trainData, model, query, trainPlan)
+
+                like = lda_cvb.log_likelihood(trainData, model, trainResult)
+                perp = perplexity_from_like(like, trainData.word_count)
+                trainPerps.append(perp)
+
+                query = lda_cvb.newQueryState(queryData, model)
+                model, queryResult = lda_cvb.query(queryData, model, query, queryPlan)
+
+                like = lda_cvb.log_likelihood(queryData, model, queryResult)
                 perp = perplexity_from_like(like, queryData.word_count)
                 queryPerps.append(perp)
 
