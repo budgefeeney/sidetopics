@@ -277,10 +277,13 @@ class DataSet:
         rng = rd.RandomState(seed)
 
         dat    = self._words.data
-        jitter = rng.normal(scale=0.3, size=len(dat)).astype(dtype=self._words.dtype)
+        jitter = rng.normal(scale=0.3, size=len(dat))
         evl    = dat + jitter
         est    = np.around(evl / 2.0)
         evl    = dat - est
+
+        est = est.astype(self._words.dtype)
+        evl = evl.astype(self._words.dtype)
 
         words_train = ssp.csr_matrix((est, self._words.indices, self._words.indptr), shape=self._words.shape)
         words_query = ssp.csr_matrix((evl, self._words.indices, self._words.indptr), shape=self._words.shape)
