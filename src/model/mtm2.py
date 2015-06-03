@@ -187,6 +187,8 @@ def train (data, modelState, queryState, trainPlan):
     means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     K, topicMean, topicCov, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.topicCov, modelState.vocab, modelState.A, modelState.dtype
 
+    emit_counts = docLens + out_links
+
     # Book-keeping for logs
     boundIters, boundValues, likelyValues = [], [], []
 
@@ -204,8 +206,6 @@ def train (data, modelState, queryState, trainPlan):
 
     lse_at_k  = np.sum(np.exp(means), axis=0)
     in_counts = np.ndarray(shape=(K,))
-    expMeansIn  = means.copy()
-    expMeansOut = means.copy()
     row_maxes   = means.max(axis=1)
     col_maxes   = means.max(axis=0)
 
@@ -242,33 +242,37 @@ def train (data, modelState, queryState, trainPlan):
 #        print("                topicCov.det = " + str(la.det(topicCov)))
 
         # Building Blocks - temporarily replaces means with exp(means)
-        expMeans = np.exp(means)
-        lse_at_k = np.sum(expMeans, axis=0)
+        expMeansCol = np.exp(means - means.max(axis=0)[np.newaxis, :])
+        lse_at_k = np.sum(expMeansCol, axis=0)
         F = 0.5 * means \
           - (1. / (2*D + 2)) * means.sum(axis=0) \
-          - expMeansIn / lse_at_k[np.newaxis, :]
+          - expMeansCol / lse_at_k[np.newaxis, :]
 
-        W_weight   = sparseScalarQuotientOfDot(W, expMeansOut, vocab, out=W_weight)
+        expMeansRow = np.exp(means - means.max(axis=1)[:, np.newaxis])
+        W_weight   = sparseScalarQuotientOfDot(W, expMeansRow, vocab, out=W_weight)
 
-        # Update the vocabulary
-        vocab *= (W_weight.T.dot(expMeansOut)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+        # Update the vocabularies
+
+        vocab *= (W_weight.T.dot(expMeansRow)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
 
+        docVocab = (expMeansCol / lse_at_k[np.newaxis, :]).T # FIXME Dupes line in definitino of 1
+
         # Recalculate w_top_sums with the new vocab and log vocab improvement
-        W_weight = sparseScalarQuotientOfDot(W, expMeansOut, vocab, out=W_weight)
-        w_top_sums = W_weight.dot(vocab.T) * expMeansOut
+        W_weight = sparseScalarQuotientOfDot(W, expMeansRow, vocab, out=W_weight)
+        w_top_sums = W_weight.dot(vocab.T) * expMeansRow
 
         debugFn (itr, vocab, "vocab", data, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         # Now do likewise for the links, do it twice to model in-counts (first) and
         # out-counts (Second). The difference is the transpose
-        L_weight = sparseScalarQuotientOfNormedDot(L.T, expMeansOut, expMeansIn, lse_at_k, out=L_weight)
-        in_l_top_sums = L_weight.dot(expMeansOut) / lse_at_k[np.newaxis, :] * expMeansIn
-        in_counts = in_l_top_sums.sum(axis=0)
+        L_weight     = sparseScalarQuotientOfDot(L.T, expMeansRow, docVocab, out=L_weight)
+        l_intop_sums = L_weight.dot(docVocab.T) * expMeansRow
+        in_counts    = l_intop_sums.sum(axis=0)
 
-        L_weight   = sparseScalarQuotientOfNormedDot(L, expMeansOut, expMeansIn, lse_at_k, out=L_weight)
-        out_l_top_sums = L_weight.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
+        L_weight     = sparseScalarQuotientOfDot(L, expMeansRow, docVocab, out=L_weight)
+        l_outtop_sums = L_weight.dot(docVocab.T) * expMeansRow
 
         # Reset the means and use them to calculate the weighted sum of means
         meanSum = (means * in_counts[np.newaxis, :]).sum(axis=0)
@@ -282,26 +286,23 @@ def train (data, modelState, queryState, trainPlan):
 
         # Update the Means
         rhs  = w_top_sums.copy()
-        rhs += in_l_top_sums
-        rhs += out_l_top_sums
+        rhs += l_intop_sums
+        rhs += l_outtop_sums
         rhs += itopicCov.dot(topicMean)
-        rhs += docLens[:, np.newaxis] * means.dot(A)
-        rhs -= docLens[:, np.newaxis] * rowwise_softmax(means, out=means)
+        rhs += emit_counts[:, np.newaxis] * (means.dot(A) + rowwise_softmax(means))
         rhs += in_counts[np.newaxis, :] * F
         if diagonalPriorCov:
             raise ValueError("Not implemented")
         else:
             for d in range(D):
-                rhs_         = rhs[d, :] - (1. / (4 * D + 4)) * (meanSum - means[d, :])
-                means[d, :]  = la.inv(itopicCov + (out_links[d] + docLens[d]) * A).dot(rhs_)
+                rhs_         = rhs[d, :] + (1. / (4 * D + 4)) * (meanSum - in_counts * means[d, :])
+                means[d, :]  = la.inv(itopicCov + emit_counts[d] * A + np.diag(in_counts / (2 * D + 2))).dot(rhs_)
                 if np.any(np.isnan(means[d, :])) or np.any (np.isinf(means[d, :])):
                     pass
 
                 if np.any(np.isnan(np.exp(means[d, :] - means[d, :].max()))) or np.any (np.isinf(np.exp(means[d, :] - means[d, :].max()))):
                     pass
 
-        row_maxes = means.max(axis=1)
-        col_maxes = means.max(axis=0)
         debugFn (itr, means, "means", data, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
         if True: #logFrequency > 0 and itr % logFrequency == 0:
