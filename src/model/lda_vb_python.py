@@ -340,7 +340,6 @@ def train(data, model, query, plan, updateVocab=True):
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
     # we only store a 1xNxT = NxT part.
-    z = np.empty((K,), dtype=dtype, order='F')
     diWordDistSums = np.empty((K,), dtype=dtype)
     diWordDists    = np.empty(wordDists.shape, dtype=dtype)
 
