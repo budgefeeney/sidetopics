@@ -506,7 +506,7 @@ def var_bound(data, modelState, queryState):
 def softmax(x):
     r  = x.copy()
     r -= r.max()
-    np.exp(r, out=r)
+    r  = np.exp(r)
     r /= np.sum(x)
     return r
 
