@@ -178,7 +178,7 @@ def train (data, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want itr)
     A new query object with the update query parameters
     '''
-    W, L, X = data.words, data.links, data.feats
+    W, L, LT, X = data.words, data.links, ssp.csr_matrix(data.links.T), data.feats
     D,_ = W.shape
     out_links = np.squeeze(np.asarray(data.links.sum(axis=1)))
 
@@ -202,19 +202,14 @@ def train (data, modelState, queryState, trainPlan):
         debugFn = _debug_with_nothing
 
     # Initialize some working variables
-    itopicCov = la.inv(topicCov)
-    W_weight = W.copy()
-    L_weight = L.copy()
+    W_weight  = W.copy()
+    L_weight  = L.copy()
+    LT_weight = LT.copy()
 
     pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
     pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
     priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigT_diag.fill (NIW_PSI)
-
-    lse_at_k  = np.sum(np.exp(means), axis=0)
-    in_counts = np.ndarray(shape=(K,))
-    row_maxes   = means.max(axis=1)
-    col_maxes   = means.max(axis=0)
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -274,15 +269,15 @@ def train (data, modelState, queryState, trainPlan):
 
         # Now do likewise for the links, do it twice to model in-counts (first) and
         # out-counts (Second). The difference is the transpose
-        L_weight     = sparseScalarQuotientOfDot(L.T, expMeansRow, docVocab, out=L_weight)
-        l_intop_sums = L_weight.dot(docVocab.T) * expMeansRow
+        LT_weight    = sparseScalarQuotientOfDot(LT, expMeansRow, docVocab, out=LT_weight)
+        l_intop_sums = LT_weight.dot(docVocab.T) * expMeansRow
         in_counts    = l_intop_sums.sum(axis=0)
 
         L_weight     = sparseScalarQuotientOfDot(L, expMeansRow, docVocab, out=L_weight)
         l_outtop_sums = L_weight.dot(docVocab.T) * expMeansRow
 
         # Reset the means and use them to calculate the weighted sum of means
-        meanSum = (means * in_counts[np.newaxis, :]).sum(axis=0)
+        meanSum = means.sum(axis=0) * in_counts
 
         # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
@@ -303,7 +298,7 @@ def train (data, modelState, queryState, trainPlan):
         else:
             for d in range(D):
                 rhs_         = rhs[d, :] + (1. / (4 * D + 4)) * (meanSum - in_counts * means[d, :])
-                means[d, :]  = la.inv(itopicCov + emit_counts[d] * A + np.diag(in_counts / (2 * D + 2))).dot(rhs_)
+                means[d, :]  = la.inv(itopicCov + emit_counts[d] * A + np.diag(D * in_counts / (2 * D + 2))).dot(rhs_)
                 if np.any(np.isnan(means[d, :])) or np.any (np.isinf(means[d, :])):
                     pass
 
@@ -326,7 +321,7 @@ def train (data, modelState, queryState, trainPlan):
                     printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
 
                 # Check to see if the improvement in the bound has fallen below the threshold
-                if itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                if False and itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
 
@@ -504,6 +499,43 @@ def var_bound(data, modelState, queryState):
     
     return bound
         
+
+def min_link_probs(model, topics, links):
+    '''
+    For every document, for each of the given links, determine the
+    probability of the least likely link (i.e the document-specific
+    minimum of probabilities).
+
+    :param model: the model object
+    :param topics: the topics that were inferred for each document
+        represented by the links matrix
+    :param links: a DxD matrix of links for each document (row)
+    :return: a D-dimensional vector with the minimum probabilties for each
+        link
+    '''
+    D = topics.means.shape[0]
+    topDists = topicDists(topics)
+    docDist  = np.empty((D,), dtype=model.dtype)
+    for d in range(D):
+        np.dot()
+
+    return mins
+
+def link_probs(model, topics, min_link_probs):
+    '''
+    Generate the probability of a link for all possible pairs of documents,
+    but only store those probabilities that are bigger than or equal to the
+    minimum. This ensures, hopefully, that we don't materialise a complete
+    DxD matrix, but rather the minimum needed to determine the mean
+    average precisions
+
+    :param model: the trained model
+    :param topics: the topics for each of the documents we're generating
+        links for
+    :param min_link_probs: the minimum link probability for each document
+    :return: a (hopefully) sparse DxD matrix of link probabilities
+    '''
+    pass
 
 # ==============================================================
 # PUBLIC HELPERS
