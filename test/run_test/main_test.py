@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '3'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '20'      \
+                    + ' --iters '          + '150'      \
                     + ' --query-iters '    + '5'      \
                     + ' --folds '          + '2'      \
                     + ' --words '          + AclWordPath \
