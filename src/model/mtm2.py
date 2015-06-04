@@ -192,7 +192,14 @@ def train (data, modelState, queryState, trainPlan):
     # Book-keeping for logs
     boundIters, boundValues, likelyValues = [], [], []
 
-    debugFn = _debug_with_bound if debug else _debug_with_nothing
+    if debug:
+        debugFn = _debug_with_bound
+
+        initLikely = log_likelihood(data, modelState, queryState)
+        initPerp   = perplexity_from_like(initLikely, data.word_count)
+        print ("Initial perplexity is: %.2f" % initPerp)
+    else:
+        debugFn = _debug_with_nothing
 
     # Initialize some working variables
     itopicCov = la.inv(topicCov)
@@ -257,7 +264,7 @@ def train (data, modelState, queryState, trainPlan):
         vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
 
-        docVocab = (expMeansCol / lse_at_k[np.newaxis, :]).T # FIXME Dupes line in definitino of 1
+        docVocab = (expMeansCol / lse_at_k[np.newaxis, :]).T # FIXME Dupes line in definitino of F
 
         # Recalculate w_top_sums with the new vocab and log vocab improvement
         W_weight = sparseScalarQuotientOfDot(W, expMeansRow, vocab, out=W_weight)
@@ -289,7 +296,7 @@ def train (data, modelState, queryState, trainPlan):
         rhs += l_intop_sums
         rhs += l_outtop_sums
         rhs += itopicCov.dot(topicMean)
-        rhs += emit_counts[:, np.newaxis] * (means.dot(A) + rowwise_softmax(means))
+        rhs += emit_counts[:, np.newaxis] * (means.dot(A) - rowwise_softmax(means))
         rhs += in_counts[np.newaxis, :] * F
         if diagonalPriorCov:
             raise ValueError("Not implemented")
@@ -511,9 +518,12 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, v
         printStderr ("WARNING: " + var_name + " contains INFs")
     if var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
-    
+
+    model = ModelState(K, topicMean, topicCov, vocab, A, dtype, MODEL_NAME)
+    query = QueryState(means, varcs, n)
+
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(data, ModelState(K, topicMean, topicCov, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
+    bound     = var_bound(data, model, query)
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
@@ -526,10 +536,12 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, v
     
     if isnan(bound):
         printStderr ("Bound is NaN")
-    elif int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
     else:
-        print ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
+        perp = perplexity_from_like(log_likelihood(data, model, query), data.word_count)
+        if int(bound - old_bound) < 0:
+            printStderr ("Iter %3d Update %-15s Bound %22f (%15s) (%5.0f)     %s" % (itr, var_name, bound, diff, perp, addendum))
+        else:
+            print ("Iter %3d Update %-15s Bound %22f (%15s) (%5.0f)  %s" % (itr, var_name, bound, diff, perp, addendum))
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, n):
     pass
