@@ -227,7 +227,7 @@ def sample ( \
                     # Remove current word's topic from suff stats
                     ndk[d,k] -= 1
                     nkv[k,v] -= queryDelta
-                    nk[k]    -= 1
+                    nk[k]    -= queryDelta
 
                     # Generate a distribution over topics
                     distNorm = 0.0
@@ -249,7 +249,7 @@ def sample ( \
                     # Add current word's new topic to suff stats
                     ndk[d,k] += 1
                     nkv[k,v] += queryDelta
-                    nk[k]    += 1
+                    nk[k]    += queryDelta
 
                 start += docLens[d]
             # Check if this is one of the samples to take
@@ -263,9 +263,10 @@ def sample ( \
                 for d in range(D):
                     for k in range(K):
                         topicSum[d,k] += (ndk[d,k] + a[k]) / (docLens[d] + aSum)
-                for k in range(K):
-                    for v in range(T):
-                        vocabSum[k,v] += (nkv[k,v] + b[v]) / (nk[k] + bSum)
+                if not isQuery:
+                    for k in range(K):
+                        for v in range(T):
+                            vocabSum[k,v] += (nkv[k,v] + b[v]) / (nk[k] + bSum)
                 
                 trueSampleCount += 1
                     

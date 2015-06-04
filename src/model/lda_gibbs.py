@@ -209,9 +209,10 @@ def query (data, model, query, plan):
     
     compiled.initGlobalRng(0xC0FFEE)
     
-    ndk = model.topicSum.copy()
-    nkv = model.vocabSum.copy()
-    nk  = np.zeros((K,),  dtype=np.int32)
+    ndk = np.zeros((D, K), dtype=np.int32)
+    nkv = (wordDists(model) * 1000000).astype(np.int32)
+    nk  = np.zeros((K,),   dtype=np.int32)
+    adjustedVocabPrior = np.zeros((T,), dtype=model.dtype) # already incorporated into nkv
     
     topicSum = np.zeros((D,K), dtype=dtype)
     vocabSum = model.vocabSum
@@ -221,17 +222,16 @@ def query (data, model, query, plan):
     # Burn in
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True, debug)
+            topicPrior, adjustedVocabPrior, True, debug)
     
     # True samples
     numSamples = compiled.sample (iterations - burnIn, thin, w_list, z_list, docLens, \
             ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True, debug)
+            topicPrior, adjustedVocabPrior, True, debug)
     
     return \
         ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, numSamples), \
-        (np.zeros(1), np.zeros(1), np.zeros(1))
+        QueryState (w_list, z_list, docLens, topicSum, numSamples)
 
 
 
