@@ -78,6 +78,9 @@ ModelState = namedtuple ( \
 def wordDists(model):
     return model.vocab
 
+def is_undirected_link_predictor():
+    return False
+
 def topicDists(query):
     result  = np.exp(query.topicMean - query.topicMean.sum(axis=1))
     result /= result.sum(axis=1)
@@ -498,7 +501,15 @@ def var_bound(data, modelState, queryState):
     
     
     return bound
-        
+
+
+def softmax(x):
+    r  = x.copy()
+    r -= r.max()
+    np.exp(r, out=r)
+    r /= np.sum(x)
+    return r
+
 
 def min_link_probs(model, topics, links):
     '''
@@ -514,10 +525,17 @@ def min_link_probs(model, topics, links):
         link
     '''
     D = topics.means.shape[0]
-    topDists = topicDists(topics)
-    docDist  = np.empty((D,), dtype=model.dtype)
+    col_maxes = topics.means.max(axis=0)
+    lse_at_k = np.sum(np.exp(topics.means - col_maxes), axis=0)
+    mins = np.empty((D,), dtype=model.dtype)
     for d in range(D):
-        np.dot()
+        topDist = softmax(topics.means[d, :])
+        probs = []
+        for i in range(len(links[d,:].indices)):
+            l = links[d,:].indices[i]
+            linkDist  = np.exp(topics.means[l, :] - col_maxes) / lse_at_k
+            probs.append(np.dot(topDist, linkDist))
+        mins[d] = min(probs)
 
     return mins
 
@@ -535,7 +553,32 @@ def link_probs(model, topics, min_link_probs):
     :param min_link_probs: the minimum link probability for each document
     :return: a (hopefully) sparse DxD matrix of link probabilities
     '''
-    pass
+    # We build the result up as a COO matrix
+    rows = []
+    cols = []
+    vals = []
+
+    # Calculate the softmax transform parameters
+    D = topics.means.shape[0]
+    linkDist = colwise_softmax(topics.means)
+
+    # Infer the link probabilities
+    for d in range(D):
+        topDistAtD = softmax(topics.means[d, :])
+        probs      = topDistAtD.dot(linkDist)
+        relevant   = np.where(probs >= min_link_probs[d])[0]
+
+        rows.extend([d] * len(relevant))
+        cols.extend(relevant)
+        vals.extend(probs[relevant])
+
+    # Build the COO matrix, then covert it to CSR. Converts lists to numpy
+    # arrays to ensure appropriate dtypes
+    r = np.array(rows, dtype=np.int32)
+    c = np.array(cols, dtype=np.int32)
+    v = np.array(vals, dtype=model.dtype)
+
+    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
 
 # ==============================================================
 # PUBLIC HELPERS
@@ -577,4 +620,3 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, v
 
 def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, topicCov, vocab, dtype, means, varcs, A, n):
     pass
-
