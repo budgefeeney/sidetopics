@@ -470,7 +470,7 @@ class MtmTest(unittest.TestCase):
                 trainPerps.append(perp)
 
                 query = lda_gibbs.newQueryState(estData, model)
-                model, queryResult = lda_gibbs.query(estData, model, query, queryPlan)
+                _, queryResult = lda_gibbs.query(estData, model, query, queryPlan)
 
                 like = lda_gibbs.log_likelihood(evalData, model, queryResult)
                 perp = perplexity_from_like(like, evalData.word_count)
