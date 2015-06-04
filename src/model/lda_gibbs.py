@@ -211,7 +211,7 @@ def query (data, model, query, plan):
     
     ndk = np.zeros((D, K), dtype=np.int32)
     nkv = (wordDists(model) * 1000000).astype(np.int32)
-    nk  = np.zeros((K,),   dtype=np.int32)
+    nk  = nkv.sum(axis=1).astype(np.int32)
     adjustedVocabPrior = np.zeros((T,), dtype=model.dtype) # already incorporated into nkv
     
     topicSum = np.zeros((D,K), dtype=dtype)
