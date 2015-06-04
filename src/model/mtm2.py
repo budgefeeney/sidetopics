@@ -565,7 +565,7 @@ def link_probs(model, topics, min_link_probs):
     # Infer the link probabilities
     for d in range(D):
         topDistAtD = softmax(topics.means[d, :])
-        probs      = topDistAtD.dot(linkDist)
+        probs      = linkDist.dot(topDistAtD)
         relevant   = np.where(probs >= min_link_probs[d])[0]
 
         rows.extend([d] * len(relevant))
