@@ -134,7 +134,7 @@ def run(args):
         import model.rtm as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Mtm:
-        import model.mtm as mdl
+        import model.mtm2 as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
@@ -305,9 +305,9 @@ def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, mode
         data.convert_to_undirected_graph()
         data.convert_to_binary_link_matrix()
 
-    for fold in folds:
+    for fold in range(folds):
         model = mdl.newModelFromExisting(sample_model)
-        train_data, query_data = data.link_prediction_split(symm, seed=rd.randint())
+        train_data, query_data = data.link_prediction_split(symm)
 
         train_tops = mdl.newQueryState(train_data, model)
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
