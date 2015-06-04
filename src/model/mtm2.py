@@ -506,8 +506,8 @@ def var_bound(data, modelState, queryState):
 def softmax(x):
     r  = x.copy()
     r -= r.max()
-    r  = np.exp(r)
-    r /= np.sum(x)
+    np.exp(r, out = r)
+    r /= np.sum(r)
     return r
 
 
@@ -535,7 +535,7 @@ def min_link_probs(model, topics, links):
             l = links[d,:].indices[i]
             linkDist  = np.exp(topics.means[l, :] - col_maxes) / lse_at_k
             probs.append(np.dot(topDist, linkDist))
-        mins[d] = min(probs)
+        mins[d] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
