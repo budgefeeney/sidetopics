@@ -6,6 +6,7 @@ Created on 27 Nov 2013
 import unittest
 import pickle as pkl
 import tempfile as tmp
+import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, Rtm, LdaGibbs, LdaVb, Mtm
@@ -53,7 +54,7 @@ class Test(unittest.TestCase):
         
         K,P = 10, 75
         modelFileses = []
-        for modelName in [ Mtm ]: #ModelNames:
+        for modelName in [ Rtm ]: #ModelNames:
             cmdline = '' \
                     + ' --debug '          + "False" \
                     + ' --model '          + modelName \
@@ -61,7 +62,7 @@ class Test(unittest.TestCase):
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '150'      \
+                    + ' --iters '          + '40'      \
                     + ' --query-iters '    + '5'      \
                     + ' --folds '          + '2'      \
                     + ' --words '          + AclWordPath \
@@ -93,6 +94,6 @@ class Test(unittest.TestCase):
         print (models[0].name)
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testUyv']
+    import sys;sys.argv = ['', 'Test.testUyv']
     unittest.main()
-    
+
