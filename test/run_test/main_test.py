@@ -55,10 +55,11 @@ class Test(unittest.TestCase):
         modelFileses = []
         for modelName in [ Mtm ]: #ModelNames:
             cmdline = '' \
+                    + ' --debug '          + "False" \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
-                    + ' --log-freq '       + '3'       \
+                    + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
                     + ' --iters '          + '150'      \
                     + ' --query-iters '    + '5'      \
