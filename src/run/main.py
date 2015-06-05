@@ -318,6 +318,8 @@ def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, mode
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
             mdl.train(train_data, model, train_tops, train_plan)
 
+        print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
+
         min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
         predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
 
