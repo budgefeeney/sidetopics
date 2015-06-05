@@ -321,6 +321,9 @@ def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWor
     K = diWordDists.shape[0]
     wordIdx, z = _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
     topicMeans[d, :K] = np.dot(z, data.words[d, :].data) / docLens[d]
+
+    if containsInvalidValues(topicMeans[d, :]):
+        print ("Ruh-ro")
     return wordIdx, z
 
 @nb.autojit
@@ -366,6 +369,7 @@ def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
 
     :return:
     '''
+    minNonZero  = 1E-300 if topicMeans.dtype is np.float64 else 1E-30
     K           = topicMeans.shape[1] - 1
     links       = data.links
     linked_docs = links[d, :].indices
@@ -373,7 +377,7 @@ def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     param = (topicMeans[d] * topicMeans[linked_docs, :]).dot(weights)
 
     scores  = _normpdf_inplace(param.copy())
-    scores /= _probit_inplace(param)
+    scores /= (_probit_inplace(param) + minNonZero)
 
     scores /= docLens[d]
 
@@ -476,7 +480,7 @@ def train(data, model, query, plan, updateVocab=True):
 @nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
-    Use graident ascent to update the weights in-place.
+    Use gradient ascent to update the weights in-place.
 
     :param data: the dataaset, only the links are used
     :param weights:  the weights to alter, these are altered IN-PLACE
@@ -501,12 +505,14 @@ def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t
     # documents.
     pseudoDoc    = (topicPrior * topicPrior) / topicPrior.sum()
     pseudoDoc[K] = 1
-    pseudoParam = np.array(weights.dot(pseudoDoc), dtype=weights.dtype)
-    pseudoScore = _normpdf_inplace(pseudoParam.copy()) / (_probit_inplace(pseudoParam) + 1E-50)
-    pseudoError = -pseudoNegCount * pseudoScore * pseudoDoc
+
 
     grad = np.ndarray(shape=weights.shape, dtype=weights.dtype)
     for t in range(max_iters):
+        pseudoParam = np.array(weights.dot(pseudoDoc), dtype=weights.dtype)
+        pseudoScore = _normpdf_inplace(pseudoParam.copy()) / (_probit_inplace(pseudoParam) + 1E-50)
+        pseudoError = -pseudoNegCount * pseudoScore * pseudoDoc
+
         old_weights[:] = weights.copy()
         step_size = pow(t_0 + t, -kappa)
 
@@ -690,9 +696,9 @@ def var_bound(data, model, query, z_dnk = None):
     docLens, topicDists = \
         query.docLens, query.topicDists
 
-    # Initialize z matrix if necessary
     W,X = data.words, data.links
     D,T = W.shape
+    minNonZero = 1E-300 if dtype is np.float64 else 1E-30
         
     # Perform the digamma transform for E[ln \theta] etc.
     topicDists      = topicDists.copy()
@@ -756,7 +762,7 @@ def var_bound(data, model, query, z_dnk = None):
             continue
 
         scores  = topicMeans[links, :].dot(weights * topicMeans[d])
-        probs   = _probit_inplace(scores)
+        probs   = _probit_inplace(scores) + minNonZero
         lnProbs = np.log(probs, out=probs)
 
         # expected probability of all links from d to p < d such that y_dp = 1
@@ -834,14 +840,19 @@ def min_link_probs(model, topics, links):
     # use the topics means to predict links
     mins = np.ones((D,), dtype=model.dtype)
     for d in range(D):
-        probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
-        mins[d] = _probit_inplace(probs).min()
+        if len(links[d,:].indices) == 0:
+            mins[d] = 1E-300 if model.dtype is np.float64 else 1E-30
+        else:
+            probs = (topicMeans[d] * topicMeans[links[d,:].indices]).dot(weights)
+            mins[d] = _probit_inplace(probs).min()
 
     _convertMeansToDirichletParam(topics.docLens, topics.topicDists, model.topicPrior) # revert topicDists / topicMeans
     return mins
 
+
 def extend_topic_prior (prior_vec, extra_field):
     return np.hstack ((prior_vec, extra_field))
+
 
 @nb.autojit
 def link_probs(model, topics, min_link_probs):
@@ -890,6 +901,6 @@ def link_probs(model, topics, min_link_probs):
     return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
 
 
-if __name__ == '__main__':
-    test = np.array([-1, 3, 5, -4 , 4, -3, 1], dtype=np.float64)
-    print (str (compiled.normpdf(test)))
+def containsInvalidValues(x):
+    return np.any(np.isnan(x)) or np.any(np.isinf(x))
+
