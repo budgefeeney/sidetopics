@@ -83,6 +83,23 @@ class DataSet:
         return result
 
 
+    def copy(self, deep=False):
+        if deep:
+            return DataSet(
+                self._words.copy(deep=True),
+                self._feats.copy(deep=True) if self._feats is not None else None,
+                self._links.copy(deep=True) if self._links is not None else None,
+                self._order.copy(deep=True) if self._order is not None else None
+            )
+        else:
+            return DataSet(
+                self._words,
+                self._feats,
+                self._links,
+                self._order
+            )
+
+
     @property
     def words(self):
         return self._words
