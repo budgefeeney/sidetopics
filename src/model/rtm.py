@@ -795,7 +795,7 @@ def _links_up_to (d, X):
     return _links_up_to_csr(d, X.indptr, X.indices)
 
 
-nb.autojit
+@nb.autojit
 def _links_up_to_csr(d, Xptr, Xindices):
     '''
     Gets all the links that exist to earlier documents in the corpus. Ensures
