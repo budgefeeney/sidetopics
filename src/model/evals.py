@@ -69,6 +69,8 @@ def mean_average_prec(expected_links, estim_link_probs):
         for e in expt_indices:
             # Find the position, m, of line e in the received link indices
             m, M = 0, len(recv_indices)
+            if M < 0:
+                print ("Warning: no indices returned for document " + str(d))
             while m < M and recv_indices[m] != e:
                 m += 1
             if m == (M - 1) and recv_indices[m] != e:
@@ -76,6 +78,8 @@ def mean_average_prec(expected_links, estim_link_probs):
 
             # Calculate the precision at m
             recv_set = set(recv_indices[:(m+1)])
+            if len (recv_set) == 0:
+                print ("Ruh-ro")
             prec_at_m = len(recv_set.intersection(expt_set)) / len(recv_set)
 
             # Add precision at that position, m, to the sum of precisions
