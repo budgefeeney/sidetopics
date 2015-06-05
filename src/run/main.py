@@ -299,16 +299,21 @@ def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, mode
     '''
     model_files = []
     assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
+    def prepareForTraining(data):
+        if mdl.is_undirected_link_predictor():
+            result = data.copy()
+            result.convert_to_undirected_graph()
+            result.convert_to_binary_link_matrix()
+            return result
+        else:
+            return data
 
-    symm = mdl.is_undirected_link_predictor()
-    if symm:
-        data.convert_to_undirected_graph()
-        data.convert_to_binary_link_matrix()
 
     for fold in range(folds):
         model = mdl.newModelFromExisting(sample_model)
-        train_data, query_data = data.link_prediction_split(symm)
-
+        train_data, query_data = data.link_prediction_split(symmetric=False)
+        train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
+                                                    # can compare symmetric with non-symmetric models
         train_tops = mdl.newQueryState(train_data, model)
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
             mdl.train(train_data, model, train_tops, train_plan)
@@ -325,12 +330,12 @@ def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, mode
 
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
-    return newModelFile (\
-                model.name, \
-                model.K, \
-                None if model.name[:3] == "ctm" else model.P, \
-                fold, \
-                prefix)
+    return newModelFile (
+        model.name,
+        model.K,
+        None if model.name[:3] == "ctm" else model.P,
+        fold,
+        prefix)
 
 
 
