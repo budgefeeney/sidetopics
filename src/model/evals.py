@@ -20,6 +20,49 @@ def perplexity_from_like(log_likely, token_count):
 def word_perplexity(log_likely_fn, model, query, data):
     return perplexity_from_like(log_likely_fn(data, model, query), data.word_count)
 
+@nb.autojit
+def mean_reciprocal_rank(expected_links, estim_link_probs):
+    '''
+    Another way of evaluating a ranking. A query out-link's reciprocal
+    rank is just one over its rank in the list of returned out-links. We average
+    these query ranks over all query out-links for all documents and return
+
+    :param expected_links: the links whose rank we check
+    :param estim_link_probs: the probabilities of (almost) all links, including
+    all expected links, in a sparse CSR format.
+    :return: the rank score, as a single double.
+    '''
+    D = expected_links.shape[0]
+    rank_sum   = 0.0
+    rank_count = 0
+
+    for d in range(D):
+        # Take out the indices (i.e. IDs) of the expected links
+        expt_indices = [e for e in expected_links[d,:].indices]
+        if len(expt_indices) == 0:
+            print("No links to match in document %d" % (d,))
+            continue
+
+        # Rank the received indices by associated value in descending order
+        row = estim_link_probs[d,:]
+        ind = (np.argsort(row.data))
+        recv_indices = row.indices[ind[::-1]]
+
+        # Sum up reciprocal ranks
+        r = 0
+        while r < len(recv_indices) and len(expt_indices) > 0:
+            r += 1
+            e = 0
+            while e < len(expt_indices):
+                if recv_indices[r] == expt_indices[e]:
+                    del expt_indices[e]
+                    rank_sum += r
+                    rank_count += 1
+                e += 1
+
+    return rank_sum / rank_count
+
+
 def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     '''
     Returns the average, across all documents in the corpus, of the
