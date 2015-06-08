@@ -11,8 +11,8 @@ import sys
 import time
 
 from model.common import DataSet
-from model.evals import perplexity_from_like, mean_average_prec, \
-    EvalNames, Perplexity, MeanAveragePrecAllDocs
+from model.evals import perplexity_from_like, mean_average_prec, mean_prec_rec_at, \
+    EvalNames, Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
 
 DTYPE=np.float32
 
@@ -145,7 +145,9 @@ def run(args):
     if args.eval == Perplexity:
         return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
-        return link_split_map (data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.out_model)
+        return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
+    elif args.eval == MeanPrecRecAtMAllDocs:
+        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -280,18 +282,19 @@ def save_model(model_dir, model, data, fold, train_itrs, train_vbs, train_likes,
     return model_file
 
 
-def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, model_dir = None):
+def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None):
     '''
-    Uses cross-validation go get the average perplexity. If folds == 1 a special path is
-    triggered where perplexity is evaluated on the training data, and the results are
-    not saved to disk, even if model_dir is not none
+    Train on all the words and half the links. Predict the remaining links.
+    Evaluate using mean average-precision.
+
+    Cross validation may be used, but note we're always evaluating on training
+    data.
 
     :param data: the DataSet object with the data
     :param mdl:  the module with the train etc. functin
     :param sample_model: a preconfigured model which is cloned at the start of each
             cross-validation run
     :param train_plan:  the training plan (number of iterations etc.)
-    :param query_plan:  the query play (number of iterations etc.)
     :param folds:  the number of folds to cross validation
     :param model_dir: if not none, and folds > 1, the models are stored in this
     directory.
@@ -329,6 +332,83 @@ def link_split_map (data, mdl, sample_model, train_plan, query_plan, folds, mode
         model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)
 
     return model_files
+
+
+def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir = None):
+    '''
+    Train on all the words and half the links. Predict the remaining links.
+    Evaluate using precision at m using as values of m 50, 100, 250, and 500,
+    and additionally recall at m
+
+    Cross validation may be used, but note we're always evaluating on training
+    data.
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param folds:  the number of folds to cross validation
+    :param model_dir: if not none, and folds > 1, the models are stored in this
+    directory.
+    :return: the list of model files stored
+    '''
+    ms = [10, 25, 50, 100, 250, 500]
+    model_files = []
+    assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
+    def prepareForTraining(data):
+        if mdl.is_undirected_link_predictor():
+            result = data.copy()
+            result.convert_to_undirected_graph()
+            result.convert_to_binary_link_matrix()
+            return result
+        else:
+            return data
+
+
+    for fold in range(folds):
+        model = mdl.newModelFromExisting(sample_model)
+        train_data, query_data = data.link_prediction_split(symmetric=False)
+        train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
+                                                    # can compare symmetric with non-symmetric models
+        train_tops = mdl.newQueryState(train_data, model)
+        model, train_tops, (train_itrs, train_vbs, train_likes) = \
+            mdl.train(train_data, model, train_tops, train_plan)
+
+        print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
+
+        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
+        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
+
+        precs, recs, doc_counts = mean_prec_rec_at (query_data.links, predicted_link_probs, at=ms, groups=[(0,3), (3,5), (5,10), (10,1000)])
+        print ("Fold %2d: Mean-Precisions at \n" % fold, end="")
+
+        printTable("Precision", precs, doc_counts, ms)
+        printTable("Recall",    recs, doc_counts, ms)
+
+
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+
+    return model_files
+
+
+def printTable(title, scores, doc_counts, ms):
+    row_sep = "-" * (22 + 8 * len(ms) + 2)
+    print(title)
+    print(row_sep)
+    print("| Group    | Doc Count | " + " | ".join("%5d" % m for m in ms) + " |")
+    print(row_sep)
+
+    groups = [g for g in scores.keys()]
+    groups.sort()
+
+    for g in groups:
+        print("| %2d,%5d " % (g[0], g[1]), end="")
+        print("| %9d " % doc_counts[g], end="")
+        print("| " + " | ".join("%.3f" % m for m in scores[g]), end="")
+        print(" |")
+        print(row_sep)
+
 
 
 def newModelFileFromModel(model, fold=None, prefix="/Users/bryanfeeney/Desktop"):
