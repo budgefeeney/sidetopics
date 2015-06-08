@@ -52,11 +52,10 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 20, 75
+        K,P = 50, 75
         modelFileses = []
-        for modelName in [ Rtm ]: #ModelNames:
+        for modelName in [ Mtm ]: #ModelNames:
             cmdline = '' \
-                    + ' --debug '          + "False" \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \

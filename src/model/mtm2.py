@@ -310,7 +310,7 @@ def train (data, modelState, queryState, trainPlan):
 
         debugFn (itr, means, "means", data, K, topicMean, topicCov, vocab, dtype, means, varcs, A, docLens)
 
-        if True: #logFrequency > 0 and itr % logFrequency == 0:
+        if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, topicCov, vocab, A, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, docLens)
 
