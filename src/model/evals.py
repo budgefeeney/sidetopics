@@ -9,8 +9,9 @@ import numba as nb
 
 Perplexity="perplexity"
 MeanAveragePrecAllDocs="meanavgprec_all"
+MeanPrecRecAtMAllDocs="meanprecrec_all"
 
-EvalNames = [Perplexity, MeanAveragePrecAllDocs]
+EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs]
 
 def perplexity_from_like(log_likely, token_count):
     return np.exp(-log_likely / token_count)
@@ -19,7 +20,95 @@ def perplexity_from_like(log_likely, token_count):
 def word_perplexity(log_likely_fn, model, query, data):
     return perplexity_from_like(log_likely_fn(data, model, query), data.word_count)
 
-#@nb.autojit
+def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
+    '''
+    Returns the average, across all documents in the corpus, of the
+    precision-at-m scores for each of the test documents, and the recall
+    at-m scores for each of the test documents
+
+    Precision at m is the precision of the top m documents, ranked
+    by probability, returned by the algorithm.
+
+    The precision is the number of of relevant documents returned
+    as a proportion of all documents returned (up to M in this case)
+
+    Recall is the number of relevant documents returned as a proportion
+    of all possible relevant documents.
+
+    :param expected_links: the links we expect to find
+    :param estim_link_probs: the DxD sparse CSR matrix of link probabilities
+    :param at: how far to go down to calculate precision, may be a list. Defaults
+    to 100
+    :param groups: break down precision at m further, by considering those subsets
+    of documents that have the given range of documents. e.g for two segments, one
+    less than 10, one between 10 (inclusive) and 15 (exclusive) and 15 or greater
+    specify [(0,10), (10, 15), (15,1000)]. By default there is one value which
+    includes everything. Also  documents with no outlinks are skipped always.
+    :return: First a dictionary of tuples to lists, the tuples denoting how many links
+    were in the documents considered, the lists being the precisions at m evaluated
+    for each of the values in "at'. Secondlay a similarly structured dictionary of
+    recall at m, for every m and group. Thirdly a dictionary of those same groups to
+    docCounts
+    '''
+    def find_group (outLinkCount, rangeTuples):
+        i = 0
+        while outLinkCount < rangeTuples[i][0] or outLinkCount > rangeTuples[i][1]:
+            i += 1
+        return rangeTuples[i]
+
+    if at is None:
+        ms = [100]
+    if type(at) is not list:
+        ms = [at]
+    else:
+        ms = at
+
+    if groups is None:
+        groups = [(0, 10000)]
+
+    precs_at_m = {group : [0] * len(ms) for group in groups}
+    recs_at_m  = {group : [0] * len(ms) for group in groups}
+    D = expected_links.shape[0]
+    docCounts = { group : 0 for group in groups }
+
+    for d in range(D):
+        # Take out the indices (i.e. IDs) of the expected links
+        expt_indices = expected_links[d,:].indices
+        if len(expt_indices) == 0:
+            print("No links to match in document %d" % (d,))
+            continue
+        g = find_group(len(expt_indices), groups)
+
+        # Rank the received indices by associated value in descending order
+        row = estim_link_probs[d,:]
+        ind = (np.argsort(row.data))
+        recv_indices = row.indices[ind[::-1]]
+
+        # Sum up the expt_indices at m
+        expt_set = set(expt_indices)
+        for i in range(len(ms)):
+            m = ms[i]
+            # Calculate the precision at m
+            recv_set = set(recv_indices[:(m+1)])
+            if len (recv_set) == 0:
+                print ("Ruh-ro")
+                continue
+
+            precs_at_m[g][i] += len(recv_set.intersection(expt_set)) / len(recv_set)
+            recs_at_m[g][i]  += len(recv_set.intersection(expt_set)) / len(expt_set)
+        docCounts[g] += 1
+
+    # Return the mean of average-precisions
+    for g in precs_at_m.keys():
+        precs = precs_at_m[g]
+        precs_at_m[g] = [p / docCounts[g] for p in precs]
+
+        recs = recs_at_m[g]
+        recs_at_m[g] = [r / docCounts[g] for r in recs]
+
+    return precs_at_m, recs_at_m, docCounts
+
+
 def mean_average_prec(expected_links, estim_link_probs):
     '''
     Returns the average of all documents' average-precision scores.
