@@ -54,14 +54,14 @@ class Test(unittest.TestCase):
         
         K,P = 50, 75
         modelFileses = []
-        for modelName in [ Mtm ]: #ModelNames:
+        for modelName in [ Rtm ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '50'      \
+                    + ' --iters '          + '100'      \
                     + ' --query-iters '    + '5'      \
                     + ' --folds '          + '2'      \
                     + ' --words '          + AclWordPath \

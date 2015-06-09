@@ -393,11 +393,9 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
 
 
 def printTable(title, scores, doc_counts, ms):
-    row_sep = "-" * (22 + 8 * len(ms) + 2)
     print(title)
-    print(row_sep)
-    print("| Group    | Doc Count | " + " | ".join("%5d" % m for m in ms) + " |")
-    print(row_sep)
+    print("| Group    | Doc Count | " + " | ".join("%5d" % m for m in ms)    + " |")
+    print("|----------|-----------|-" + "-|-".join("-----" for _ in len(ms)) + "-|")
 
     groups = [g for g in scores.keys()]
     groups.sort()
@@ -407,7 +405,6 @@ def printTable(title, scores, doc_counts, ms):
         print("| %9d " % doc_counts[g], end="")
         print("| " + " | ".join("%.3f" % m for m in scores[g]), end="")
         print(" |")
-        print(row_sep)
 
 
 
