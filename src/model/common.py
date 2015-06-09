@@ -194,7 +194,7 @@ class DataSet:
         self._links.data.fill(1)
 
 
-    def prune_and_shuffle(self, min_doc_len=0.5, min_link_count=0):
+    def prune_and_shuffle(self, min_doc_len=0.5, min_link_count=0, seed=0xC0FFEE):
         '''
         This IN-PLACE operation prunes out any documents where the document-length
         is less than the minimum, and the shuffles the matrices in a coherent manner.
@@ -203,6 +203,8 @@ class DataSet:
 
         Note that if no links matrix exists, min_link_count is ignored.
         '''
+        rng = rd.RandomState(seed)
+
         doc_lens = np.squeeze(np.asarray(self._words.sum(axis=1)))
         if doc_lens.min() < min_doc_len:
             good_rows = (np.where(doc_lens > 0.5))[0]
@@ -213,7 +215,7 @@ class DataSet:
             doc_count = self._words.shape[0]
             self._order = np.linspace(0, doc_count - 1, doc_count)
 
-        rd.shuffle(self._order)
+        rng.shuffle(self._order)
         self._reorder(self._order)
 
         if min_link_count == 0 or not self.has_links():
