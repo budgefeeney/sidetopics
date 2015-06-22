@@ -26,7 +26,7 @@ from math import isnan
 from util.sigmoid_utils import rowwise_softmax
 from util.misc import static_var, converged, clamp
 
-from model.ctm import vocab
+from model.common import DataSet
 from util.overflow_safe import safeDet, lnDetOfDiagMat
 
 import time
@@ -291,8 +291,8 @@ def train (data, modelState, queryState, trainPlan):
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, lxi, s, n)
             
-            boundValues[bvIdx] = var_bound(W, X, modelState, queryState, XTX)
-            likeValues[bvIdx]  = log_likelihood(W, modelState, queryState)
+            boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
+            likeValues[bvIdx]  = log_likelihood(data, modelState, queryState)
             boundIters[bvIdx]  = itr
             print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
@@ -497,8 +497,8 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     queryState = QueryState(means, varcs, lxi, s, n)
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, X, modelState, queryState, XTX)
-    likely    = log_likelihood(W, modelState, queryState)
+    bound     = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
+    likely    = log_likelihood(DataSet(W, feats=X), modelState, queryState)
     diff = "" if old_bound == 0 else "%11.2f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
