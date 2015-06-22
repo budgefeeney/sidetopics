@@ -28,7 +28,7 @@ from util.sparse_elementwise import sparseScalarQuotientOfDot, \
     sparseScalarProductOfSafeLnDot, scaledSumOfLnOnePlusExp
 from util.misc import clamp, converged
 
-from math import sqrt
+from model.common import DataSet
 from sklearn.covariance import oas
     
 # ==============================================================
@@ -103,7 +103,7 @@ def newModelAtRandom(dataset, K, dtype=DTYPE):
     
     return ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
 
-def newQueryState(dataset, modelState):
+def newQueryState(data, modelState):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -117,8 +117,9 @@ def newQueryState(dataset, modelState):
     A CtmQueryState object
     '''
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
-    
-    D,T = dataset.words.shape
+
+    W   = data.words
+    D,T = W.shape
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
     docLens = np.squeeze(np.asarray(W.sum(axis=1)))
     
@@ -554,7 +555,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         except:
             addendum = "det(sigT) = <undefined>"
     
-    bound = var_bound(W, ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n))
+    bound = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n))
     dif = 0 if last == 0 else last - bound
     if dif > 0:
         sys.stdout.flush()
