@@ -5,7 +5,7 @@ Created on 20 Apr 2015
 '''
 
 import numpy as np
-import numba as nb
+#import numba as nb
 
 Perplexity="perplexity"
 MeanAveragePrecAllDocs="meanavgprec_all"
@@ -20,7 +20,7 @@ def perplexity_from_like(log_likely, token_count):
 def word_perplexity(log_likely_fn, model, query, data):
     return perplexity_from_like(log_likely_fn(data, model, query), data.word_count)
 
-@nb.autojit
+#@nb.autojit
 def mean_reciprocal_rank(expected_links, estim_link_probs):
     '''
     Another way of evaluating a ranking. A query out-link's reciprocal

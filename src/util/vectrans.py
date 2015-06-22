@@ -31,7 +31,7 @@ Created on 9 Nov 2013
 import numpy as np
 import scipy.sparse as ssp
 
-from numba import autojit
+#from numba import autojit
 from math import floor
 
 import pyximport; 
@@ -68,7 +68,7 @@ def vec_transpose_csr(A, p):
         return _vec_transpose_csr_jit(A.data, A.indices, A.indptr, A.shape, p)
     
 
-@autojit
+#@autojit
 def _vec_transpose_csr_jit(data, indices, indptr, shape, p):
     '''
     Applies the vec-transpose operator to the given sparse matrix, which is stored in
@@ -133,7 +133,7 @@ def vec_transpose(A, p):
     return out
 
 
-@autojit
+#@autojit
 def sp_vec_trans_matrix(shape):
     '''
     Generates a vec transpose matrix quickly, and returns it as a sparse

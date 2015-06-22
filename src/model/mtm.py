@@ -9,7 +9,7 @@ import numpy.random as rd
 import scipy.sparse as ssp
 import scipy.special as fns
 import scipy.linalg as la
-import numba as nb
+#import numba as nb
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
@@ -187,7 +187,7 @@ def topicDists (queryState):
 
     return result
 
-@nb.autojit
+#@nb.autojit
 def _log_likelihood_internal(data, model, query):
     result = log_likelihood(data, model, query)
 
@@ -231,7 +231,7 @@ def log_likelihood (data, modelState, queryState):
 
 
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -250,7 +250,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -282,7 +282,7 @@ def softmax(x):
     return p
 
 
-@nb.autojit
+#@nb.autojit
 def _update_topics_at_d(d, data, docLens, topics, topicPrior, lse_at_k, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -315,7 +315,7 @@ def _update_topics_at_d(d, data, docLens, topics, topicPrior, lse_at_k, diWordDi
 
     return wordIdx, z, linkIdx, y
 
-@nb.autojit
+#@nb.autojit
 def _infer_word_topics_at_d(d, W, topics, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -344,7 +344,7 @@ def _infer_word_topics_at_d(d, W, topics, diWordDists, diWordDistSums):
     _inplace_softmax_colwise(z)
     return wordIdx, z
 
-@nb.autojit
+#@nb.autojit
 def _infer_link_topics_at_d(d, L, topics, lse_at_k):
     '''
     Infers the posterior probability for every possible topic that it generated
@@ -520,7 +520,7 @@ def printAndFlushNoNewLine (text):
     sys.stdout.write(text)
     sys.stdout.flush()
 
-@nb.autojit
+#@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -543,14 +543,14 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-@nb.autojit
+#@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     result = var_bound(data, model, query, z_dnk)
 
     return result
 
 
-@nb.autojit
+#@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
@@ -669,7 +669,7 @@ def _dirichletEntropy (P):
 
 
 
-@nb.jit
+#@nb.autojit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the

@@ -9,7 +9,7 @@ import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.special as fns
-import numba as nb
+#import numba as nb
 
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -230,7 +230,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -249,7 +249,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-@nb.autojit
+#@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -298,7 +298,7 @@ def _vocab_softmax(k, diWordDist, diWordDistSums):
 #
 
 
-@nb.autojit
+#@nb.autojit
 def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -326,7 +326,7 @@ def _update_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWor
         print ("Ruh-ro")
     return wordIdx, z
 
-@nb.autojit
+#@nb.autojit
 def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -363,7 +363,7 @@ def _infer_topics_at_d(d, data, weights, docLens, topicMeans, topicPrior, diWord
 
     return wordIdx, z
 
-@nb.autojit
+#@nb.autojit
 def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     '''
 
@@ -384,7 +384,7 @@ def _sum_of_scores_at_d(d, data, docLens, weights, topicMeans):
     return scores.dot(weights[:K] * topicMeans[linked_docs, :K])
 
 
-@nb.autojit
+#@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -477,7 +477,7 @@ def train(data, model, query, plan, updateVocab=True):
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-@nb.autojit
+#@nb.autojit
 def _infer_weights(data, weights, topicMeans, topicPrior, pseudoNegCount, reg, t_0=5, kappa=0.75, max_iters=100):
     '''
     Use gradient ascent to update the weights in-place.
@@ -651,7 +651,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-@nb.autojit
+#@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -674,7 +674,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) =  train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-@nb.autojit
+#@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -683,7 +683,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-@nb.autojit
+#@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
@@ -795,7 +795,7 @@ def _links_up_to (d, X):
     return _links_up_to_csr(d, X.indptr, X.indices)
 
 
-@nb.autojit
+#@nb.autojit
 def _links_up_to_csr(d, Xptr, Xindices):
     '''
     Gets all the links that exist to earlier documents in the corpus. Ensures
@@ -819,7 +819,7 @@ def is_undirected_link_predictor():
     return True
 
 
-@nb.autojit
+#@nb.autojit
 def min_link_probs(model, topics, links):
     '''
     For every document, for each of the given links, determine the
@@ -854,7 +854,7 @@ def extend_topic_prior (prior_vec, extra_field):
     return np.hstack ((prior_vec, extra_field))
 
 
-@nb.autojit
+#@nb.autojit
 def link_probs(model, topics, min_link_probs):
     '''
     Generate the probability of a link for all possible pairs of documents,
