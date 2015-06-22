@@ -237,7 +237,7 @@ def train (data, modelState, queryState, trainPlan):
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
-        vocab += vocabPrior
+        vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
         
         # Reset the means to their original form, and log effect of vocab update
