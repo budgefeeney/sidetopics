@@ -264,8 +264,8 @@ def train (dataset, modelState, queryState, trainPlan):
             modelState = ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, lxi, s, n)
             
-            boundValues[bvIdx]  = var_bound(W, modelState, queryState)
-            likelyValues[bvIdx] = log_likelihood(W, modelState, queryState)
+            boundValues[bvIdx]  = var_bound(data, modelState, queryState)
+            likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
             boundIters[bvIdx]   = itr
             
             print (time.strftime('%X') + " : Iteration %5d: bound %10.2f  likely %10.2f" % (itr, boundValues[bvIdx], likelyValues[bvIdx]))
