@@ -9,7 +9,8 @@ import tempfile as tmp
 import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning
+from run.main import run, ModelNames, \
+    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, CtmBohning, CtmBouchard
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/"
@@ -53,25 +54,23 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 10, 10
+        K,P = 50, 50
         modelFileses = []
-        for modelName in [ StmYvBohning ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
-                    + ' --debug '          + 'True' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-feats '  + str(P) \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '100'      \
-                    + ' --query-iters '    + '10'      \
+                    + ' --iters '          + '600'      \
+                    + ' --query-iters '    + '100'      \
                     + ' --folds '          + '2'      \
                     + ' --words '          + AclWordPath \
                     + ' --links '          + AclCitePath \
                     + ' --feats '          + AclFeatsPath \
                     + ' --limit-to '       + '100000' \
-                    + ' --eval '           + MeanPrecRecAtMAllDocs \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
