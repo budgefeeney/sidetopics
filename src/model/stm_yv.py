@@ -30,6 +30,7 @@ from model.common import DataSet
 from util.overflow_safe import safeDet, lnDetOfDiagMat
 
 import time
+from model.evals import perplexity_from_like
 
 #mpl.use('Agg')
 
@@ -302,18 +303,21 @@ def train (data, modelState, queryState, trainPlan):
             boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
             likeValues[bvIdx]  = log_likelihood(data, modelState, queryState)
             boundIters[bvIdx]  = itr
-            perp = np.exp(-likeValues[bvIdx] / n.sum())
+            perp = perplexity_from_like(likeValues[bvIdx], n.sum())
             print (time.strftime('%X') + " : Iteration %d: Perplexity %4.2f  bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+
+            # Check to see if the improvment in the likelihood has fallen below the threshold
+            if bvIdx > 1 and boundIters[bvIdx] > 50:
+                lastPerp = perplexity_from_like(likeValues[bvIdx - 1], n.sum())
+                if lastPerp - perp < 1:
+                    boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likeValues, bvIdx)
+                    return modelState, queryState, (boundIters, boundValues, likeValues)
             bvIdx += 1
-        
-            # Check to see if the improvment in the bound has fallen below the threshold
-            if converged (boundIters, boundValues, bvIdx, epsilon):
-                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likeValues, bvIdx)
-                return modelState, queryState, (boundIters, boundValues, likeValues)
-            
+
+
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
         QueryState(means, varcs, lxi, s, n), \
@@ -355,6 +359,7 @@ def query(data, modelState, queryState, queryPlan):
         debugFn = _debug_with_nothing
     
     # Iterate over parameters
+    lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     for itr in range(iterations):
         # Estimate Z_dvk
         row_maxes = means.max(axis=1)
@@ -386,7 +391,13 @@ def query(data, modelState, queryState, queryPlan):
         #
 #         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
 #         debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        
+
+        like = log_likelihood(data, modelState, QueryState(means, varcs, lxi, s, n))
+        perp = perplexity_from_like(like, data.word_count)
+        if itr > 20 and lastPerp - perp < 1:
+            break
+        lastPerp = perp
+
     return modelState, QueryState (means, varcs, lxi, s, n)
 
 

@@ -286,7 +286,8 @@ def train (data, modelState, queryState, trainPlan):
                     if debug: printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
         
                 # Check to see if the improvement in the bound has fallen below the threshold
-                if itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                if itr > 100 and len(likelyValues) > 3 \
+                    and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
         
     
@@ -326,6 +327,7 @@ def query(data, modelState, queryState, queryPlan):
     varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
     debugFn (0, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
     
+    lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     R = W.copy()
     for itr in range(iterations):
         expMeans = np.exp(means, out=means)
@@ -345,7 +347,12 @@ def query(data, modelState, queryState, queryPlan):
         
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
         
-    
+        like = log_likelihood(data, modelState, QueryState(means, varcs, n))
+        perp = perplexity_from_like(like, data.word_count)
+        if itr > 20 and lastPerp - perp < 1:
+            break
+        lastPerp = perp
+
     return modelState, queryState
 
 

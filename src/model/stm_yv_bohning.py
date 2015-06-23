@@ -27,6 +27,7 @@ from util.misc import printStderr, static_var, converged, clamp
 from util.overflow_safe import safeDet, lnDetOfDiagMat
 from model.ctm import verifyProper
 from model.common import DataSet
+from model.evals import perplexity_from_like
     
 # ==============================================================
 # CONSTANTS
@@ -326,18 +327,20 @@ def train (data, modelState, queryState, trainPlan):
             boundValues[bvIdx] = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
             boundLikes[bvIdx]  = log_likelihood(DataSet(W, feats=X), modelState, queryState)
             boundIters[bvIdx]  = itr
-            perp = np.exp(-boundLikes[bvIdx] / docLens.sum())
+            perp = perplexity_from_like(boundLikes[bvIdx], docLens.sum())
             print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+
+            # Check to see if the improvment in the likelihood has fallen below the threshold
+            if bvIdx > 1 and boundIters[bvIdx] > 50:
+                lastPerp = perplexity_from_like(boundLikes[bvIdx - 1], docLens.sum())
+                if lastPerp - perp < 1:
+                    boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
+                    return modelState, queryState, (boundIters, boundValues, boundLikes)
             bvIdx += 1
-        
-            # Check to see if the improvment in the bound has fallen below the threshold
-            if converged (boundIters, boundValues, bvIdx, epsilon):
-                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
-                return modelState, queryState, (boundIters, boundValues, boundLikes)
-        
+
         
     revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)
     means = means[revert_sort,:]
@@ -378,7 +381,8 @@ def query(data, modelState, queryState, queryPlan):
     
     # Necessary values
     isigT = la.inv(sigT)
-    
+
+    lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     for itr in range(iterations):
         # Counts of topic assignments
         row_maxes = means.max(axis=1)
@@ -407,7 +411,13 @@ def query(data, modelState, queryState, queryPlan):
             lhs = inverses[n[d]]
             means[d,:] = lhs.dot(rhs[d,:])
         debugFn (itr, means, "query-means", W, X, None, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
-        
+
+        like = log_likelihood(data, modelState, QueryState(means, varcs, n))
+        perp = perplexity_from_like(like, data.word_count)
+        if itr > 20 and lastPerp - perp < 1:
+            break
+        lastPerp = perp
+
     
     return modelState, queryState # query vars altered in-place
    

@@ -29,6 +29,7 @@ from util.sparse_elementwise import sparseScalarQuotientOfDot, \
 from util.misc import clamp, converged
 
 from model.common import DataSet
+from model.evals import perplexity_from_like
 from sklearn.covariance import oas
     
 # ==============================================================
@@ -267,18 +268,20 @@ def train (dataset, modelState, queryState, trainPlan):
             boundValues[bvIdx]  = var_bound(dataset, modelState, queryState)
             likelyValues[bvIdx] = log_likelihood(dataset, modelState, queryState)
             boundIters[bvIdx]   = itr
+            perp = perplexity_from_like(likelyValues[bvIdx], n.sum())
             
-            print (time.strftime('%X') + " : Iteration %5d: bound %10.2f  likely %10.2f" % (itr, boundValues[bvIdx], likelyValues[bvIdx]))
+            print (time.strftime('%X') + " : Iteration %5d: Perplexity %4.2f  Bound %10.2f " % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+
+            # Check to see if the improvment in the likelihood has fallen below the threshold
+            if bvIdx > 1 and boundIters[bvIdx] > 50:
+                lastPerp = perplexity_from_like(likelyValues[bvIdx - 1], n.sum())
+                if lastPerp - perp < 1:
+                    boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
+                    return modelState, queryState, (boundIters, boundValues, likelyValues)
             bvIdx += 1
-        
-            # Check to see if the improvement in the bound has fallen below the threshold
-            if converged (boundIters, boundValues, bvIdx, epsilon):
-                boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
-                return modelState, queryState, (boundIters, boundValues, likelyValues)
-            
             
     
     return \
@@ -321,6 +324,7 @@ def query(dataset, modelState, queryState, queryPlan):
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Iterate over parameters
+    lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     for itr in range(iterations):
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
@@ -346,7 +350,13 @@ def query(dataset, modelState, queryState, queryPlan):
         #
         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
         debugFn (itr, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        
+
+        like = log_likelihood(dataset, modelState, QueryState(means, varcs, lxi, s, n))
+        perp = perplexity_from_like(like, dataset.word_count)
+        if itr > 20 and lastPerp - perp < 1:
+            break
+        lastPerp = perp
+
     return modelState, QueryState (means, varcs, lxi, s, n)
 
 
