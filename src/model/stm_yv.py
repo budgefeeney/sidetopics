@@ -33,6 +33,7 @@ import time
 
 #mpl.use('Agg')
 
+
     
 # ==============================================================
 # CONSTANTS
@@ -130,8 +131,8 @@ def newQueryState(data, modelState):
     A QueryState object
     '''
     base = ctm.newQueryState(data, modelState)
-    
-    return ctm.QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
+
+    return QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
 
 
 def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
@@ -301,7 +302,8 @@ def train (data, modelState, queryState, trainPlan):
             boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
             likeValues[bvIdx]  = log_likelihood(data, modelState, queryState)
             boundIters[bvIdx]  = itr
-            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
+            perp = np.exp(-likeValues[bvIdx] / n.sum())
+            print (time.strftime('%X') + " : Iteration %d: Perplexity %4.2f  bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
@@ -336,7 +338,7 @@ def query(data, modelState, queryState, queryPlan):
     iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
     means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
-    
+
     # Necessary temp variables (notably the count of topic to word assignments
     # per topic per doc)
     isigT = la.inv(sigT)

@@ -42,6 +42,8 @@ MODEL_NAME="stm-yv/bohning"
 
 STABLE_SORT_ALG="mergesort"
 
+BouchardInitIters=30
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -112,7 +114,7 @@ def newModelAtRandom(data, P, K, featVar, latFeatVar, dtype=DTYPE):
     return ModelState(F, P, K, A, R_A, featVar, Y, R_Y, latFeatVar, V, base.sigT, base.vocab, base.A, dtype, MODEL_NAME)
 
 
-def newQueryState(data, modelState):
+def newQueryState(data, model):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -126,16 +128,39 @@ def newQueryState(data, modelState):
     Return:
     A CtmQueryState object
     '''
-    K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
+    K, vocab, dtype =  model.K, model.vocab, model.dtype
     
     D,T = data.words.shape
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
     docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
     
-    means = rd.random((D,K)).astype(dtype)
-    np.log(means, out=means) # Try to start with a system where taking the exp makes sense
-    varcs = np.ones((D,K), dtype=dtype)
-    
+
+    if BouchardInitIters > 0:
+        # Run the equivalent, faster, but less stable Bouchard algorithm
+        # to get a good initial state
+        import model.stm_yv as bouchard
+        bou_model = bouchard.newModelAtRandom (data, model.P, K, model.fv, model.lfv, model.dtype)
+        bou_query = bouchard.newQueryState(data, bou_model)
+        bou_plan  = bouchard.newTrainPlan(BouchardInitIters, logFrequency=BouchardInitIters, debug=False)
+        bou_model, bou_topics, _ = \
+            bouchard.train(data, bou_model, bou_query, bou_plan)
+
+        means = bou_topics.means
+        # varcs = bou_topics.varcs + 0.1
+        varcs = np.ones((D,K), dtype=dtype)
+
+        model.A[:,:]     = bou_model.A
+        model.R_A[:,:]   = bou_model.R_A
+        model.Y[:,:]     = bou_model.Y
+        model.R_Y[:,:]   = bou_model.R_Y
+        model.V[:,:]     = bou_model.V
+        # model.sigT[:,:]  = bou_model.sigT
+        model.vocab[:,:] = bou_model.vocab
+    else:
+        means = rd.random((D,K)).astype(dtype)
+        np.log(means, out=means) # Try to start with a system where taking the exp makes sense
+        varcs = np.ones((D,K), dtype=dtype)
+
     return QueryState(means, varcs, docLens)
 
 
@@ -195,7 +220,9 @@ def train (data, modelState, queryState, trainPlan):
     originalDocLens = docLens
     sortIdx = np.argsort(docLens, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
     W = W[sortIdx,:] # deep sorted copy
-    X = X[sortIdx,:] # ditto
+    X = X[sortIdx,:]
+    means, varcs = means[sortIdx,:], varcs[sortIdx,:]
+
     docLens = originalDocLens[sortIdx]
     data = DataSet(W, feats=X)
     
