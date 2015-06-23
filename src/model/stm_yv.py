@@ -144,6 +144,14 @@ def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate
     return TrainPlan(base.iterations, base.epsilon, base.logFrequency, base.fastButInaccurate, base.debug)
 
 
+def is_undirected_link_predictor():
+    '''
+    Is this model only for predicting link structure, and only in the case where
+    the links are undirected.
+    '''
+    return False
+
+
 def train (data, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for

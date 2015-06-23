@@ -147,6 +147,13 @@ def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
+def is_undirected_link_predictor():
+    '''
+    Is this model only for predicting link structure, and only in the case where
+    the links are undirected.
+    '''
+    return False
+
 def train (data, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -311,11 +318,12 @@ def train (data, modelState, queryState, trainPlan):
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, n)
-            
+
             boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
             boundLikes[bvIdx]  = log_likelihood(data, modelState, queryState)
             boundIters[bvIdx]  = itr
-            print (time.strftime('%X') + " : Iteration %d: bound %f" % (itr, boundValues[bvIdx]))
+            perp = np.exp(-boundLikes[bvIdx] / n.sum())
+            print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
@@ -519,9 +527,9 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     _debug_with_bound.old_bound = bound
     
     if isnan(bound) or int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Perplexity %4.2f" % (itr, var_name, bound, diff, np.exp(-likely/W.sum())))
     else:
-        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Perplexity %4.2f" % (itr, var_name, bound, diff, np.exp(-likely/W.sum())))
     
 def _debug_with_nothing (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n):
     pass
