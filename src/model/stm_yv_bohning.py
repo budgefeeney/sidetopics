@@ -178,7 +178,7 @@ def train (data, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, fastButInaccurate, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
-    means, varcs, n = queryState.means, queryState.varcs, queryState.docLens
+    means, varcs, docLens = queryState.means, queryState.varcs, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
     
     # Book-keeping for logs
@@ -192,13 +192,14 @@ def train (data, modelState, queryState, trainPlan):
     # For efficient inference, we need a separate covariance for every unique
     # document length. For products to execute quickly, the doc-term matrix
     # therefore needs to be ordered in ascending terms of document length
-    original_n = n
-    sortIdx = np.argsort(n, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
+    originalDocLens = docLens
+    sortIdx = np.argsort(docLens, kind=STABLE_SORT_ALG) # sort needs to be stable in order to be reversible
     W = W[sortIdx,:] # deep sorted copy
     X = X[sortIdx,:] # ditto
-    n = original_n[sortIdx]
+    docLens = originalDocLens[sortIdx]
+    data = DataSet(W, feats=X)
     
-    lens, inds = np.unique(n, return_index=True)
+    lens, inds = np.unique(docLens, return_index=True)
     inds = np.append(inds, [W.shape[0]])
     
     # Initialize some working variables
@@ -238,7 +239,7 @@ def train (data, modelState, queryState, trainPlan):
         sigT /= (P+F+D)
         
         isigT = la.inv(sigT)
-        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         
         # Building Blocks - termporarily replaces means with exp(means)
@@ -260,11 +261,11 @@ def train (data, modelState, queryState, trainPlan):
 #        S = expMeans * R.dot(vocab.T)
         means = np.log(expMeans, out=expMeans)
         means += row_maxes[:,np.newaxis]
-        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Finally update the parameter V
         V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
-        debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         
         #
@@ -274,24 +275,24 @@ def train (data, modelState, queryState, trainPlan):
         # Update the distribution on the latent space
         R_Y_base = aI_P + 1/fv * V.dot(V.T)
         R_Y = la.inv(R_Y_base)
-        debugFn (itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         Y = 1./fv * A.dot(V.T).dot(R_Y)
-        debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the mapping from the features to topics
         A = (1./fv * (Y).dot(V) + (X.T.dot(means)).T).dot(R_A)
-        debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the Variances
-        varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        varcs = 1./((docLens * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the Means
         rhs = X.dot(A.T).dot(isigT)
         rhs += S
-        rhs += n[:,np.newaxis] * means.dot(Ab)
-        rhs -= n[:,np.newaxis] * rowwise_softmax(means, out=means)
+        rhs += docLens[:,np.newaxis] * means.dot(Ab)
+        rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
         
         # Long version
 #        inverses = dict()
@@ -313,16 +314,16 @@ def train (data, modelState, queryState, trainPlan):
             means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
          
 #        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
-        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, n)
+        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, n)
+            queryState = QueryState(means, varcs, docLens)
 
-            boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
-            boundLikes[bvIdx]  = log_likelihood(data, modelState, queryState)
+            boundValues[bvIdx] = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
+            boundLikes[bvIdx]  = log_likelihood(DataSet(W, feats=X), modelState, queryState)
             boundIters[bvIdx]  = itr
-            perp = np.exp(-boundLikes[bvIdx] / n.sum())
+            perp = np.exp(-boundLikes[bvIdx] / docLens.sum())
             print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
@@ -341,7 +342,7 @@ def train (data, modelState, queryState, trainPlan):
     
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, n), \
+        QueryState(means, varcs, docLens), \
         (boundIters, boundValues, boundLikes)
  
 def query(data, modelState, queryState, queryPlan):
