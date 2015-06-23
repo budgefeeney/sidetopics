@@ -245,7 +245,7 @@ def train (dataset, modelState, queryState, trainPlan):
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-#        means = varcs * rhsMat
+#       means = varcs * rhsMat
 
         means -= (means[:,0])[:,np.newaxis]
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
