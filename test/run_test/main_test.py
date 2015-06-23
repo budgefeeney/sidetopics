@@ -9,12 +9,13 @@ import tempfile as tmp
 import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
-from run.main import run, ModelNames, Rtm, LdaGibbs, LdaVb, Mtm
+from run.main import run, ModelNames, Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/"
-AclWordPath = AclPath + "words-freq.pkl"
-AclCitePath = AclPath + "ref.pkl"
+AclWordPath  = AclPath + "words-freq.pkl"
+AclFeatsPath = AclPath + "feats.pkl"
+AclCitePath  = AclPath + "ref.pkl"
 
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
@@ -52,20 +53,23 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 50, 75
+        K,P = 10, 10
         modelFileses = []
-        for modelName in [ Rtm ]: #ModelNames:
+        for modelName in [ StmYvBohning ]: #ModelNames:
             cmdline = '' \
+                    + ' --debug '          + 'True' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
+                    + ' --num-lat-feats '  + str(P) \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
                     + ' --iters '          + '100'      \
-                    + ' --query-iters '    + '5'      \
+                    + ' --query-iters '    + '10'      \
                     + ' --folds '          + '2'      \
                     + ' --words '          + AclWordPath \
                     + ' --links '          + AclCitePath \
+                    + ' --feats '          + AclFeatsPath \
                     + ' --limit-to '       + '100000' \
                     + ' --eval '           + MeanPrecRecAtMAllDocs \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
