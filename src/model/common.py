@@ -161,6 +161,25 @@ class DataSet:
         self._links = None if self._links is None else self._links.astype(links_dtype)
 
 
+    def add_intercept_to_feats_if_required(self):
+        '''
+        If there is no element in the features which is set to 1 for all
+        documents, then add just such an element and return True.
+
+        If such an element already exists, do nothing and return False
+        :return: True if features where changed, False otherwise.
+        '''
+        if self._feats is None:
+            return;
+
+        means = self._feats.mean(axis=0)
+        if means.max() < (1-1E-30):
+            self._feats = ssp.hstack((self._feats, np.ones((self.doc_count, 1))), "csr")
+            return True
+
+        return False
+
+
     def _reorder (self, order):
         '''
         Reorders the rows of all matrices according to the given order, which may
