@@ -276,7 +276,6 @@ def train (data, modelState, queryState, trainPlan):
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
         lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * 2 * lxi)  # inverse of D diagonal matrices...
-        
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
@@ -368,9 +367,8 @@ def query(data, modelState, queryState, queryPlan):
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
         lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * 2 * lxi)  # inverse of D diagonal matrices...
-        
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
-                                # do doing a hadamard product for all d
+                                # to doing a hadamard product for all d
         debugFn (itr, means, "query-means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
@@ -507,13 +505,14 @@ def _debug_with_bound (itr, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv,
     old_bound = _debug_with_bound.old_bound
     bound     = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
     likely    = log_likelihood(DataSet(W, feats=X), modelState, queryState)
+    perp      = np.exp(-likely / W.sum())
     diff = "" if old_bound == 0 else "%11.2f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
     if isnan(bound) or int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+        printStderr ("Iter %3d Update %-10s Bound %15.2f (%11s    ) Perp %4.2f" % (itr, var_name, bound, diff, perp))
     else:
-        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Likely %15.2f" % (itr, var_name, bound, diff, likely)) 
+        print ("Iter %3d Update %-10s Bound %15.2f (%11s) Perp %4.2f" % (itr, var_name, bound, diff, perp))
 
 def _debug_with_nothing (iter, var_value, var_name, W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n):
     pass
