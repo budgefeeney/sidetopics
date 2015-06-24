@@ -317,7 +317,7 @@ def train (data, modelState, queryState, trainPlan):
             
             means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
          
-#        print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+#       print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -331,20 +331,20 @@ def train (data, modelState, queryState, trainPlan):
             print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[bvIdx]))
             if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
-#             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
+#           print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
 
             # Check to see if the improvment in the likelihood has fallen below the threshold
             if bvIdx > 1 and boundIters[bvIdx] > 50:
                 lastPerp = perplexity_from_like(boundLikes[bvIdx - 1], docLens.sum())
                 if lastPerp - perp < 1:
                     boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
-                    return modelState, queryState, (boundIters, boundValues, boundLikes)
+                    break
             bvIdx += 1
-
         
     revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)
-    means = means[revert_sort,:]
-    varcs = varcs[revert_sort,:]
+    means       = means[revert_sort,:]
+    varcs       = varcs[revert_sort,:]
+    docLens     = docLens[revert_sort]
     
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
