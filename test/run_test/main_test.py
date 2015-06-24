@@ -18,9 +18,18 @@ AclWordPath  = AclPath + "words-freq.pkl"
 AclFeatsPath = AclPath + "feats.pkl"
 AclCitePath  = AclPath + "ref.pkl"
 
+TweetsPath = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/AuthorTime750/"
+TweetsWordPath = TweetsPath + "words-cleaned.pkl"
+TweetsFeatPath = TweetsPath + "side-cleaned.pkl"
+
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
 NipsFeatPath = NipsPath + "X_ar.pkl"
+
+Acl, Tweets, Nips = 0, 1, 2
+WordsPath = [AclWordPath,  TweetsWordPath, NipsWordPath]
+FeatsPath = [AclFeatsPath, TweetsFeatPath, NipsFeatPath]
+CitesPath = [AclCitePath,  None,           None]
 
 def tmpFiles():
     '''
@@ -53,9 +62,12 @@ class Test(unittest.TestCase):
             pkl.dump(X, f)
         
         print ("New Version")
-        
-        K,P = 25, 50
+
+        DataSetName = Tweets
         Folds = 5
+        K,P = 25, 50
+        TrainIters, QueryIters = 1000,10
+
         modelFileses = []
         for modelName in [ StmYvBohning ]: #ModelNames:
             cmdline = '' \
@@ -65,11 +77,11 @@ class Test(unittest.TestCase):
                     + ' --num-lat-feats '  + str(P) \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '1000'      \
-                    + ' --query-iters '    + '200'      \
+                    + ' --iters '          + str(TrainIters)      \
+                    + ' --query-iters '    + str(QueryIters)      \
                     + ' --folds '          + str(Folds)      \
-                    + ' --words '          + AclWordPath \
-                    + ' --feats '          + AclFeatsPath \
+                    + ' --words '          + WordsPath[DataSetName] \
+                    + ' --feats '          + FeatsPath[DataSetName] \
                     + ' --limit-to '       + '100000' \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
