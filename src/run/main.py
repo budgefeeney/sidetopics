@@ -103,6 +103,7 @@ def run(args):
     data = DataSet.from_files(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
     data.prune_and_shuffle(min_doc_len=3, min_link_count=2)
+    print ("The total word-count is %.0f, drawn from a vocabulary of %d distinct terms" % (data.word_count, data.words.shape[1]))
     if data.add_intercept_to_feats_if_required():
         print ("Appended an intercept to the given features")
 
