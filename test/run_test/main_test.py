@@ -54,9 +54,10 @@ class Test(unittest.TestCase):
         
         print ("New Version")
         
-        K,P = 50, 50
+        K,P = 25, 50
+        Folds = 5
         modelFileses = []
-        for modelName in [ LdaVb ]: #ModelNames:
+        for modelName in [ StmYvBohning ]: #ModelNames:
             cmdline = '' \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
@@ -64,11 +65,10 @@ class Test(unittest.TestCase):
                     + ' --num-lat-feats '  + str(P) \
                     + ' --log-freq '       + '10'       \
                     + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + '600'      \
-                    + ' --query-iters '    + '100'      \
-                    + ' --folds '          + '2'      \
+                    + ' --iters '          + '1000'      \
+                    + ' --query-iters '    + '200'      \
+                    + ' --folds '          + str(Folds)      \
                     + ' --words '          + AclWordPath \
-                    + ' --links '          + AclCitePath \
                     + ' --feats '          + AclFeatsPath \
                     + ' --limit-to '       + '100000' \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
@@ -79,7 +79,6 @@ class Test(unittest.TestCase):
 #                    + ' --words '          + wordsFile \
 #                    + ' --feats '          + featsFile 
 #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
-#                     + ' --out-model '      + modelFileDir \
       
             modelFileses.extend (run(cmdline.strip().split(' ')))
         
