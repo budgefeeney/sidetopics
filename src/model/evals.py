@@ -6,6 +6,7 @@ Created on 20 Apr 2015
 
 import numpy as np
 #import numba as nb
+from model.common import DataSet
 
 Perplexity="perplexity"
 MeanAveragePrecAllDocs="meanavgprec_all"
@@ -14,6 +15,8 @@ MeanPrecRecAtMAllDocs="meanprecrec_all"
 EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs]
 
 def perplexity_from_like(log_likely, token_count):
+    if type(token_count) is DataSet:
+        token_count = token_count.word_and_link_count
     return np.exp(-log_likely / token_count)
 
 

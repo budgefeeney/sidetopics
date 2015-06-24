@@ -140,6 +140,10 @@ class DataSet:
 
 
     @property
+    def word_and_link_count(self):
+        return self.word_count + (self.link_count if self.has_links() else 0)
+
+    @property
     def link_count(self):
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
