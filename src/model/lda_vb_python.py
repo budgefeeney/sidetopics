@@ -206,6 +206,10 @@ def _inplace_softmax_colwise(z):
     :param z: a KxN matrix representing N unnormalised distributions over K
     possibilities, and returns N normalized distributions
     '''
+
+    if np.any(np.isnan(z)) or np.any(np.isinf(z)):
+        print("Yoinks, Scoob!")
+
     z_max = z.max(axis=0)
     z -= z_max[np.newaxis, :]
 
