@@ -455,6 +455,10 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
     doc_topic_counts -= old_topic_prior[np.newaxis, :]
     doc_topic_counts /= doc_lens[:, np.newaxis]
 
+    # Make sure it never is zero or negative
+    for k in range(K):
+        topic_prior[k] = min(topic_prior[k], 1E-6)
+
 
 def printAndFlushNoNewLine(text):
     sys.stdout.write(text)
