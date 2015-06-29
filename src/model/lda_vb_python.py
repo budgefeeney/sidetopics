@@ -9,12 +9,14 @@ import numpy.random as rd
 import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.special as fns
-#import numba as nb
+import numba as nb
 
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged
+
+from model.evals import perplexity_from_like
 
 from collections import namedtuple
 
@@ -195,7 +197,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-##@nb.autojit
+@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -218,7 +220,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-##@nb.autojit
+@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -240,7 +242,7 @@ def _inplace_softmax_rowwise(z):
 
 
 
-##@nb.autojit
+@nb.autojit
 def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -265,7 +267,7 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     topicMeans[d, :] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-##@nb.autojit
+@nb.autojit
 def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -301,7 +303,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-##@nb.autojit
+@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -358,20 +360,24 @@ def train(data, model, query, plan, updateVocab=True):
             # Perform inference, updating the vocab
             wordDists[:, :] = vocabPrior
             for d in range(D):
-                if debug and d % 100 == 0: printAndFlushNoNewLine(".")
+                #if debug and d % 100 == 0: printAndFlushNoNewLine(".")
                 wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
 
             # Log bound and the determine if we can stop early
-            if itr % logFrequency == 0:
+            if itr % logFrequency == 0 or debug:
                 iters.append(itr)
                 bnds.append(_var_bound_internal(data, model, query))
                 likes.append(_log_likelihood_internal(data, model, query))
 
-                if debug: print("%.3f < %.3f" % (bnds[-1], likes[-1]))
-                if converged(iters, bnds, len(bnds) - 1, minIters=5):
-                    break
+                perp = perplexity_from_like(likes[-1], W.sum())
+                print ("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (itr, perp, bnds[-1]))
+
+                if len(iters) > 2:
+                    lastPerp = perplexity_from_like(likes[-2], W.sum())
+                    if lastPerp - perp < 1:
+                        break;
 
             # Update hyperparameters (do this after bound, to make sure bound
             # calculation is internally consistent)
@@ -489,7 +495,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) = train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-##@nb.autojit
+@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -498,7 +504,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-##@nb.autojit
+@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
