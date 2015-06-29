@@ -63,19 +63,20 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = Tweets
+        DataSetName = Acl
         Folds = 5
         K,P = 25, 50
-        TrainIters, QueryIters = 1000,10
+        TrainIters, QueryIters, LogFreq = 1000, 100, 100
 
         modelFileses = []
-        for modelName in [ StmYvBohning ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
+                    + ' --debug '          + str(True) \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
                     + ' --num-lat-feats '  + str(P) \
-                    + ' --log-freq '       + '10'       \
+                    + ' --log-freq '       + str(LogFreq)       \
                     + ' --eval '           + 'perplexity'  \
                     + ' --iters '          + str(TrainIters)      \
                     + ' --query-iters '    + str(QueryIters)      \
