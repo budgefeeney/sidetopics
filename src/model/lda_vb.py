@@ -29,6 +29,7 @@ from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.overflow_safe import safe_log
 from util.misc import constantArray, converged, clamp
 from model.lda_cvb import toWordList
+from model.evals import perplexity_from_like
 
 
 # ==============================================================
@@ -219,6 +220,7 @@ def train (data, modelState, queryState, trainPlan):
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound(data, modelState, queryState)
         likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
+        perp = perplexity_from_like(likelyValues[bvIdx], W.sum())
         bvIdx += 1
         
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
@@ -227,7 +229,7 @@ def train (data, modelState, queryState, trainPlan):
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
         
-        print ("Segment %d/%d Total Iterations %d Duration %d Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, duration, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
+        print ("Segment %d/%d Total Iterations %d Duration %d Perplexity %4.0f Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, duration, perp, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
     
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \

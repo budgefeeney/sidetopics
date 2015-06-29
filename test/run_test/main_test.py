@@ -66,7 +66,7 @@ class Test(unittest.TestCase):
         DataSetName = Acl
         Folds = 5
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 1000, 100, 100
+        TrainIters, QueryIters, LogFreq = 1000, 100, 300
 
         modelFileses = []
         for modelName in [ LdaVb ]: #ModelNames:
