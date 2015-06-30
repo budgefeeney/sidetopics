@@ -16,6 +16,7 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 import numpy.random as rd
+import numba as nb
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
@@ -156,6 +157,7 @@ def is_undirected_link_predictor():
     '''
     return False
 
+@nb.autojit
 def train (data, modelState, queryState, trainPlan):
     '''
     Infers the topic distributions in general, and specifically for
