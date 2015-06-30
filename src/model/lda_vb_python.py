@@ -24,6 +24,7 @@ DTYPE      = np.float64
 
 # After how many training iterations should we stop to update the hyperparameters
 HyperParamUpdateInterval = 5
+HyperUpdateEnabled = False
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
@@ -382,7 +383,7 @@ def train(data, model, query, plan, updateVocab=True):
 
             # Update hyperparameters (do this after bound, to make sure bound
             # calculation is internally consistent)
-            if itr > 0 and itr % HyperParamUpdateInterval == 0:
+            if HyperUpdateEnabled and itr > 0 and itr % HyperParamUpdateInterval == 0:
                 if debug: print("Topic Prior was " + str(topicPrior))
                 _updateTopicHyperParamsFromMeans(model, query)
                 if debug: print("Topic Prior is now " + str(topicPrior))
