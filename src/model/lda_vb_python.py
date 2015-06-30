@@ -353,8 +353,6 @@ def train(data, model, query, plan, updateVocab=True):
     diWordDists    = np.empty(wordDists.shape, dtype=dtype)
 
     for itr in range(iterations):
-        if debug: printAndFlushNoNewLine("\n %4d: " % itr)
-
         diWordDistSums[:] = wordDists.sum(axis=1)
         fns.digamma(diWordDistSums, out=diWordDistSums)
         fns.digamma(wordDists,      out=diWordDists)
@@ -466,7 +464,7 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
 
     # Make sure it never is zero or negative
     for k in range(K):
-        topic_prior[k] = min(topic_prior[k], 1E-6)
+        topic_prior[k] = max(topic_prior[k], 1E-6)
 
 
 def printAndFlushNoNewLine(text):
