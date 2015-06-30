@@ -149,6 +149,10 @@ class DataSet:
         return self._links.sum()
 
 
+    def __len__(self):
+        return self._words.shape[0]
+
+
     def convert_to_dtype(self, dtype):
         '''
         Inplace conversion to given dtype
