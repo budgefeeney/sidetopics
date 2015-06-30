@@ -22,14 +22,16 @@ TweetsPath = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/Author
 TweetsWordPath = TweetsPath + "words-cleaned.pkl"
 TweetsFeatPath = TweetsPath + "side-cleaned.pkl"
 
+AuthorTweetsWordPath = TweetsPath + "words-by-author.pkl"
+
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
 NipsFeatPath = NipsPath + "X_ar.pkl"
 
-Acl, Tweets, Nips = 0, 1, 2
-WordsPath = [AclWordPath,  TweetsWordPath, NipsWordPath]
-FeatsPath = [AclFeatsPath, TweetsFeatPath, NipsFeatPath]
-CitesPath = [AclCitePath,  None,           None]
+Acl, Tweets, AuthorTweets, Nips = 0, 1, 2, 3
+WordsPath = [AclWordPath,  TweetsWordPath, AuthorTweetsWordPath, NipsWordPath]
+FeatsPath = [AclFeatsPath, TweetsFeatPath, None,                 NipsFeatPath]
+CitesPath = [AclCitePath,  None,           None,                 None]
 
 def tmpFiles():
     '''
@@ -63,14 +65,16 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = Tweets
+        DataSetName = AuthorTweets
         Folds = 5
-        K,P = 25, 50
+        K,P = 40, 50
         TrainIters, QueryIters, LogFreq = 1000, 100, 5,
+        Debug = True
 
         modelFileses = []
-        for modelName in [ StmYvBohning ]: #ModelNames:
+        for modelName in [ LdaVb ]: #ModelNames:
             cmdline = '' \
+                    + (' --debug '         + str(Debug) if Debug else "") \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
@@ -81,7 +85,8 @@ class Test(unittest.TestCase):
                     + ' --query-iters '    + str(QueryIters)      \
                     + ' --folds '          + str(Folds)      \
                     + ' --words '          + WordsPath[DataSetName] \
-                    + ' --feats '          + FeatsPath[DataSetName] \
+                    + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
+                    + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
