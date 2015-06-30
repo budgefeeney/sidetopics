@@ -333,7 +333,7 @@ def train (data, modelState, queryState, trainPlan):
                 printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
 #           print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
 
-            # Check to see if the improvment in the likelihood has fallen below the threshold
+            # Check to see if the improvement in the likelihood has fallen below the threshold
             if bvIdx > 1 and boundIters[bvIdx] > 50:
                 lastPerp = perplexity_from_like(boundLikes[bvIdx - 1], docLens.sum())
                 if lastPerp - perp < 1:
