@@ -128,7 +128,7 @@ def run(args):
         import model.lda_cvb as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaVb:
-        import model.lda_vb as mdl
+        import model.lda_vb_python as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaGibbs:
         import model.lda_gibbs as mdl
