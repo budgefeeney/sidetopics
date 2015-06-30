@@ -112,6 +112,7 @@ def run(args):
     #
     # Instantiate and configure the model
     #
+    print ("Building tempalte model... ", end="")
     if args.model == CtmBouchard:
         import model.ctm as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
@@ -141,6 +142,7 @@ def run(args):
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
+    print("Done")
 
 
     trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
@@ -228,8 +230,12 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
         train_data, query_data = data.cross_valid_split(fold, folds)
 
         # Train the model
+        print ("Duplicating model template... ", end="")
         model      = mdl.newModelFromExisting(sample_model)
+        print ("Done.\nCreating query state...")
         train_tops = mdl.newQueryState(train_data, model)
+
+        print ("Starting training")
         model, train_tops, (train_itrs, train_vbs, train_likes) \
             = mdl.train(train_data, model, train_tops, train_plan)
 
@@ -238,6 +244,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
         train_perp       = perplexity_from_like(train_like, train_word_count)
 
         # Query the model - if there are no features we need to split the text
+        print ("Starting query.")
         query_estim, query_eval = query_data.doc_completion_split()
         query_tops              = mdl.newQueryState(query_estim, model)
         model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)

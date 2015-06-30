@@ -63,15 +63,14 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = Acl
+        DataSetName = Tweets
         Folds = 5
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 1000, 100, 300
+        TrainIters, QueryIters, LogFreq = 1000, 100, 5,
 
         modelFileses = []
-        for modelName in [ LdaVb ]: #ModelNames:
+        for modelName in [ StmYvBohning ]: #ModelNames:
             cmdline = '' \
-                    + ' --debug '          + str(True) \
                     + ' --model '          + modelName \
                     + ' --dtype '          + 'f8:f8'      \
                     + ' --num-topics '     + str(K)    \
@@ -83,7 +82,6 @@ class Test(unittest.TestCase):
                     + ' --folds '          + str(Folds)      \
                     + ' --words '          + WordsPath[DataSetName] \
                     + ' --feats '          + FeatsPath[DataSetName] \
-                    + ' --limit-to '       + '100000' \
                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
 #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
 #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
