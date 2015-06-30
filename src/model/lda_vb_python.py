@@ -81,10 +81,14 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
         vocabPrior = 5 # Also from G&S
 
     wordDists = np.ones((K,T), dtype=dtype)
-    doc_ids = rd.randint(0, data.doc_count, size=K)
     for k in range(K):
-        sample_doc = data.words[doc_ids[k], :]
-        wordDists[k, sample_doc.indices] += sample_doc.data
+        docLenSum = 0
+        while docLenSum < 1000:
+            randomDoc  = rd.randint(0, data.doc_count, size=1)
+            sample_doc = data.words[randomDoc, :]
+            wordDists[k, sample_doc.indices] += sample_doc.data
+            docLenSum += sample_doc.sum()
+        wordDists[k,:] /= wordDists[k,:].sum()
 
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)

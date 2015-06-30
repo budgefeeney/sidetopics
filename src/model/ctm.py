@@ -77,7 +77,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
 
-def newModelAtRandom(dataset, K, dtype=DTYPE):
+def newModelAtRandom(data, K, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -93,8 +93,17 @@ def newModelAtRandom(dataset, K, dtype=DTYPE):
     '''
     assert K > 1, "There must be at least two topics"
     
-    _,T = dataset.words.shape
-    vocab     = normalizerows_ip(rd.random((K,T)).astype(dtype))
+    _,T = data.words.shape
+    vocab = np.ones((K,T), dtype=dtype)
+    for k in range(K):
+        docLenSum = 0
+        while docLenSum < 1000:
+            randomDoc  = rd.randint(0, data.doc_count, size=1)
+            sample_doc = data.words[randomDoc, :]
+            vocab[k, sample_doc.indices] += sample_doc.data
+            docLenSum += sample_doc.sum()
+        vocab[k,:] /= vocab[k,:].sum()
+
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
     
