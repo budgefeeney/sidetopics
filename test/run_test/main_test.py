@@ -28,10 +28,10 @@ NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
 NipsFeatPath = NipsPath + "X_ar.pkl"
 
-Acl, Tweets, AuthorTweets, Nips = 0, 1, 2, 3
-WordsPath = [AclWordPath,  TweetsWordPath, AuthorTweetsWordPath, NipsWordPath]
-FeatsPath = [AclFeatsPath, TweetsFeatPath, None,                 NipsFeatPath]
-CitesPath = [AclCitePath,  None,           None,                 None]
+Acl, AclNoLinks, Tweets, AuthorTweets, Nips = 0, 1, 2, 3, 4
+WordsPath = [AclWordPath,  AclWordPath,  TweetsWordPath, AuthorTweetsWordPath, NipsWordPath]
+FeatsPath = [AclFeatsPath, AclFeatsPath, TweetsFeatPath, None,                 NipsFeatPath]
+CitesPath = [AclCitePath,  None,         None,           None,                 None]
 
 def tmpFiles():
     '''
@@ -65,14 +65,14 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = AuthorTweets
+        DataSetName = AclNoLinks
         Folds = 5
-        K,P = 40, 50
+        K,P = 25, 50
         TrainIters, QueryIters, LogFreq = 1000, 100, 5,
-        Debug = True
+        Debug = False
 
         modelFileses = []
-        for modelName in [ LdaVb ]: #ModelNames:
+        for modelName in [ StmYvBohning ]: #ModelNames:
             cmdline = '' \
                     + (' --debug '         + str(Debug) if Debug else "") \
                     + ' --model '          + modelName \
