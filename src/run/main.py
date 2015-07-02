@@ -112,7 +112,7 @@ def run(args):
     #
     # Instantiate and configure the model
     #
-    print ("Building tempalte model... ", end="")
+    print ("Building template model... ", end="")
     if args.model == CtmBouchard:
         import model.ctm as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
