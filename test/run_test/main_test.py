@@ -13,7 +13,7 @@ from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, CtmBohning, CtmBouchard
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
 
-AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100/"
+AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
 AclWordPath  = AclPath + "words-freq.pkl"
 AclFeatsPath = AclPath + "feats.pkl"
 AclCitePath  = AclPath + "ref.pkl"
@@ -65,42 +65,43 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = AclNoLinks
+        DataSetName = AuthorTweets
         Folds = 5
         K,P = 25, 50
         TrainIters, QueryIters, LogFreq = 1000, 100, 5,
         Debug = False
 
         modelFileses = []
-        for modelName in [ StmYvBohning ]: #ModelNames:
-            cmdline = '' \
-                    + (' --debug '         + str(Debug) if Debug else "") \
-                    + ' --model '          + modelName \
-                    + ' --dtype '          + 'f8:f8'      \
-                    + ' --num-topics '     + str(K)    \
-                    + ' --num-lat-feats '  + str(P) \
-                    + ' --log-freq '       + str(LogFreq)       \
-                    + ' --eval '           + 'perplexity'  \
-                    + ' --iters '          + str(TrainIters)      \
-                    + ' --query-iters '    + str(QueryIters)      \
-                    + ' --folds '          + str(Folds)      \
-                    + ' --words '          + WordsPath[DataSetName] \
-                    + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
-                    + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
-                    + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
-#                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-#                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
-#                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
-#                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
-#                    + ' --words '          + wordsFile \
-#                    + ' --feats '          + featsFile 
-#                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
-      
-            modelFileses.extend (run(cmdline.strip().split(' ')))
-        
-            modelFileses.insert(0, wordsFile)
-            modelFileses.insert(1, featsFile)
-            print ("Files can be found in:" + "\n\t".join(modelFileses))
+        for k in [10, 25, 50, 75, 100, 125, 150, 250]:
+            for modelName in [ CtmBohning ]: #ModelNames:
+                cmdline = '' \
+                        + (' --debug '         + str(Debug) if Debug else "") \
+                        + ' --model '          + modelName \
+                        + ' --dtype '          + 'f8:f8'      \
+                        + ' --num-topics '     + str(K)    \
+                        + ' --num-lat-feats '  + str(P) \
+                        + ' --log-freq '       + str(LogFreq)       \
+                        + ' --eval '           + 'perplexity'  \
+                        + ' --iters '          + str(TrainIters)      \
+                        + ' --query-iters '    + str(QueryIters)      \
+                        + ' --folds '          + str(Folds)      \
+                        + ' --words '          + WordsPath[DataSetName] \
+                        + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
+                        + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "")
+    #                    + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
+    #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+    #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+    #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
+    #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
+    #                    + ' --words '          + wordsFile \
+    #                    + ' --feats '          + featsFile
+    #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
+
+                modelFileses.extend (run(cmdline.strip().split(' ')))
+
+                modelFileses.insert(0, wordsFile)
+                modelFileses.insert(1, featsFile)
+                print ("Files can be found in:" + "\n\t".join(modelFileses))
         
     
     def _testLoadResult(self):
