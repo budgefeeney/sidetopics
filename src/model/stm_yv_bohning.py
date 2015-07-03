@@ -38,7 +38,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=False
 
-VocabPrior=0.1
+VocabPrior=1.1
 
 MODEL_NAME="stm-yv/bohning"
 
