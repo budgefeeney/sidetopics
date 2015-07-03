@@ -22,16 +22,18 @@ TweetsPath = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/Author
 TweetsWordPath = TweetsPath + "words-cleaned.pkl"
 TweetsFeatPath = TweetsPath + "side-cleaned.pkl"
 
-AuthorTweetsWordPath = TweetsPath + "words-by-author.pkl"
+AuthorTweetsWordPath     = TweetsPath + "words-by-author.pkl"
+AuthorTweetsFreqWordPath = TweetsPath + "words-by-author-freq.pkl"
+TweetsFreqWordPath       = TweetsPath + "words-cleaned-freq.pkl"
 
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 NipsWordPath = NipsPath + "W_ar.pkl"
 NipsFeatPath = NipsPath + "X_ar.pkl"
 
-Acl, AclNoLinks, Tweets, AuthorTweets, Nips = 0, 1, 2, 3, 4
-WordsPath = [AclWordPath,  AclWordPath,  TweetsWordPath, AuthorTweetsWordPath, NipsWordPath]
-FeatsPath = [AclFeatsPath, AclFeatsPath, TweetsFeatPath, None,                 NipsFeatPath]
-CitesPath = [AclCitePath,  None,         None,           None,                 None]
+Acl, AclNoLinks, Tweets, TweetsFreq, AuthorTweets, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
+WordsPath = [AclWordPath,  AclWordPath,  TweetsWordPath, TweetsFreqWordPath, AuthorTweetsWordPath, AuthorTweetsFreqWordPath, NipsWordPath]
+FeatsPath = [AclFeatsPath, AclFeatsPath, TweetsFeatPath, TweetsFeatPath,     None,                 None,                     NipsFeatPath]
+CitesPath = [AclCitePath,  None,         None,           None,               None,                 None,                     None]
 
 def tmpFiles():
     '''
@@ -65,20 +67,20 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = AuthorTweets
+        DataSetName = TweetsFreq
         Folds = 5
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 1000, 100, 5,
+        TrainIters, QueryIters, LogFreq = 1000, 100, 5
         Debug = False
 
         modelFileses = []
-        for k in [10, 25, 50, 75, 100, 125, 150, 250]:
-            for modelName in [ CtmBohning ]: #ModelNames:
+        for k in [10]: # [10, 25, 50, 75, 100, 125, 150, 250]:
+            for modelName in [ StmYvBouchard ]: #ModelNames:
                 cmdline = '' \
                         + (' --debug '         + str(Debug) if Debug else "") \
                         + ' --model '          + modelName \
                         + ' --dtype '          + 'f8:f8'      \
-                        + ' --num-topics '     + str(K)    \
+                        + ' --num-topics '     + str(k)    \
                         + ' --num-lat-feats '  + str(P) \
                         + ' --log-freq '       + str(LogFreq)       \
                         + ' --eval '           + 'perplexity'  \
@@ -87,8 +89,8 @@ class Test(unittest.TestCase):
                         + ' --folds '          + str(Folds)      \
                         + ' --words '          + WordsPath[DataSetName] \
                         + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
-                        + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "")
-    #                    + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
+                        + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
+                        + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
     #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
     #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
     #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
