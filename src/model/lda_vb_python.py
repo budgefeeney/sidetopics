@@ -21,6 +21,7 @@ from collections import namedtuple
 
 MODEL_NAME = "lda/vbp"
 DTYPE      = np.float64
+VocabPrior = 1.1
 
 # After how many training iterations should we stop to update the hyperparameters
 HyperParamUpdateInterval = 5
@@ -79,7 +80,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     if topicPrior is None:
         topicPrior = constantArray((K,), 5.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 1.1 # Also from G&S
+        vocabPrior = VocabPrior
 
     wordDists = np.ones((K,T), dtype=dtype)
     for k in range(K):
@@ -152,8 +153,7 @@ def topicDists (queryState):
     The D x K matrix of topics distributions inferred for the K topics
     across all D documents
     '''
-    K       = queryState.topicDists.shape[1] - 1
-    result  = queryState.topicDists[:, :K].copy()
+    result  = queryState.topicDists.copy()
     norm    = np.sum(result, axis=1)
     result /= norm[:, np.newaxis]
 
@@ -176,9 +176,7 @@ def log_likelihood (data, modelState, queryState):
     Actually returns a vector of D document specific log likelihoods
     '''
     wordLikely = sparseScalarProductOfSafeLnDot(data.words, topicDists(queryState), wordDists(modelState)).sum()
-    
 
-    
     return wordLikely
 
 
@@ -297,7 +295,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     z  = diWordDists[:, wordIdx]
     z -= diWordDistSums[:, np.newaxis]
 
-    distAtD = (topicPrior + docLens[d] * topicMeans[d, :])[:K, np.newaxis]
+    distAtD = (topicPrior + docLens[d] * topicMeans[d, :])[:, np.newaxis]
 
     z += fns.digamma(distAtD)
     # z -= fns.digamma(distAtD.sum())
@@ -376,7 +374,7 @@ def train(data, model, query, plan, updateVocab=True):
                 perp = perplexity_from_like(likes[-1], W.sum())
                 print ("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (itr, perp, bnds[-1]))
 
-                if len(iters) > 2: #and iters[-1] > 100:
+                if len(iters) > 2 and iters[-1] > 50:
                     lastPerp = perplexity_from_like(likes[-2], W.sum())
                     if lastPerp - perp < 1:
                         break;
@@ -452,7 +450,7 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
         fns.digamma(old_topic_prior, out=psi_old_tprior)
 
         numer = fns.psi(doc_topic_counts).sum(axis=0) - D * psi_old_tprior
-        denom = fns.psi(doc_lens + old_topic_prior[:K].sum()).sum() - D * psi_old_tprior
+        denom = fns.psi(doc_lens + old_topic_prior.sum()).sum() - D * psi_old_tprior
         topic_prior[:] = old_topic_prior * (numer / denom)
 
         if la.norm(np.subtract(old_topic_prior, topic_prior), 1) < (0.001 * K):
@@ -474,7 +472,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-#@nb.autojit
+@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -525,20 +523,20 @@ def var_bound(data, model, query, z_dnk = None):
         
     # Perform the digamma transform for E[ln \theta] etc.
     topicDists      = topicDists.copy()
-    diTopicDists    = fns.digamma(topicDists[:, :K])
-    diSumTopicDists = fns.digamma(topicDists[:, :K].sum(axis=1))
+    diTopicDists    = fns.digamma(topicDists)
+    diSumTopicDists = fns.digamma(topicDists.sum(axis=1))
     diWordDists     = fns.digamma(model.wordDists)
     diSumWordDists  = fns.digamma(model.wordDists.sum(axis=1))
 
     # E[ln p(topics|topicPrior)] according to q(topics)
     #
-    prob_topics = D * (fns.gammaln(topicPrior[:K].sum()) - fns.gammaln(topicPrior[:K]).sum()) \
-        + np.sum((topicPrior[:K] - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis]))
+    prob_topics = D * (fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum()) \
+        + np.sum((topicPrior - 1)[np.newaxis, :] * (diTopicDists - diSumTopicDists[:, np.newaxis]))
 
     bound += prob_topics
 
     # and its entropy
-    ent_topics = _dirichletEntropy(topicDists[:, :K])
+    ent_topics = _dirichletEntropy(topicDists)
     bound += ent_topics
         
     # E[ln p(vocabs|vocabPrior)]
@@ -567,7 +565,7 @@ def var_bound(data, model, query, z_dnk = None):
         wordIdx, z = _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diSumWordDists)
 
         # E[ln p(Z|topics) = sum_d sum_n sum_k E[z_dnk] E[ln topicDist_dk]
-        exLnTopic = diTopicDists[d, :K] - diSumTopicDists[d]
+        exLnTopic = diTopicDists[d, :] - diSumTopicDists[d]
         prob_z += np.dot(z * exLnTopic[:, np.newaxis], W[d, :].data).sum()
 
         # E[ln p(W|Z)] = sum_d sum_n sum_k sum_t E[z_dnk] w_dnt E[ln vocab_kt]
