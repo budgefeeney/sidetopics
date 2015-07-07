@@ -232,11 +232,13 @@ class DataSet:
         '''
         rng = rd.RandomState(seed)
 
-        doc_lens = np.squeeze(np.asarray(self._words.sum(axis=1)))
+        tmp = self._words.astype(np.bool).astype(np.int32)
+
+        doc_lens = np.squeeze(np.asarray(tmp.sum(axis=1)))
         if doc_lens.min() < min_doc_len:
-            good_rows = (np.where(doc_lens > 0.5))[0]
+            good_rows = (np.where(doc_lens >= min_doc_len))[0]
             self._order = good_rows
-            print ("Removed %d documents whose word counts were less than %d. %d documents remain" \
+            print ("Removed %d documents with fewer than %d unique words. %d documents remain" \
                    % (len(doc_lens) - len(good_rows), min_doc_len, len(good_rows)))
         else:
             doc_count = self._words.shape[0]
@@ -262,7 +264,6 @@ class DataSet:
         if trimmed:
             print("Removed %d documents whose out-link counts were less than %d. %d documents remain" \
                    % (original_num_docs - self.doc_count, min_link_count, self.doc_count))
-
 
         return self._order
 
