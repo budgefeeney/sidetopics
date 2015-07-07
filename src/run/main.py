@@ -29,7 +29,7 @@ Mtm           = "mtm_vb"
 ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm,Mtm])
 
 
-
+DefaultPriorCov = 0.001
 FastButInaccurate=False
 
 def run(args):
@@ -71,13 +71,13 @@ def run(args):
                     help='The maximum number of iterations to run when querying, by default same as when training')
     parser.add_argument('--min-vb-change', '-e', dest='min_vb_change', type=float, default=1, metavar=' ', \
                     help='The amount by which the variational bound must change at each log-interval to avoid inference being stopped early.')
-    parser.add_argument('--topic-var', dest='topic_var', type=float, default=0.1, metavar=' ', \
+    parser.add_argument('--topic-var', dest='topic_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over topics")
-    parser.add_argument('--feat-var', dest='feat_var', type=float, default=0.1, metavar=' ', \
+    parser.add_argument('--feat-var', dest='feat_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over features")
-    parser.add_argument('--lat-topic-var', dest='lat_topic_var', type=float, default=0.1, metavar=' ', \
+    parser.add_argument('--lat-topic-var', dest='lat_topic_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent topics")
-    parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=0.1, metavar=' ', \
+    parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent features")
     parser.add_argument('--folds', '-f', dest='folds', type=int, default=1, metavar=' ', \
                     help="Number of cross validation folds.")

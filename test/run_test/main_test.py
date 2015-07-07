@@ -71,6 +71,7 @@ class Test(unittest.TestCase):
         Folds = 5
         K,P = 25, 50
         TrainIters, QueryIters, LogFreq = 1000, 100, 5
+        PriorCov = 0.001
         Debug = False
 
         modelFileses = []
@@ -90,6 +91,10 @@ class Test(unittest.TestCase):
                         + ' --words '          + WordsPath[DataSetName] \
                         + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
                         + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
+                        + ' --topic-var '      + str(PriorCov) \
+                        + ' --feat-var '       + str(PriorCov) \
+                        + ' --lat-topic-var '  + str(PriorCov) \
+                        + ' --lat-feat-var '   + str(PriorCov) \
                         + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
     #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
     #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
