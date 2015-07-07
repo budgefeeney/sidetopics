@@ -110,7 +110,7 @@ def newModelAtRandom(data, K, dtype=DTYPE):
 
     # Pick some random documents as the vocabulary
     vocab = np.ones((K,T), dtype=dtype)
-    for k in range(K):
+    for k in range(1, K):
         docLenSum = 0
         while docLenSum < 1000:
             randomDoc  = rd.randint(0, data.doc_count, size=1)
@@ -118,6 +118,10 @@ def newModelAtRandom(data, K, dtype=DTYPE):
             vocab[k, sample_doc.indices] += sample_doc.data
             docLenSum += sample_doc.sum()
         vocab[k,:] /= vocab[k,:].sum()
+
+    # stop-word vocab
+    vocab[0,:]  = data.words.sum(axis=0)
+    vocab[0,:] /= vocab[0,:].sum()
 
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
