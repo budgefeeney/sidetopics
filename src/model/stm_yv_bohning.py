@@ -105,10 +105,10 @@ def newModelAtRandom(data, P, K, featVar, latFeatVar, dtype=DTYPE):
     
     base = newCtmModelAtRandom(data, K, dtype)
     _,F = data.feats.shape
-    Y = rd.random((K,P)).astype(dtype)
+    Y = rd.random((K,P)).astype(dtype) * 50
     R_Y = latFeatVar * np.eye(P,P, dtype=dtype)
     
-    V = rd.random((P,F)).astype(dtype)
+    V = rd.random((P,F)).astype(dtype) * 50
     A = Y.dot(V)
     R_A = featVar * np.eye(F,F, dtype=dtype)
     
@@ -209,11 +209,9 @@ def train (data, modelState, queryState, trainPlan):
     inds = np.append(inds, [W.shape[0]])
     
     # Initialize some working variables
-    isigT = la.inv(sigT)
     R = W.copy()
     
     aI_P = 1./lfv  * ssp.eye(P, dtype=dtype)
-    tI_F = 1./fv * ssp.eye(F, dtype=dtype)
     
     print("Creating posterior covariance of A, this will take some time...")
     XTX = X.T.dot(X)
@@ -222,8 +220,7 @@ def train (data, modelState, queryState, trainPlan):
     R_A.flat[::F+1] += 1./fv # and the result is usually dense in any case
     R_A = la.inv(R_A)
     print("Covariance matrix calculated, launching inference")
-    
-    R_Y_base = R_Y.copy()
+
     
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigt_diag.fill (0.001)
@@ -242,7 +239,12 @@ def train (data, modelState, queryState, trainPlan):
         sigT += 1./fv * diff_a_yv.dot(diff_a_yv.T)
         sigT += diff_m_xa.T.dot(diff_m_xa)
         sigT.flat[::K+1] += varcs.sum(axis=0)
-        sigT /= (P+F+D)
+
+        # As small numbers lead to instable inverse estimates, we use the
+        # fact that for a scalar a, (a .* X)^-1 = 1/a * X^-1 and use these
+        # scales whenever we use the inverse of the unscaled covariance
+        sigScale  = 1. / (P+D+F)
+        isigScale = 1. / sigScale
         
         isigT = la.inv(sigT)
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
@@ -270,7 +272,7 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Finally update the parameter V
-        V = la.inv(R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
+        V = la.inv(sigScale * R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
         debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         
@@ -287,15 +289,15 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the mapping from the features to topics
-        A = (1./fv * (Y).dot(V) + (X.T.dot(means)).T).dot(R_A)
+        A = (1./fv * Y.dot(V) + (X.T.dot(means)).T).dot(R_A)
         debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the Variances
-        varcs = 1./((docLens * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
+        varcs = 1./((docLens * (K-1.)/K)[:,np.newaxis] + isigScale * isigT.flat[::K+1])
         debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         # Update the Means
-        rhs = X.dot(A.T).dot(isigT)
+        rhs = X.dot(A.T).dot(isigT) * isigScale
         rhs += S
         rhs += docLens[:,np.newaxis] * means.dot(Ab)
         rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
@@ -315,7 +317,7 @@ def train (data, modelState, queryState, trainPlan):
         for lenIdx in range(len(lens)):
             nd         = lens[lenIdx]
             start, end = inds[lenIdx], inds[lenIdx + 1]
-            lhs        = la.inv(isigT + nd * Ab)
+            lhs        = la.inv(isigT + sigScale * nd * Ab) * sigScale
             
             means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
          
@@ -323,7 +325,7 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, Ab, docLens)
         
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME)
+            modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT * sigScale, vocab, Ab, dtype, MODEL_NAME)
             queryState = QueryState(means, varcs, docLens)
 
             boundValues[bvIdx] = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
@@ -336,7 +338,7 @@ def train (data, modelState, queryState, trainPlan):
 #           print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
 
             # Check to see if the improvement in the likelihood has fallen below the threshold
-            if bvIdx > 1 and boundIters[bvIdx] > 50:
+            if bvIdx > 1 and boundIters[bvIdx] > 20:
                 lastPerp = perplexity_from_like(boundLikes[bvIdx - 1], docLens.sum())
                 if lastPerp - perp < 1:
                     boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
@@ -349,7 +351,7 @@ def train (data, modelState, queryState, trainPlan):
     docLens     = docLens[revert_sort]
     
     return \
-        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype, MODEL_NAME), \
+        ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT * sigScale, vocab, Ab, dtype, MODEL_NAME), \
         QueryState(means, varcs, docLens), \
         (boundIters, boundValues, boundLikes)
  
