@@ -213,8 +213,6 @@ def train (data, modelState, queryState, trainPlan):
     
     s.fill(0)
     
-    R_Y_base = R_Y.copy()
-    
     # Iterate over parameters
     for itr in range(iterations):
         
