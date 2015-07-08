@@ -262,7 +262,7 @@ def train (data, modelState, queryState, trainPlan):
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
-        varcs = np.reciprocal(docLens[:,np.newaxis] * (0.5 - 1./K) + np.diagonal(sigT))
+        varcs = np.reciprocal(docLens[:,np.newaxis] * (K-1.)/K + np.diagonal(sigT))
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)    
         
         # Update the Means
