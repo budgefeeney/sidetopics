@@ -38,12 +38,12 @@ from sklearn.covariance import oas
 
 DTYPE=np.float32 # A default, generally we should specify this in the model setup
 
-USE_NIW_PRIOR=False
+USE_NIW_PRIOR=True
 
 LN_OF_2_PI   = log(2 * pi)
 LN_OF_2_PI_E = log(2 * pi * e)
 
-VocabPrior=0.1
+VocabPrior=1.1
 
 DEBUG=True
 
@@ -195,6 +195,8 @@ def train (dataset, modelState, queryState, trainPlan):
     priorSigt_diag = np.ndarray(shape=(K,), dtype=dtype)
     priorSigt_diag.fill (0.1)
     kappa = K + 2
+
+    expMeans = means.copy()
     
     # Iterate over parameters
     for itr in range(iterations):
@@ -208,18 +210,23 @@ def train (dataset, modelState, queryState, trainPlan):
                     if USE_NIW_PRIOR \
                     else means.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
-        
+
+        # diff = means - topicMean
+        # sigT = diff.T.dot(diff) / D
+
         sigT, _ = oas(means, assume_centered=False)
         if dtype is not np.float64:
             sigT = sigT.astype(dtype)
+
         sigT += np.diag(varcs.mean(axis=0))
+
         if USE_NIW_PRIOR:
             sigT.flat[::K+1] += priorSigt_diag
             sigT += (kappa * D)/(kappa + D) * np.outer(topicMean, topicMean)
-        
+
         # Building blocks...
         # 1/4 Create the precision matrix from the covariance
-        if diagonalPriorCov:
+        if True or diagonalPriorCov:
             diag = np.diag(sigT)
             sigT = np.diag(diag)
             isigT = np.diag(1. / diag)
@@ -230,7 +237,7 @@ def train (dataset, modelState, queryState, trainPlan):
 #        print ("         Det sigT = " + str(la.det(sigT)))
         
         # 2/4 temporarily replace means with exp(means)
-        expMeans = np.exp(means, out=means)
+        expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans) #, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         # S = expMeans * R.dot(vocab.T)
         
@@ -243,34 +250,34 @@ def train (dataset, modelState, queryState, trainPlan):
         S = expMeans * R.dot(vocab.T)
         
         # 4/4 Reset the means to their original form, and log effect of vocab update
-        means = np.log(expMeans, out=expMeans)
+        #means = np.log(expMeans, out=expMeans)
         debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # And now this is the E-Step, though it's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the Variances
-        varcs = np.reciprocal(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        varcs = np.reciprocal(n[:,np.newaxis] * lxi + isigT.flat[::K+1])
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Means
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        vMat   = (s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + isigT.dot(topicMean)
-        for d in range(D):
-            means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
-#       means = varcs * rhsMat
+        # for d in range(D):
+        #     means[d,:] = la.inv(isigT + ssp.diags(n[d] * lxi[d,:], 0)).dot(rhsMat[d,:])
+        means = varcs * rhsMat
 
         means -= (means[:,0])[:,np.newaxis]
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
-        lxi = negJakkolaOfDerivedXi(means, varcs, s)
+        lxi = 2 * negJakkolaOfDerivedXi(means, varcs, s)
         debugFn (itr, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
         # If so Bouchard's suggested approach of fixing it at zero
         #
-        s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
+        #s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
         debugFn (itr, s, "s", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -288,7 +295,7 @@ def train (dataset, modelState, queryState, trainPlan):
 #             print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
 
             # Check to see if the improvment in the likelihood has fallen below the threshold
-            if bvIdx > 1 and boundIters[bvIdx] > 50:
+            if bvIdx > 1 and boundIters[bvIdx] >= 30:
                 lastPerp = perplexity_from_like(likelyValues[bvIdx - 1], n.sum())
                 if lastPerp - perp < 1:
                     boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
@@ -339,22 +346,22 @@ def query(dataset, modelState, queryState, queryPlan):
     lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     for itr in range(iterations):
         # Update the Means
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        vMat   = (s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + isigT.dot(topicMean)
         for d in range(D):
             try:
-                means[d,:] = la.inv(isigT + ssp.diags(n[d] * 2 * lxi[d,:], 0)).dot(rhsMat[d,:])
+                means[d,:] = la.inv(isigT + ssp.diags(n[d] * lxi[d,:], 0)).dot(rhsMat[d,:])
             except ValueError as e:
                 print(str(e))
                 print ("Ah")
         debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
-        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        varcs = 1./(n[:,np.newaxis] * lxi + isigT.flat[::K+1])
         debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
-        lxi = negJakkolaOfDerivedXi(means, varcs, s)
+        lxi = 2 * negJakkolaOfDerivedXi(means, varcs, s)
         debugFn (itr, lxi, "lxi", W, K, topicMean, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
@@ -402,7 +409,7 @@ def var_bound(data, modelState, queryState):
     reset afterwards to their initial values. So it's safe to call in a serial
     manner.
     '''
-    
+
     # Unpack the the structs, for ease of access and efficiency
     W   = data.words
     D,_ = W.shape
@@ -435,9 +442,8 @@ def var_bound(data, modelState, queryState):
     # The last term of line 1 gets cancelled out by part of the first term in line 2
     # so neither are included here
     
-    expMeans = np.exp(means, out=means)
+    expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis])
     bound -= -np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
-    means = np.log(expMeans, out=expMeans)
     
     bound -= np.sum(docLens[:,np.newaxis] * lxi * ((s*s)[:,np.newaxis] - (xi * xi)))
     bound += np.sum(0.5 * docLens[:,np.newaxis] * (s[:,np.newaxis] + xi))
@@ -576,16 +582,18 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
             addendum = "det(sigT) = %g" % (la.det(sigT))
         except:
             addendum = "det(sigT) = <undefined>"
-    
-    bound = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n))
+
+    model, query =  ModelState(K, topicMean, sigT, vocab, dtype, MODEL_NAME), QueryState(means, varcs, lxi, s, n)
+    perp  = perplexity_from_like(log_likelihood(DataSet(W), model, query), W.sum())
+    bound = var_bound(DataSet(W), model, query)
     dif = 0 if last == 0 else last - bound
     if dif > 0:
         sys.stdout.flush()
         sys.stderr.flush()
-        sys.stderr.write("Iter %3d Update %s Bound %.3f (%+.3f)     %s\n" % (itr, var_name, bound, dif, addendum))
+        sys.stderr.write("Iter %3d Update %10s Perp %4.2f   Bound %.3f (%+.3f)     %s\n" % (itr, var_name, perp, bound, dif, addendum))
         sys.stderr.flush()
     else:
-        print ("Iter %3d Update %s Bound %.3f (%+.3f)     %s" % (itr, var_name, bound, dif, addendum))
+        print ("Iter %3d Update %10s Perp %4.2f   Bound %.3f (%+.3f)     %s" % (itr, var_name, perp, bound, dif, addendum))
     last = bound
 
 

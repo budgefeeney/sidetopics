@@ -43,7 +43,9 @@ from model.evals import perplexity_from_like
 DEBUG=False
 MODEL_NAME="stm-yv/bouchard"
 
-VocabPrior=0.1
+USE_NIW_PRIOR=True
+
+VocabPrior=1.1
 
 # ==============================================================
 # TUPLES
@@ -273,19 +275,19 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Means
-        vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
+        vMat   = (s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
         rhsMat = vMat + X.dot(A.T).dot(isigT) # TODO Verify this
-        lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] * 2 * lxi)  # inverse of D diagonal matrices...
+        lhsMat = np.reciprocal(np.diag(isigT)[np.newaxis,:] + n[:,np.newaxis] *  lxi)  # inverse of D diagonal matrices...
         means = lhsMat * rhsMat # as LHS is a diagonal matrix for all d, it's equivalent
                                 # do doing a hadamard product for all d
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the Variances
-        varcs = 1./(2 * n[:,np.newaxis] * lxi + isigT.flat[::K+1])
+        varcs = 1./(n[:,np.newaxis] * lxi + isigT.flat[::K+1])
         debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Update the approximation parameters
-        lxi = ctm.negJakkolaOfDerivedXi(means, varcs, s)
+        lxi = 2 * ctm.negJakkolaOfDerivedXi(means, varcs, s)
         debugFn (itr, lxi, "lxi", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # s can sometimes grow unboundedly
