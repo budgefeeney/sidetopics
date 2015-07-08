@@ -29,6 +29,7 @@ from util.sparse_elementwise import sparseScalarQuotientOfDot, \
 from util.misc import printStderr, static_var
 from util.overflow_safe import safe_log_det
 from model.evals import perplexity_from_like
+from model.common import DataSet
 
 from math import isnan
 
@@ -287,7 +288,7 @@ def train (data, modelState, queryState, trainPlan):
             likelyValues.append(log_likelihood(data, modelState, queryState))
             boundIters.append(itr)
             
-            if debug: print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
+            print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
             if len(boundValues) > 1:
                 if boundValues[-2] > boundValues[-1]:
                     if debug: printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
@@ -464,7 +465,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(W, ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
+    bound     = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, varcs, n))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
