@@ -232,12 +232,15 @@ def train (dataset, modelState, queryState, trainPlan):
         # 2/4 temporarily replace means with exp(means)
         expMeans = np.exp(means, out=means)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        S = expMeans * R.dot(vocab.T)
+        # S = expMeans * R.dot(vocab.T)
         
         # 3/4 Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
+
+        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
+        S = expMeans * R.dot(vocab.T)
         
         # 4/4 Reset the means to their original form, and log effect of vocab update
         means = np.log(expMeans, out=expMeans)
