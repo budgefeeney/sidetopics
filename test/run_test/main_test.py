@@ -85,7 +85,7 @@ class Test(unittest.TestCase):
         print ("New Version")
 
         DataSetName = AuthorTweets
-        Folds = 5
+        Folds, ExecutedFoldCound = 5, 3
         K,P = 25, 50
         TrainIters, QueryIters, LogFreq = 20, 15, 5
         PriorCov = 0.001
@@ -105,6 +105,7 @@ class Test(unittest.TestCase):
                         + ' --iters '          + str(TrainIters)      \
                         + ' --query-iters '    + str(QueryIters)      \
                         + ' --folds '          + str(Folds)      \
+                        + ' --truncate-folds ' + str(ExecutedFoldCound)      \
                         + ' --words '          + WordsPath[DataSetName] \
                         + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
                         + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
