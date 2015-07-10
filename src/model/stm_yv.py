@@ -57,7 +57,7 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means varcs lxi s docLens'\
+    'means expMeans varcs lxi s docLens'\
 )
 
 ModelState = namedtuple ( \
@@ -135,7 +135,7 @@ def newQueryState(data, modelState):
     '''
     base = ctm.newQueryState(data, modelState)
 
-    return QueryState(base.means, base.varcs, base.lxi, base.s, base.docLens)
+    return QueryState(base.means, base.expMeans, base.varcs, base.lxi, base.s, base.docLens)
 
 
 def newTrainPlan(iterations = 100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
@@ -184,7 +184,7 @@ def train (data, modelState, queryState, trainPlan):
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, fastButInaccurate, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
-    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, expMeans, varcs, lxi, s, n = queryState.means, queryState.expMeans, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
     
     # Book-keeping for logs
@@ -239,9 +239,7 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Building Blocks - temporarily replaces means with exp(means)
-        row_maxes = means.max(axis=1)
-        means -= row_maxes[:,np.newaxis]
-        expMeans = np.exp(means, out=means)
+        expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         S = expMeans * R.dot(vocab.T)
         
@@ -251,8 +249,6 @@ def train (data, modelState, queryState, trainPlan):
         vocab = normalizerows_ip(vocab)
         
         # Reset the means to their original form, and log effect of vocab update
-        means = np.log(expMeans, out=expMeans)
-        means += row_maxes[:,np.newaxis]
         debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
         
         # Finally update the parameter V
@@ -298,7 +294,7 @@ def train (data, modelState, queryState, trainPlan):
         
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME)
-            queryState = QueryState(means, varcs, lxi, s, n)
+            queryState = QueryState(means, expMeans, varcs, lxi, s, n)
             
             boundValues[bvIdx] = var_bound(data, modelState, queryState, XTX)
             likeValues[bvIdx]  = log_likelihood(data, modelState, queryState)
@@ -320,7 +316,7 @@ def train (data, modelState, queryState, trainPlan):
 
     return \
         ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, MODEL_NAME), \
-        QueryState(means, varcs, lxi, s, n), \
+        QueryState(means, expMeans, varcs, lxi, s, n), \
         (boundIters, boundValues, likeValues)
 
 def query(data, modelState, queryState, queryPlan):
@@ -340,7 +336,7 @@ def query(data, modelState, queryState, queryPlan):
     unchanged, the query is.
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
-    means, varcs, lxi, s, n = queryState.means, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
+    means, expMeans, varcs, lxi, s, n = queryState.means, queryState.expMeans, queryState.varcs, queryState.lxi, queryState.s, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.dtype
 
     # Necessary temp variables (notably the count of topic to word assignments
@@ -362,13 +358,9 @@ def query(data, modelState, queryState, queryPlan):
     lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     for itr in range(iterations):
         # Estimate Z_dvk
-        row_maxes = means.max(axis=1)
-        means -= row_maxes[:,np.newaxis]
-        expMeans = np.exp(means, out=means) # Do in-place to save memory
+        expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab)
         S = expMeans * R.dot(vocab.T)
-        means = np.log(expMeans, out=expMeans) # Revert in-place exp()
-        means += row_maxes[:,np.newaxis] 
         
         # Update the Means
         vMat   = (2  * s[:,np.newaxis] * lxi - 0.5) * n[:,np.newaxis] + S
@@ -392,13 +384,13 @@ def query(data, modelState, queryState, queryPlan):
 #         s = (np.sum(lxi * means, axis=1) + 0.25 * K - 0.5) / np.sum(lxi, axis=1)
 #         debugFn (itr, s, "s", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, dtype, means, varcs, lxi, s, n)
 
-        like = log_likelihood(data, modelState, QueryState(means, varcs, lxi, s, n))
+        like = log_likelihood(data, modelState, QueryState(means, expMeans, varcs, lxi, s, n))
         perp = perplexity_from_like(like, data.word_count)
         if itr > 20 and lastPerp - perp < 1:
             break
         lastPerp = perp
 
-    return modelState, QueryState (means, varcs, lxi, s, n)
+    return modelState, QueryState (means, expMeans, varcs, lxi, s, n)
 
 
 def log_likelihood (data, modelState, queryState):
