@@ -14,26 +14,43 @@ from run.main import run, ModelNames, \
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
-AclWordPath  = AclPath + "words-freq.pkl"
-AclFeatsPath = AclPath + "feats.pkl"
-AclCitePath  = AclPath + "ref.pkl"
-
-TweetsPath = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/AuthorTime750/"
-TweetsWordPath = TweetsPath + "words-cleaned.pkl"
-TweetsFeatPath = TweetsPath + "side-cleaned.pkl"
-
-AuthorTweetsWordPath     = TweetsPath + "words-by-author.pkl"
-AuthorTweetsFreqWordPath = TweetsPath + "words-by-author-freq.pkl"
-TweetsFreqWordPath       = TweetsPath + "words-cleaned-freq.pkl"
+_AclWordPath  = AclPath + "words-freq.pkl"
+_AclFeatsPath = AclPath + "feats.pkl"
+_AclCitePath  = AclPath + "ref.pkl"
 
 NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
-NipsWordPath = NipsPath + "W_ar.pkl"
-NipsFeatPath = NipsPath + "X_ar.pkl"
+_NipsWordPath = NipsPath + "W_ar.pkl"
+_NipsFeatPath = NipsPath + "X_ar.pkl"
+
+Tweets750Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/AuthorTime750/"
+_Tweets750WordPath = Tweets750Path + "words-cleaned.pkl"
+_Tweets750FeatPath = Tweets750Path + "side-cleaned.pkl"
+
+_AuthorTweets750WordPath     = Tweets750Path + "words-by-author.pkl"
+_AuthorTweets750FreqWordPath = Tweets750Path + "words-by-author-freq.pkl"
+_Tweets750FreqWordPath       = Tweets750Path + "words-cleaned-freq.pkl"
+
+Tweets500Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/AuthorTime/"
+_Tweets500WordPath = Tweets500Path + "words.pkl"
+_Tweets500FeatPath = Tweets500Path + "side.pkl"
+
+_Author500TweetsWordPath     = Tweets500Path + "words-by-author.pkl"
+_Author500TweetsFreqWordPath = Tweets500Path + "words-by-author-freq.pkl"
+_Tweets500FreqWordPath       = Tweets500Path + "words-cleaned-freq.pkl"
+
+ # Pick either 500 or 750
+_TweetsWordPath = _Tweets500WordPath
+_TweetsFeatPath = _Tweets500FeatPath
+
+_AuthorTweetsWordPath     = _Author500TweetsWordPath
+_AuthorTweetsFreqWordPath = _Author500TweetsFreqWordPath
+_TweetsFreqWordPath       = _Tweets500FreqWordPath
+
 
 Acl, AclNoLinks, Tweets, TweetsFreq, AuthorTweets, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
-WordsPath = [AclWordPath,  AclWordPath,  TweetsWordPath, TweetsFreqWordPath, AuthorTweetsWordPath, AuthorTweetsFreqWordPath, NipsWordPath]
-FeatsPath = [AclFeatsPath, AclFeatsPath, TweetsFeatPath, TweetsFeatPath,     None,                 None,                     NipsFeatPath]
-CitesPath = [AclCitePath,  None,         None,           None,               None,                 None,                     None]
+WordsPath = [_AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
+FeatsPath = [_AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                 None,                     _NipsFeatPath]
+CitesPath = [_AclCitePath,  None,         None,           None,               None,                 None,                     None]
 
 def tmpFiles():
     '''
@@ -67,16 +84,16 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = TweetsFreq
+        DataSetName = AuthorTweets
         Folds = 5
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 1000, 100, 5
+        TrainIters, QueryIters, LogFreq = 20, 15, 5
         PriorCov = 0.001
         Debug = False
 
         modelFileses = []
-        for k in [10]: # [10, 25, 50, 75, 100, 125, 150, 250]:
-            for modelName in [ StmYvBouchard ]: #ModelNames:
+        for k in [75]: # [10, 25, 50, 75, 100, 125, 150, 250]:
+            for modelName in [ CtmBouchard ]: #ModelNames:
                 cmdline = '' \
                         + (' --debug '         + str(Debug) if Debug else "") \
                         + ' --model '          + modelName \
