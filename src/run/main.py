@@ -81,12 +81,15 @@ def run(args):
                     help="Scale of the prior isotropic variance over latent features")
     parser.add_argument('--folds', '-f', dest='folds', type=int, default=1, metavar=' ', \
                     help="Number of cross validation folds.")
+    parser.add_argument('--truncate-folds', dest='eval_fold_count', type=int, default=-1, metavar=' ', \
+                    help="If set, stop running after the given number of folds had been processed")
     parser.add_argument('--debug', '-b', dest='debug', type=bool, default=False, metavar=' ', \
                     help="Display a debug message, with the bound, after every variable update")
     parser.add_argument('--dtype', '-t', dest='dtype', default="f4:f4", metavar=' ', \
                     help="Datatype to use, values are i4, f4 and f8. Specify two, a data dtype and model dtype, delimited by a colon")
     parser.add_argument('--limit-to', dest='limit', type=int, default=0, metavar=' ', \
                     help="If set, discard all but the initial given number of rows of the input dataset")
+
 
     #
     # Parse the arguments
@@ -149,7 +152,7 @@ def run(args):
     queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
     if args.eval == Perplexity:
-        return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.out_model)
+        return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
@@ -187,7 +190,7 @@ def parse_dtype(dtype_str):
         raise ValueError("Can't parse dtype " + dtype_str)
 
 
-def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_plan, folds, model_dir= None):
+def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_plan, num_folds, fold_run_count=-1, model_dir= None):
     '''
     Uses cross-validation go get the average perplexity. If folds == 1 a special path is
     triggered where perplexity is evaluated on the training data, and the results are
@@ -199,14 +202,16 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             cross-validation run
     :param train_plan:  the training plan (number of iterations etc.)
     :param query_plan:  the query play (number of iterations etc.)
-    :param folds:  the number of folds to cross validation
+    :param num_folds:  the number of folds to cross validation
+    :param fold_run_count: for debugging stop early after processing the number
+    of the folds
     :param model_dir: if not none, and folds > 1, the models are stored in this
     directory.
     :return: the list of model files stored
     '''
     model_files = []
 
-    if folds == 1:
+    if num_folds == 1:
         model = mdl.newModelFromExisting(sample_model)
         query = mdl.newQueryState(data, model)
 
@@ -226,46 +231,49 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     train_wcount_sum  = 0
     folds_finished    = 0 # count of folds that finished successfully
 
-    for fold in range(folds):
-        train_data, query_data = data.cross_valid_split(fold, folds)
+    for fold in range(fold_run_count):
+        try:
+            train_data, query_data = data.cross_valid_split(fold, num_folds)
 
-        # Train the model
-        print ("Duplicating model template... ", end="")
-        model      = mdl.newModelFromExisting(sample_model)
-        print ("Done.\nCreating query state...")
-        train_tops = mdl.newQueryState(train_data, model)
+            # Train the model
+            print ("Duplicating model template... ", end="")
+            model      = mdl.newModelFromExisting(sample_model)
+            print ("Done.\nCreating query state...")
+            train_tops = mdl.newQueryState(train_data, model)
 
-        print ("Starting training")
-        model, train_tops, (train_itrs, train_vbs, train_likes) \
-            = mdl.train(train_data, model, train_tops, train_plan)
+            print ("Starting training")
+            model, train_tops, (train_itrs, train_vbs, train_likes) \
+                = mdl.train(train_data, model, train_tops, train_plan)
 
-        train_like       = mdl.log_likelihood (train_data, model, train_tops)
-        train_word_count = train_data.word_count
-        train_perp       = perplexity_from_like(train_like, train_word_count)
+            train_like       = mdl.log_likelihood (train_data, model, train_tops)
+            train_word_count = train_data.word_count
+            train_perp       = perplexity_from_like(train_like, train_word_count)
 
-        # Query the model - if there are no features we need to split the text
-        print ("Starting query.")
-        query_estim, query_eval = query_data.doc_completion_split()
-        query_tops              = mdl.newQueryState(query_estim, model)
-        model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
+            # Query the model - if there are no features we need to split the text
+            print ("Starting query.")
+            query_estim, query_eval = query_data.doc_completion_split()
+            query_tops              = mdl.newQueryState(query_estim, model)
+            model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
 
-        query_like       = mdl.log_likelihood(query_eval, model, query_tops)
-        query_word_count = query_eval.word_count
-        query_perp       = perplexity_from_like(query_like, query_word_count)
+            query_like       = mdl.log_likelihood(query_eval, model, query_tops)
+            query_word_count = query_eval.word_count
+            query_perp       = perplexity_from_like(query_like, query_word_count)
 
-        # Keep a record of the cumulative likelihood and query-set word-count
-        train_like_sum += train_like
-        train_wcount_sum  += train_word_count
-        query_like_sum += query_like
-        query_wcount_sum  += query_word_count
-        folds_finished  += 1
+            # Keep a record of the cumulative likelihood and query-set word-count
+            train_like_sum += train_like
+            train_wcount_sum  += train_word_count
+            query_like_sum += query_like
+            query_wcount_sum  += query_word_count
+            folds_finished  += 1
 
-        # Write out the output
-        print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, train_perp, query_perp))
-        print("")
+            # Write out the output
+            print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, train_perp, query_perp))
+            print("")
 
-        # Save the model
-        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
+            # Save the model
+            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
+        except Exception as e:
+            print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
 
     print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
     print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
