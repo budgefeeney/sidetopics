@@ -102,7 +102,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
-        vocabPrior = 0.01 # Also from G&S
+        vocabPrior = 1.1 # Also from G&S
     
     vocabPriorVec = constantArray((T,), vocabPrior, dtype)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
