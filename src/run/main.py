@@ -210,6 +210,8 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     :return: the list of model files stored
     '''
     model_files = []
+    if fold_run_count < 1:
+        fold_run_count = num_folds
 
     if num_folds == 1:
         model = mdl.newModelFromExisting(sample_model)
