@@ -234,48 +234,48 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     folds_finished    = 0 # count of folds that finished successfully
 
     for fold in range(fold_run_count):
-        # try:
-        train_data, query_data = data.cross_valid_split(fold, num_folds)
+        try:
+            train_data, query_data = data.cross_valid_split(fold, num_folds)
 
-        # Train the model
-        print ("Duplicating model template... ", end="")
-        model      = mdl.newModelFromExisting(sample_model)
-        print ("Done.\nCreating query state...")
-        train_tops = mdl.newQueryState(train_data, model)
+            # Train the model
+            print ("Duplicating model template... ", end="")
+            model      = mdl.newModelFromExisting(sample_model)
+            print ("Done.\nCreating query state...")
+            train_tops = mdl.newQueryState(train_data, model)
 
-        print ("Starting training")
-        model, train_tops, (train_itrs, train_vbs, train_likes) \
-            = mdl.train(train_data, model, train_tops, train_plan)
+            print ("Starting training")
+            model, train_tops, (train_itrs, train_vbs, train_likes) \
+                = mdl.train(train_data, model, train_tops, train_plan)
 
-        train_like       = mdl.log_likelihood (train_data, model, train_tops)
-        train_word_count = train_data.word_count
-        train_perp       = perplexity_from_like(train_like, train_word_count)
+            train_like       = mdl.log_likelihood (train_data, model, train_tops)
+            train_word_count = train_data.word_count
+            train_perp       = perplexity_from_like(train_like, train_word_count)
 
-        # Query the model - if there are no features we need to split the text
-        print ("Starting query.")
-        query_estim, query_eval = query_data.doc_completion_split()
-        query_tops              = mdl.newQueryState(query_estim, model)
-        model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
+            # Query the model - if there are no features we need to split the text
+            print ("Starting query.")
+            query_estim, query_eval = query_data.doc_completion_split()
+            query_tops              = mdl.newQueryState(query_estim, model)
+            model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
 
-        query_like       = mdl.log_likelihood(query_eval, model, query_tops)
-        query_word_count = query_eval.word_count
-        query_perp       = perplexity_from_like(query_like, query_word_count)
+            query_like       = mdl.log_likelihood(query_eval, model, query_tops)
+            query_word_count = query_eval.word_count
+            query_perp       = perplexity_from_like(query_like, query_word_count)
 
-        # Keep a record of the cumulative likelihood and query-set word-count
-        train_like_sum += train_like
-        train_wcount_sum  += train_word_count
-        query_like_sum += query_like
-        query_wcount_sum  += query_word_count
-        folds_finished  += 1
+            # Keep a record of the cumulative likelihood and query-set word-count
+            train_like_sum += train_like
+            train_wcount_sum  += train_word_count
+            query_like_sum += query_like
+            query_wcount_sum  += query_word_count
+            folds_finished  += 1
 
-        # Write out the output
-        print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, train_perp, query_perp))
-        print("")
+            # Write out the output
+            print("Fold %d: Train-set Perplexity: %12.3f \t Query-set Perplexity: %12.3f" % (fold, train_perp, query_perp))
+            print("")
 
-        # Save the model
-        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
-        # except Exception as e:
-        #     print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
+            # Save the model
+            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
+        except Exception as e:
+            print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
 
     print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
     print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
