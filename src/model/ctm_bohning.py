@@ -320,7 +320,7 @@ def query(data, modelState, queryState, queryPlan):
     '''
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
     means, expMeans, varcs, n = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
+    K, topicMean, sigT, vocab, vocabPrior, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.vocabPrior, modelState.A, modelState.dtype
     
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     W = data.words
@@ -332,7 +332,7 @@ def query(data, modelState, queryState, queryPlan):
     
     # Update the Variances
     varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + isigT.flat[::K+1])
-    debugFn (0, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)    
+    debugFn (0, varcs, "varcs", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n)
     
     lastPerp = 1E+300 if dtype is np.float64 else 1E+30
     R = W.copy()
@@ -351,7 +351,7 @@ def query(data, modelState, queryState, queryPlan):
             for d in range(D):
                 means[d,:] = la.inv(isigT + n[d] * A).dot(rhs[d,:])
         
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n)        
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n)
         
         like = log_likelihood(data, modelState, QueryState(means, expMeans, varcs, n))
         perp = perplexity_from_like(like, data.word_count)
