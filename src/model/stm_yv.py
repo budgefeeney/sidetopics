@@ -82,8 +82,11 @@ def newModelFromExisting(model):
         copy(model.A), copy(model.R_A), model.fv, \
         copy(model.Y), copy(model.R_Y), model.lfv, \
         copy(model.V), \
-        copy(model.sigT), copy(model.vocab), \
-        model.dtype, model.name)
+        copy(model.sigT), \
+        copy(model.vocab), \
+        model.vocabPrior, \
+        model.dtype, \
+        model.name)
 
 
 def newModelAtRandom(data, P, K, featVar, latFeatVar, vocabPrior=VocabPrior, dtype=DTYPE):

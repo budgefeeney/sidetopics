@@ -75,7 +75,7 @@ def newModelFromExisting(model):
     '''
     Creates a _deep_ copy of the given model
     '''
-    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.dtype, model.name)
+    return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.vocabPrior, model.dtype, model.name)
 
 def newModelAtRandom(data, K, vocabPrior=VocabPrior, dtype=DTYPE):
     '''
