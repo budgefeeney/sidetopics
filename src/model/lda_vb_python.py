@@ -79,6 +79,8 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
 
     if topicPrior is None:
         topicPrior = constantArray((K,), 5.0 / K + 0.5, dtype) # From Griffiths and Steyvers 2004
+    elif type(topicPrior) is float:
+        topicPrior = constantArray((K,), topicPrior, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = VocabPrior
 
