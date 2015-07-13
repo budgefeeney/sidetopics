@@ -79,7 +79,7 @@ def run(args):
                     help="Scale of the prior isotropic variance over latent topics")
     parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent features")
-    parser.add_argument('--vocab-prior', dest='vocabPrior', type=int, default=1.1, metavar=' ', \
+    parser.add_argument('--vocab-prior', dest='vocabPrior', type=float, default=1.1, metavar=' ', \
                     help="Symmetric prior over the vocabulary")
     parser.add_argument('--folds', '-f', dest='folds', type=int, default=1, metavar=' ', \
                     help="Number of cross validation folds.")
