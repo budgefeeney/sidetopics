@@ -49,7 +49,7 @@ NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kapp
 NIW_PSEUDO_OBS_VAR=+2   # related to K
 NIW_MU=0
 
-VocabPrior = 0.1
+VocabPrior = 1.1
 
 DEBUG=False
 
@@ -70,7 +70,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicMean sigT vocab A dtype name'
+    'K topicMean sigT vocab vocabPrior A dtype name'
 )
 
 # ==============================================================
@@ -91,7 +91,7 @@ def newModelFromExisting(model):
     '''
     return ModelState(model.K, model.topicMean.copy(), model.sigT.copy(), model.vocab.copy(), model.A.copy(), model.dtype, model.name)
 
-def newModelAtRandom(data, K, dtype=DTYPE):
+def newModelAtRandom(data, K, vocabPrior=VocabPrior, dtype=DTYPE):
     '''
     Creates a new CtmModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -133,7 +133,7 @@ def newModelAtRandom(data, K, dtype=DTYPE):
     
     A = 0.5 * (np.eye(K, dtype=dtype) - 1./(K+1))
     
-    return ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
+    return ModelState(K, topicMean, sigT, vocab, vocabPrior, A, dtype, MODEL_NAME)
 
 def newQueryState(data, modelState):
     '''
@@ -195,7 +195,7 @@ def train (data, modelState, queryState, trainPlan):
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     means, expMeans, varcs, docLens = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A, modelState.dtype
+    K, topicMean, sigT, vocab, vocabPrior, A, dtype = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.vocabPrior, modelState.A, modelState.dtype
     
     # Book-keeping for logs
     boundIters, boundValues, likelyValues = [], [], []
@@ -221,7 +221,7 @@ def train (data, modelState, queryState, trainPlan):
         topicMean = means.sum(axis = 0) / (D + pseudoObsMeans) \
                   if USE_NIW_PRIOR \
                   else means.mean(axis=0)
-        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, topicMean, "topicMean", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, docLens)
         
         if USE_NIW_PRIOR:
             diff = means - topicMean[np.newaxis,:]
@@ -240,7 +240,7 @@ def train (data, modelState, queryState, trainPlan):
         else:
             isigT = la.inv(sigT)
         
-        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, sigT, "sigT", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, docLens)
 #        print("                sigT.det = " + str(la.det(sigT)))
         
         
@@ -250,21 +250,21 @@ def train (data, modelState, queryState, trainPlan):
         
         # Update the vocabulary
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
-        vocab += VocabPrior
+        vocab += vocabPrior
         vocab = normalizerows_ip(vocab)
         
         # Reset the means to their original form, and log effect of vocab update
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
         V = expMeans * R.dot(vocab.T)
 
-        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, vocab, "vocab", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, docLens)
         
         # And now this is the E-Step, though itr's followed by updates for the
         # parameters also that handle the log-sum-exp approximation.
         
         # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
         varcs = np.reciprocal(docLens[:,np.newaxis] * (K-1.)/K + np.diagonal(sigT))
-        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)    
+        debugFn (itr, varcs, "varcs", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, docLens)
         
         # Update the Means
         rhs = V.copy()
@@ -278,10 +278,10 @@ def train (data, modelState, queryState, trainPlan):
         
 #         means -= (means[:,0])[:,np.newaxis]
         
-        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, dtype, means, varcs, A, docLens)
+        debugFn (itr, means, "means", W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, docLens)
         
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME)
+            modelState = ModelState(K, topicMean, sigT, vocab, vocabPrior, A, dtype, MODEL_NAME)
             queryState = QueryState(means, expMeans, varcs, docLens)
             
             boundValues.append(var_bound(data, modelState, queryState))
@@ -299,7 +299,7 @@ def train (data, modelState, queryState, trainPlan):
                     break
 
     return \
-        ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), \
+        ModelState(K, topicMean, sigT, vocab, vocabPrior, A, dtype, MODEL_NAME), \
         QueryState(means, expMeans, varcs, docLens), \
         (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
 
@@ -387,7 +387,7 @@ def var_bound(data, modelState, queryState):
     W   = data.words
     D,_ = W.shape
     means, expMeans, varcs, docLens = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
-    K, topicMean, sigT, vocab, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.A
+    K, topicMean, sigT, vocab, vocabPrior, A = modelState.K, modelState.topicMean, modelState.sigT, modelState.vocab, modelState.vocabPrior, modelState.A
     
     # Calculate some implicit  variables
     isigT = la.inv(sigT)
@@ -453,7 +453,7 @@ def var_bound(data, modelState, queryState):
 
 
 @static_var("old_bound", 0)
-def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
@@ -462,7 +462,7 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, A, dtype, MODEL_NAME), QueryState(means, means.copy(), varcs, n))
+    bound     = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, vocabPrior, A, dtype, MODEL_NAME), QueryState(means, means.copy(), varcs, n))
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
@@ -480,6 +480,6 @@ def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, d
     else:
         print ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
 
-def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, dtype, means, varcs, A, n):
+def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n):
     pass
 

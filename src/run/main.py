@@ -79,6 +79,8 @@ def run(args):
                     help="Scale of the prior isotropic variance over latent topics")
     parser.add_argument('--lat-feat-var', dest='lat_feat_var', type=float, default=DefaultPriorCov, metavar=' ', \
                     help="Scale of the prior isotropic variance over latent features")
+    parser.add_argument('--vocab-prior', dest='vocabPrior', type=int, default=1.1, metavar=' ', \
+                    help="Symmetric prior over the vocabulary")
     parser.add_argument('--folds', '-f', dest='folds', type=int, default=1, metavar=' ', \
                     help="Number of cross validation folds.")
     parser.add_argument('--truncate-folds', dest='eval_fold_count', type=int, default=-1, metavar=' ', \
@@ -118,22 +120,22 @@ def run(args):
     print ("Building template model... ", end="")
     if args.model == CtmBouchard:
         import model.ctm as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+        templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == CtmBohning:
         import model.ctm_bohning as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+        templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == StmYvBouchard:
         import model.stm_yv as mdl
-        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=output_dtype)
+        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
     elif args.model == StmYvBohning:
         import model.stm_yv_bohning as mdl
-        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, dtype=output_dtype)
+        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaCvbZero:
         import model.lda_cvb as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaVb:
         import model.lda_vb_python as mdl
-        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+        templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaGibbs:
         import model.lda_gibbs as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)

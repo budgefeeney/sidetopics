@@ -8,7 +8,7 @@ import numpy as np
 import numpy.random as rd
 import scipy.linalg as la
 import scipy.special as fns
-#import numba as nb
+import numba as nb
 
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -54,7 +54,7 @@ def newModelFromExisting(model):
         model.name)
 
 
-def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
+def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -199,7 +199,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -222,7 +222,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -244,7 +244,7 @@ def _inplace_softmax_rowwise(z):
 
 
 
-#@nb.autojit
+@nb.autojit
 def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -269,7 +269,7 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     topicMeans[d, :] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-#@nb.autojit
+@nb.autojit
 def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -305,7 +305,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-#@nb.autojit
+@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -472,7 +472,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-#@nb.autojit
+@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -495,7 +495,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) = train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.autojit
+@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -504,7 +504,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-#@nb.autojit
+@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.

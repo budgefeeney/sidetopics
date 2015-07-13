@@ -84,43 +84,45 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        DataSetName = AuthorTweets
-        Folds, ExecutedFoldCound = 5, 3
+        Folds, ExecutedFoldCount = 5, 3
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 20, 15, 5
+        TrainIters, QueryIters, LogFreq = 2000, 500, 10
         PriorCov = 0.001
+        VocabPrior = 0.01
         Debug = False
 
         modelFileses = []
-        for k in [75]: # [10, 25, 50, 75, 100, 125, 150, 250]:
-            for modelName in [ CtmBouchard ]: #ModelNames:
-                cmdline = '' \
-                        + (' --debug '         + str(Debug) if Debug else "") \
-                        + ' --model '          + modelName \
-                        + ' --dtype '          + 'f8:f8'      \
-                        + ' --num-topics '     + str(k)    \
-                        + ' --num-lat-feats '  + str(P) \
-                        + ' --log-freq '       + str(LogFreq)       \
-                        + ' --eval '           + 'perplexity'  \
-                        + ' --iters '          + str(TrainIters)      \
-                        + ' --query-iters '    + str(QueryIters)      \
-                        + ' --folds '          + str(Folds)      \
-                        + ' --truncate-folds ' + str(ExecutedFoldCound)      \
-                        + ' --words '          + WordsPath[DataSetName] \
-                        + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
-                        + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
-                        + ' --topic-var '      + str(PriorCov) \
-                        + ' --feat-var '       + str(PriorCov) \
-                        + ' --lat-topic-var '  + str(PriorCov) \
-                        + ' --lat-feat-var '   + str(PriorCov) \
-                        + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
-    #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-    #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
-    #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
-    #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
-    #                    + ' --words '          + wordsFile \
-    #                    + ' --feats '          + featsFile
-    #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
+        for DataSetName in [AuthorTweets]:
+            for k in [100]: # [10, 25, 50, 75, 100, 125, 150, 200]:
+                for modelName in [ CtmBohning ]: #ModelNames:
+                    cmdline = '' \
+                            + (' --debug '         + str(Debug) if Debug else "") \
+                            + ' --model '          + modelName \
+                            + ' --dtype '          + 'f8:f8'      \
+                            + ' --num-topics '     + str(k)    \
+                            + ' --num-lat-feats '  + str(P) \
+                            + ' --log-freq '       + str(LogFreq)       \
+                            + ' --eval '           + 'perplexity'  \
+                            + ' --iters '          + str(TrainIters)      \
+                            + ' --query-iters '    + str(QueryIters)      \
+                            + ' --folds '          + str(Folds)      \
+                            + ' --truncate-folds ' + str(ExecutedFoldCount)      \
+                            + ' --words '          + WordsPath[DataSetName] \
+                            + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
+                            + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
+                            + ' --topic-var '      + str(PriorCov) \
+                            + ' --feat-var '       + str(PriorCov) \
+                            + ' --lat-topic-var '  + str(PriorCov) \
+                            + ' --lat-feat-var '   + str(PriorCov) \
+                            + ' --vocab-prior '    + str(VocabPrior)
+                            # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
+        #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+        #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+        #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
+        #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
+        #                    + ' --words '          + wordsFile \
+        #                    + ' --feats '          + featsFile
+        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
 
                 modelFileses.extend (run(cmdline.strip().split(' ')))
 
