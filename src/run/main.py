@@ -235,7 +235,8 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     train_wcount_sum  = 0
     folds_finished    = 0 # count of folds that finished successfully
 
-    for fold in range(fold_run_count):
+    fold = 0
+    while fold < num_folds and folds_finished < fold_run_count:
         try:
             train_data, query_data = data.cross_valid_split(fold, num_folds)
 
@@ -278,6 +279,8 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
         except Exception as e:
             print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
+        finally:
+            fold += 1
 
     print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
     print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
