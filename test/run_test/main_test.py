@@ -47,7 +47,7 @@ _AuthorTweetsFreqWordPath = _Author500TweetsFreqWordPath
 _TweetsFreqWordPath       = _Tweets500FreqWordPath
 
 
-Acl, AclNoLinks, Tweets, TweetsFreq, AuthorTweets, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
+Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
 WordsPath = [_AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
 FeatsPath = [_AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                 None,                     _NipsFeatPath]
 CitesPath = [_AclCitePath,  None,         None,           None,               None,                 None,                     None]
@@ -84,7 +84,7 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        Folds, ExecutedFoldCount = 5, 3
+        Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
         TrainIters, QueryIters, LogFreq = 2000, 500, 10
         PriorCov = 0.001
@@ -92,9 +92,9 @@ class Test(unittest.TestCase):
         Debug = False
 
         modelFileses = []
-        for DataSetName in [AuthorTweets]:
-            for k in [100]: # [10, 25, 50, 75, 100, 125, 150, 200]:
-                for modelName in [ CtmBohning ]: #ModelNames:
+        for DataSetName in [AclNoLinks]:
+            for k in [50]: # [10, 25, 100]:
+                for modelName in [ CtmBouchard ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
@@ -114,7 +114,7 @@ class Test(unittest.TestCase):
                             + ' --feat-var '       + str(PriorCov) \
                             + ' --lat-topic-var '  + str(PriorCov) \
                             + ' --lat-feat-var '   + str(PriorCov) \
-                            + ' --vocab-prior '    + str(VocabPrior)
+                            + ' --vocab-prior '    + str(VocabPrior) \
                             # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
         #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
         #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
