@@ -9,6 +9,7 @@ import numpy as np
 import numpy.random as rd
 import sys
 import time
+import traceback
 
 from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec, mean_prec_rec_at, \
@@ -276,8 +277,9 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             print("")
 
             # Save the model
-            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops)
+            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl)
         except Exception as e:
+            traceback.print_exc()
             print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
         finally:
             fold += 1
@@ -288,20 +290,36 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     return model_files
 
 
-def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops):
+def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl):
     if model_dir is not None:
         model_files.append( \
             save_model(\
                 model_dir, model, data, \
                 fold, train_itrs, train_vbs, train_likes, \
-                train_tops, query_tops))
+                train_tops, query_tops, \
+                mdl))
     return model_files
 
 
-def save_model(model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops):
+def save_model(model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl):
     P = 0 if 'P' not in dir(model) else model.P
 
     model_file = newModelFile(model.name, model.K, P, fold, model_dir)
+
+    if model.name == "stm-yv/bohning":
+        train_tops = mdl.QueryState(
+            train_tops.means,
+            None,
+            train_tops.varcs,
+            train_tops.docLens
+        )
+        query_tops = mdl.QueryState(
+            query_tops.means,
+            None,
+            query_tops.varcs,
+            query_tops.docLens
+        )
+
     with open (model_file, 'wb') as f:
         pkl.dump ((data.order, train_itrs, train_vbs, train_likes, model, train_tops, query_tops), f)
 
