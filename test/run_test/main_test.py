@@ -30,6 +30,14 @@ _AuthorTweets750WordPath     = Tweets750Path + "words-by-author.pkl"
 _AuthorTweets750FreqWordPath = Tweets750Path + "words-by-author-freq.pkl"
 _Tweets750FreqWordPath       = Tweets750Path + "words-cleaned-freq.pkl"
 
+Tweets800Path = "/Users/bryanfeeney/Desktop/SmallerDB-NoCJK-WithFeats-Fixed/"
+_Tweets800WordPath = Tweets800Path + "words.pkl"
+_Tweets800FeatPath = Tweets800Path + "side.pkl"
+
+_AuthorTweets800WordPath     = Tweets800Path + "words-by-author.pkl"
+_AuthorTweets800FreqWordPath = Tweets800Path + "words-by-author-freq.pkl"
+_Tweets800FreqWordPath       = Tweets800Path + "words-freq.pkl"
+
 Tweets500Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/AuthorTime/"
 _Tweets500WordPath = Tweets500Path + "words.pkl"
 _Tweets500FeatPath = Tweets500Path + "side.pkl"
@@ -38,13 +46,13 @@ _Author500TweetsWordPath     = Tweets500Path + "words-by-author.pkl"
 _Author500TweetsFreqWordPath = Tweets500Path + "words-by-author-freq.pkl"
 _Tweets500FreqWordPath       = Tweets500Path + "words-cleaned-freq.pkl"
 
- # Pick either 500 or 750
-_TweetsWordPath = _Tweets500WordPath
-_TweetsFeatPath = _Tweets500FeatPath
+ # Pick either 500 or 750 or 800
+_TweetsWordPath = _Tweets800WordPath
+_TweetsFeatPath = _Tweets800FeatPath
 
-_AuthorTweetsWordPath     = _Author500TweetsWordPath
-_AuthorTweetsFreqWordPath = _Author500TweetsFreqWordPath
-_TweetsFreqWordPath       = _Tweets500FreqWordPath
+_AuthorTweetsWordPath     = _AuthorTweets800WordPath
+_AuthorTweetsFreqWordPath = _AuthorTweets800FreqWordPath
+_TweetsFreqWordPath       = _Tweets800FreqWordPath
 
 
 Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
@@ -86,15 +94,15 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 2000, 500, 10
+        TrainIters, QueryIters, LogFreq = 10, 5, 5
         PriorCov = 0.001
         VocabPrior = 0.01
         Debug = False
 
         modelFileses = []
-        for DataSetName in [AclNoLinks]:
-            for k in [50]: # [10, 25, 100]:
-                for modelName in [ CtmBouchard ]: #ModelNames:
+        for DataSetName in [TweetsFreq]:
+            for k in [150]: # [10, 25, 100]:
+                for modelName in [ StmYvBohning ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
@@ -115,7 +123,7 @@ class Test(unittest.TestCase):
                             + ' --lat-topic-var '  + str(PriorCov) \
                             + ' --lat-feat-var '   + str(PriorCov) \
                             + ' --vocab-prior '    + str(VocabPrior) \
-                            # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
+                            + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
         #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
         #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
         #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
