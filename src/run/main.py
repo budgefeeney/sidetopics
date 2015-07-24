@@ -370,15 +370,13 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
 
 
             # Save the model
-            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl)
+            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, None, mdl)
         except Exception as e:
             traceback.print_exc()
             print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
         finally:
             fold += 1
 
-    print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
-    print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
 
     return model_files
 
@@ -406,12 +404,13 @@ def save_model(model_dir, model, data, fold, train_itrs, train_vbs, train_likes,
             train_tops.varcs,
             train_tops.docLens
         )
-        query_tops = mdl.QueryState(
-            query_tops.means,
-            None,
-            query_tops.varcs,
-            query_tops.docLens
-        )
+        if query_tops is not None:
+            query_tops = mdl.QueryState(
+                query_tops.means,
+                None,
+                query_tops.varcs,
+                query_tops.docLens
+            )
 
     with open (model_file, 'wb') as f:
         pkl.dump ((data.order, train_itrs, train_vbs, train_likes, model, train_tops, query_tops), f)
