@@ -13,7 +13,8 @@ import traceback
 
 from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec, mean_prec_rec_at, \
-    EvalNames, Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs
+    EvalNames, Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
+from util.sigmoid_utils import rowwise_softmax
 
 DTYPE=np.float32
 
@@ -92,7 +93,8 @@ def run(args):
                     help="Datatype to use, values are i4, f4 and f8. Specify two, a data dtype and model dtype, delimited by a colon")
     parser.add_argument('--limit-to', dest='limit', type=int, default=0, metavar=' ', \
                     help="If set, discard all but the initial given number of rows of the input dataset")
-
+    parser.add_argument('--word-dict', dest='word_dict', defaul=None, metavar=' ', \
+                    help='A dictionary of all words. Used to identify hashtag indices')
 
     #
     # Parse the arguments
@@ -156,6 +158,8 @@ def run(args):
 
     if args.eval == Perplexity:
         return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.eval_fold_count, args.out_model)
+    elif args.eval == HashtagPrecAtM:
+        return cross_val_and_eval_hashtag_prec_at_m(data, mdl, templateModel, trainPlan, args.word_dict, args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
@@ -164,6 +168,26 @@ def run(args):
         raise ValueError("Unknown evaluation metric " + args.eval)
 
     return modelFiles
+
+
+def popular_hashtag_indices(data, word_dict, count=50):
+    '''
+    Use the word_dict to identify which indices in the given words dictionary
+    in the data correspond to
+    :param data: the dataset, particularly the words
+    :param word_dict: the words dictionary, just a list of words
+    :param count: how many hashtag indices should we return
+    :return: the indices of the most popular hashtags
+    '''
+    hashtags        = [w for w in word_dict if w[0] == '#']
+    hashtag_indices = [word_dict.index(h) for h in hashtags]
+    hashtag_counts  = np.squeeze(np.array(data.words[:,hashtag_indices].sum(axis=0)))
+
+    popular_hashtag_count_indices = hashtag_counts.argsort()[-count:][::-1]
+    popular_hashtag_indices = [hashtag_indices[i] for i in popular_hashtag_count_indices]
+    # popular_hashtags        = [word_dict[i] for i in popular_hashtag_indices]
+
+    return popular_hashtag_indices
 
 
 def parse_dtypes(dtype_str):
@@ -290,6 +314,75 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     return model_files
 
 
+def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, word_dict, num_folds, fold_run_count=-1, model_dir= None):
+    '''
+    Evaluate the precision at M for the top 50 hash-tags. In the held-out set, the hashtags
+    are deleted. We train on all, both training and held-out, then evaluate the precision
+    at M for the hashtags
+
+    For values of M we use
+
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param word_dict the word dictionary, used to identify hashtags and print them
+    out when the run is completed.
+    :param num_folds:  the number of folds to cross validation
+    :param fold_run_count: for debugging stop early after processing the number
+    of the folds
+    :param model_dir: if not none, and folds > 1, the models are stored in this
+    directory.
+    :return: the list of model files stored
+    '''
+    model_files = []
+    if fold_run_count < 1:
+        fold_run_count = num_folds
+    if num_folds <= 1:
+        raise ValueError ("Number of folds must be greater than 1")
+
+    hashtag_indices = popular_hashtag_indices (data, word_dict, 50)
+
+    folds_finished = 0 # count of folds that finished successfully
+    fold = 0
+    while fold < num_folds and folds_finished < fold_run_count:
+        try:
+            train_range, query_range = data.cross_valid_split_indices(fold, num_folds)
+            query_words_view = data.words[query_range, :]
+            removed_htags    = query_words_view[:, hashtag_indices].copy()
+            query_words_view[:, hashtag_indices] = 0
+
+            # Train the model
+            print ("Duplicating model template... ", end="")
+            model      = mdl.newModelFromExisting(sample_model)
+            train_tops = mdl.newQueryState(data, model)
+
+            print ("Starting training")
+            model, train_tops, (train_itrs, train_vbs, train_likes) \
+                = mdl.train(data, model, train_tops, train_plan)
+
+            # Predict hashtags
+            dist          = rowwise_softmax(train_tops.means)
+            hashtag_probs = dist.dot(model.vocab[:,popular_hashtag_indices])
+
+
+
+            # Save the model
+            model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl)
+        except Exception as e:
+            traceback.print_exc()
+            print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
+        finally:
+            fold += 1
+
+    print ("Total (%d): Train-set Likelihood: %12.3f \t Train-set Perplexity: %12.3f" % (folds_finished, train_like_sum, perplexity_from_like(train_like_sum, train_wcount_sum)))
+    print ("Total (%d): Query-set Likelihood: %12.3f \t Query-set Perplexity: %12.3f" % (folds_finished, query_like_sum, perplexity_from_like(query_like_sum, query_wcount_sum)))
+
+    return model_files
+
+
 def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl):
     if model_dir is not None:
         model_files.append( \
@@ -355,7 +448,6 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
         else:
             return data
 
-
     for fold in range(folds):
         model = mdl.newModelFromExisting(sample_model)
         train_data, query_data = data.link_prediction_split(symmetric=False)
@@ -365,7 +457,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
             mdl.train(train_data, model, train_tops, train_plan)
 
-        print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
+        print("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
 
         min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
         predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)

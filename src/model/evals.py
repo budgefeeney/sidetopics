@@ -11,8 +11,9 @@ from model.common import DataSet
 Perplexity="perplexity"
 MeanAveragePrecAllDocs="meanavgprec_all"
 MeanPrecRecAtMAllDocs="meanprecrec_all"
+HashtagPrecAtM="hashtag_prec_at_m"
 
-EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs]
+EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM]
 
 def perplexity_from_like(log_likely, token_count):
     if type(token_count) is DataSet:

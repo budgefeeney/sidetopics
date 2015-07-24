@@ -268,13 +268,15 @@ class DataSet:
         return self._order
 
 
-    def cross_valid_split (self, test_fold_id, num_folds):
+    def cross_valid_split_indices (self, test_fold_id, num_folds):
         '''
         For cross-validation, used the K-folds method to partition the
         data in the train and query components.
 
         Returns a tuple, the left being the Input object with the training
         data, the right being the input object with the query data
+
+        This just returns the train and query indices respectively
         '''
         assert test_fold_id < num_folds, "The query fold ID can't be greater than the total number of folds"
         assert num_folds > 1, "The number of folds should be greater than one"
@@ -288,6 +290,19 @@ class DataSet:
 
         query_range = np.arange(start, end) % doc_count
         train_range = np.arange(end, end + train_size) % doc_count
+
+        return train_range, query_range
+
+
+    def cross_valid_split (self, test_fold_id, num_folds):
+        '''
+        For cross-validation, used the K-folds method to partition the
+        data in the train and query components.
+
+        Returns a tuple, the left being the Input object with the training
+        data, the right being the input object with the query data
+        '''
+        train_range, query_range = self.cross_valid_split_indices(test_fold_id, num_folds)
 
         train = DataSet ( \
             self._words[train_range], \
