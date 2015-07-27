@@ -93,7 +93,7 @@ def run(args):
                     help="Datatype to use, values are i4, f4 and f8. Specify two, a data dtype and model dtype, delimited by a colon")
     parser.add_argument('--limit-to', dest='limit', type=int, default=0, metavar=' ', \
                     help="If set, discard all but the initial given number of rows of the input dataset")
-    parser.add_argument('--word-dict', dest='word_dict', defaul=None, metavar=' ', \
+    parser.add_argument('--word-dict', dest='word_dict', default=None, metavar=' ', \
                     help='A dictionary of all words. Used to identify hashtag indices')
 
     #
