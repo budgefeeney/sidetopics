@@ -22,6 +22,16 @@ NipsPath = "/Users/bryanfeeney/iCloud/Datasets/NIPS-from-pryor-Sep15/"
 _NipsWordPath = NipsPath + "W_ar.pkl"
 _NipsFeatPath = NipsPath + "X_ar.pkl"
 
+
+Tweets2500Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Tweets-2.5m/"
+_Tweets2500WordPath = Tweets2500Path + "words.pkl"
+_Tweets2500FeatPath = Tweets2500Path + "side.pkl"
+
+_AuthorTweets2500WordPath     = Tweets2500Path + "words-by-author.pkl"
+_AuthorTweets2500FreqWordPath = Tweets2500Path + "words-by-author-freq.pkl"
+_Tweets2500FreqWordPath       = Tweets2500Path + "words-freq.pkl"
+
+
 Tweets750Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Cluster2015-06-24/AuthorTime750/"
 _Tweets750WordPath = Tweets750Path + "words-cleaned.pkl"
 _Tweets750FeatPath = Tweets750Path + "side-cleaned.pkl"
@@ -46,13 +56,13 @@ _Author500TweetsWordPath     = Tweets500Path + "words-by-author.pkl"
 _Author500TweetsFreqWordPath = Tweets500Path + "words-by-author-freq.pkl"
 _Tweets500FreqWordPath       = Tweets500Path + "words-cleaned-freq.pkl"
 
- # Pick either 500 or 750 or 800
-_TweetsWordPath = _Tweets800WordPath
-_TweetsFeatPath = _Tweets800FeatPath
+ # Pick either 500 or 750 or 800 or 2500
+_TweetsWordPath = _Tweets2500WordPath
+_TweetsFeatPath = _Tweets2500FeatPath
 
-_AuthorTweetsWordPath     = _AuthorTweets800WordPath
-_AuthorTweetsFreqWordPath = _AuthorTweets800FreqWordPath
-_TweetsFreqWordPath       = _Tweets800FreqWordPath
+_AuthorTweetsWordPath     = _AuthorTweets2500WordPath
+_AuthorTweetsFreqWordPath = _AuthorTweets2500FreqWordPath
+_TweetsFreqWordPath       = _Tweets2500FreqWordPath
 
 
 Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
@@ -94,14 +104,14 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 10, 5, 5
+        TrainIters, QueryIters, LogFreq = 2000, 500, 10
         PriorCov = 0.001
         VocabPrior = 0.01
         Debug = False
 
         modelFileses = []
         for DataSetName in [TweetsFreq]:
-            for k in [150]: # [10, 25, 100]:
+            for k in [100]: # [10, 25, 100]:
                 for modelName in [ StmYvBohning ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
