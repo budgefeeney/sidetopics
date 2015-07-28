@@ -4,7 +4,7 @@ import sys
 import operator
 
 InputFile = "/Users/bryanfeeney/Dropbox/user-counts.txt"
-TweetTargetCount = 2500000
+TweetTargetCount = 5000000
 MinPerUserTweet = 1500
 MaxPerUserTweet = 8000
 SortTweet = False
