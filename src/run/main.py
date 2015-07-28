@@ -159,7 +159,7 @@ def run(args):
     if args.eval == Perplexity:
         return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == HashtagPrecAtM:
-        return cross_val_and_eval_hashtag_prec_at_m(data, mdl, templateModel, trainPlan, args.word_dict, args.folds, args.eval_fold_count, args.out_model)
+        return cross_val_and_eval_hashtag_prec_at_m(data, mdl, templateModel, trainPlan, load_dict(args.word_dict), args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
@@ -168,6 +168,11 @@ def run(args):
         raise ValueError("Unknown evaluation metric " + args.eval)
 
     return modelFiles
+
+
+def load_dict(dict_path):
+    with open(dict_path, 'rb') as f:
+        return pkl.load(f)
 
 
 def popular_hashtag_indices(data, word_dict, count=50):
@@ -320,7 +325,7 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
     are deleted. We train on all, both training and held-out, then evaluate the precision
     at M for the hashtags
 
-    For values of M we use
+    For values of M we use 10, 50, 100, 150, 250, 500
 
 
     :param data: the DataSet object with the data
@@ -337,6 +342,9 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
     directory.
     :return: the list of model files stored
     '''
+    MS = [10, 50, 100, 150, 200, 250, 1000, 1500, 3000, 5000, 10000]
+    Precision, Recall = "precision", "recall"
+
     model_files = []
     if fold_run_count < 1:
         fold_run_count = num_folds
@@ -364,10 +372,31 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
                 = mdl.train(data, model, train_tops, train_plan)
 
             # Predict hashtags
-            dist          = rowwise_softmax(train_tops.means)
-            hashtag_probs = dist.dot(model.vocab[:,popular_hashtag_indices])
+            dist = rowwise_softmax(train_tops.means)
 
+            # For each hash-tag, for each value of M, evaluate the precision
+            results = {Recall : dict(), Precision : dict()}
+            for hi in hashtag_indices:
+                hind = hashtag_indices.index(hi)
 
+                h_probs = dist[query_range,:].dot(model.vocab[:,hi])
+                h_count = removed_htags[:,hind].sum()
+
+                results[Recall][word_dict[hi]]    = { -1 : h_count }
+                results[Precision][word_dict[hi]] = { -1 : h_count }
+                for m in MS:
+                    top_m = h_probs.argsort()[-m:][::-1]
+
+                    true_pos = removed_htags[top_m, hind].sum()
+                    rec_denom = min(m, h_count)
+                    results[Precision][word_dict[hi]][m] = true_pos / m
+                    results[Recall][word_dict[hi]][m]    = true_pos / rec_denom
+
+            print ("%10s\t%20s\t%6s\t" % ("Metric", "Hashtag", "Count") + "\t".join("%5d" % m for m in MS))
+            for htag, prec_results in results[Precision].items():
+                print ("%10s\t%20s\t%6d\t%s" % ("Precision", htag, prec_results[-1], "\t".join(("%0.3f" % prec_results[m] for m in MS))))
+            for htag, prec_results in results[Recall].items():
+                print ("%10s\t%20s\t%6d\t%s" % ("Recall", htag, prec_results[-1], "\t".join(("%0.3f" % prec_results[m] for m in MS))))
 
             # Save the model
             model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, None, mdl)
