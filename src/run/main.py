@@ -7,6 +7,7 @@ import argparse as ap
 import pickle as pkl
 import numpy as np
 import numpy.random as rd
+import scipy.sparse as ssp
 import sys
 import time
 import traceback
@@ -358,18 +359,23 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
     while fold < num_folds and folds_finished < fold_run_count:
         try:
             train_range, query_range = data.cross_valid_split_indices(fold, num_folds)
-            query_words_view = data.words[query_range, :]
-            removed_htags    = query_words_view[:, hashtag_indices].copy()
-            query_words_view[:, hashtag_indices] = 0
+
+            segment_with_htags             = data.words[train_range, :]
+            held_out_segment_with_htags    = data.words[query_range, :]
+            held_out_segment_without_htags = data.words[query_range, :]
+            held_out_segment_without_htags[:, hashtag_indices] = 0
+
+            train_words = ssp.vstack((segment_with_htags, held_out_segment_without_htags))
+            train_data  = data.copy_with_changes(words=train_words)
 
             # Train the model
             print ("Duplicating model template... ", end="")
             model      = mdl.newModelFromExisting(sample_model)
-            train_tops = mdl.newQueryState(data, model)
+            train_tops = mdl.newQueryState(train_data, model)
 
             print ("Starting training")
             model, train_tops, (train_itrs, train_vbs, train_likes) \
-                = mdl.train(data, model, train_tops, train_plan)
+                = mdl.train(train_data, model, train_tops, train_plan)
 
             # Predict hashtags
             dist = rowwise_softmax(train_tops.means)
@@ -377,17 +383,15 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
             # For each hash-tag, for each value of M, evaluate the precision
             results = {Recall : dict(), Precision : dict()}
             for hi in hashtag_indices:
-                hind = hashtag_indices.index(hi)
-
                 h_probs = dist[query_range,:].dot(model.vocab[:,hi])
-                h_count = removed_htags[:,hind].sum()
+                h_count = held_out_segment_with_htags[:, hi].sum()
 
                 results[Recall][word_dict[hi]]    = { -1 : h_count }
                 results[Precision][word_dict[hi]] = { -1 : h_count }
                 for m in MS:
                     top_m = h_probs.argsort()[-m:][::-1]
 
-                    true_pos = removed_htags[top_m, hind].sum()
+                    true_pos = held_out_segment_with_htags[top_m, hi].sum()
                     rec_denom = min(m, h_count)
                     results[Precision][word_dict[hi]][m] = true_pos / m
                     results[Recall][word_dict[hi]][m]    = true_pos / rec_denom
@@ -397,6 +401,7 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
                 print ("%10s\t%20s\t%6d\t%s" % ("Precision", htag, prec_results[-1], "\t".join(("%0.3f" % prec_results[m] for m in MS))))
             for htag, prec_results in results[Recall].items():
                 print ("%10s\t%20s\t%6d\t%s" % ("Recall", htag, prec_results[-1], "\t".join(("%0.3f" % prec_results[m] for m in MS))))
+
 
             # Save the model
             model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, None, mdl)

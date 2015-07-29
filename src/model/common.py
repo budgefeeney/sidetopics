@@ -82,6 +82,13 @@ class DataSet:
 
         return result
 
+    def copy_with_changes(self, words=None, feats=None, links=None):
+        return DataSet(
+            self._words if words is None else words,
+            self._feats if feats is None else feats,
+            self._links if links is None else links,
+            self._order
+        )
 
     def copy(self, deep=False):
         if deep:
