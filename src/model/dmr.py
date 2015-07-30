@@ -22,6 +22,7 @@ import numpy as np
 import numpy.random as rd
 import scipy.optimize as optim
 import scipy.special as fns
+import scipy.sparse as ssp
 import time
 
 import numba as nb
@@ -275,17 +276,18 @@ def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
 
         alpha[:top,:] = X[d:max_d,:].dot(W.T)
         alpha[:top,k] = X[d:max_d,:].dot(weights)
-        np.exp(alpha[:top], out=alpha)
+        np.exp(alpha[:top], out=alpha[:top])
 
-        alpha_sum = alpha.sum(axis=1)
+        alpha_sum = alpha[:top].sum(axis=1)
         scale[:top]  = fns.digamma(alpha_sum)
         scale[:top] -= fns.digamma(alpha_sum[:,np.newaxis] + n_dk_samples[d:max_d,:,:sample_count].sum(axis=1)).sum(axis=1) / sample_count
         scale[:top] += fns.digamma(alpha[:top,k,np.newaxis] + n_dk_samples[d:max_d,k,:sample_count]).sum(axis=1) / sample_count
         scale[:top] -= fns.digamma(alpha[:top,k])
 
-        P_1 = sparseScalarProductOf(X[d:max_d,:], alpha[:top,k,np.newaxis])
-        P_2 = sparseScalarProductOf(P_1, scale[:top,np.newaxis])
-        result += np.array(P_2.data.sum(axis=0))
+        P_1 = ssp.diags(alpha[:top,k], 0).dot(X[d:max_d,:])
+        P_2 = ssp.diags(scale[:top], 0).dot(P_1)
+
+        result += np.array(P_2.sum(axis=0))
 
     result -= weights / sigma
     print ("Returning after %d ms" % (current_time_millis() - start))
