@@ -22,13 +22,14 @@ import numpy as np
 import numpy.random as rd
 import scipy.optimize as optim
 import scipy.special as fns
+import time
 
 import numba as nb
 
 import model.dmr_fast as compiled
 
 from util.misc import constantArray
-from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+from util.sparse_elementwise import sparseScalarProductOfSafeLnDot, sparseScalarProductOf
 
 # ==============================================================
 # CONSTANTS
@@ -210,7 +211,9 @@ def train (data, model, query, plan):
                 alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
                 topicPrior, vocabPrior, False, debug)
 
-        objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        g = gradient(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        o = objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+
         updateWeights(n_dk_samples, sample_count, X, weights)
     
 #     compiled.freeGlobalRng()
@@ -223,7 +226,7 @@ def train (data, model, query, plan):
 
 def updateWeights(n_dk_samples, sample_count, X, weights):
     for k in range(weights.shape[1]):
-        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma),  method='BFGS')
+        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method='BFGS')
         if opt_result.success:
             weights[k,:] = opt_result.x
         else:
@@ -233,40 +236,61 @@ def updateWeights(n_dk_samples, sample_count, X, weights):
 @nb.autojit
 def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D = X.shape[0]
-    K = W.shape[0]
     result = 0.0
 
-    print ("Calling into objective")
+    print ("Calling into objective for topic " + str(k))
+    start = current_time_millis()
 
     for d in range(D):
-        expectation = 0.0
+        if d % 1000 == 0:
+            print ("d = %7d  t=%10d ms" % (d, current_time_millis() - start))
+        alphas = np.exp(np.squeeze(np.array(X[d,:].dot(W.T))))
+        alphas[k] = np.exp(X[d,:].dot(weights))
 
-        alphas = np.squeeze(np.array(X[d,:].dot(W.T)))
-        alphas[k] = X[d,:].dot(weights)
+        part1_top    = fns.gammaln(alphas.sum())
+        part1_bottom = fns.gammaln(alphas.sum() + n_dk_samples[d,:,:sample_count].sum(axis=0)).sum() / sample_count
+        part2_top    = fns.gammaln(alphas[k,np.newaxis] + n_dk_samples[d,k,:sample_count]).sum() / sample_count
+        part2_bottom = fns.gammaln(alphas[k])
 
-        for s in range(sample_count):
-            num   = fns.gammaln (n_dk_samples[d,k,s] + alphas[k])
-            denom = 0.0
-            for j in range(K):
-                denom += fns.gammaln (n_dk_samples[d,j,s] + alphas[j])
+        result += part1_top - part1_bottom
+        result += part2_top - part2_bottom
 
-            expectation += num / denom
+    result -= 0.5 / sigma * np.sum(weights * weights)
 
-        expectation /= sample_count
+    print ("Returning after %d ms" % (current_time_millis() - start))
+    return -result
 
-        result += expectation
-        result += fns.gammaln(alphas[k])
+BatchSize=5000
+def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
+    D, K = X.shape[0], W.shape[0]
+    print ("Calling into gradient for topic 0")
+    start = current_time_millis()
 
-        num = 0.0
-        for j in range(K):
-            num += alphas[k]
-        result += num
+    result = 0.0
+    alpha = np.empty((BatchSize, K), dtype=np.float64)
+    scale = np.empty((BatchSize,),   dtype=np.float64)
+    for d in range(0, D, BatchSize):
+        max_d = min(D, d + BatchSize)
+        top   = max_d - d
 
-        for f in range(len(weights)):
-            result -= 0.5 / sigma * weights[f] * weights[f]
+        alpha[:top,:] = X[d:max_d,:].dot(W.T)
+        alpha[:top,k] = X[d:max_d,:].dot(weights)
+        np.exp(alpha[:top], out=alpha)
 
-    return result
+        alpha_sum = alpha.sum(axis=1)
+        scale[:top]  = fns.digamma(alpha_sum)
+        scale[:top] -= fns.digamma(alpha_sum[:,np.newaxis] + n_dk_samples[d:max_d,:,:sample_count].sum(axis=1)).sum(axis=1) / sample_count
+        scale[:top] += fns.digamma(alpha[:top,k,np.newaxis] + n_dk_samples[d:max_d,k,:sample_count]).sum(axis=1) / sample_count
+        scale[:top] -= fns.digamma(alpha[:top,k])
 
+        P_1 = sparseScalarProductOf(X[d:max_d,:], alpha[:top,k,np.newaxis])
+        P_2 = sparseScalarProductOf(P_1, scale[:top,np.newaxis])
+        result += np.array(P_2.data.sum(axis=0))
+
+    result -= weights / sigma
+    print ("Returning after %d ms" % (current_time_millis() - start))
+
+    return -result
 
 
 def query (data, model, query, plan):
@@ -337,3 +361,5 @@ def log_likelihood (data, model, query):
     return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
 
 
+def current_time_millis():
+    return int(round(time.time() * 1000))
