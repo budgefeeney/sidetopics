@@ -28,8 +28,9 @@ LdaVb         = 'lda_vb'
 LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
 Mtm           = "mtm_vb"
+Dmr           = "dmr"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm,Mtm])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Dmr])
 
 
 DefaultPriorCov = 0.001
@@ -149,6 +150,9 @@ def run(args):
     elif args.model == Mtm:
         import model.mtm2 as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == Dmr:
+        import model.dmr as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
@@ -219,6 +223,8 @@ def parse_dtype(dtype_str):
         return np.float32
     elif dtype_str in ['i4', 'I4', 'i32', 'I32']:
         return np.int32
+    elif dtype_str in ['u2', 'U2', 'u16', 'U16']:
+        return np.uint16
     else:
         raise ValueError("Can't parse dtype " + dtype_str)
 

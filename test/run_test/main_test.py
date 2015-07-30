@@ -10,7 +10,7 @@ import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
-    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, CtmBohning, CtmBouchard
+    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, CtmBohning, CtmBouchard, Dmr
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
@@ -129,16 +129,16 @@ class Test(unittest.TestCase):
 
         modelFileses = []
         for DataSetName in [TweetsFreq]:
-            for k in [100]: # [10, 25, 100]:
-                for modelName in [ StmYvBohning ]: #ModelNames:
+            for k in [10]: # [10, 25, 100]:
+                for modelName in [ Dmr ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'f4:f4'      \
+                            + ' --dtype '          + 'u2:f4'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + HashtagPrecAtM  \
+                            + ' --eval '           + Perplexity  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
