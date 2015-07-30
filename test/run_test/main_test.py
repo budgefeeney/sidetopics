@@ -125,7 +125,7 @@ class Test(unittest.TestCase):
         TrainIters, QueryIters, LogFreq = 5000, 500, 10
         PriorCov = 0.001
         VocabPrior = 0.01
-        Debug = False
+        Debug = True
 
         modelFileses = []
         for DataSetName in [TweetsFreq]:
@@ -134,7 +134,7 @@ class Test(unittest.TestCase):
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'u2:f4'      \
+                            + ' --dtype '          + 'u2:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \

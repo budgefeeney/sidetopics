@@ -140,7 +140,7 @@ def sumSuffStats(\
         uint16_t[:] w_list, \
         uint8_t[:]  z_list, \
         int[:]   docLens,   \
-        int[:,:] ndk,       \
+        uint16_t[:,:] ndk,       \
         int[:,:] nkv,       \
         int[:]   nk):
     '''
@@ -173,11 +173,10 @@ def sample ( \
         int count,   \
         int thin,    \
         uint16_t[:] w_list,  \
-        np.ndarray[np.uint16_t, ndim=2] X, \
         uint8_t[:]  z_list,  \
         int[:]      docLens, \
-        np.ndarray[np.float64_t, ndim=2] weights, \
-        int[:,:]    ndk, \
+        np.ndarray[np.float64_t, ndim=2] alphas, \
+        uint16_t[:,:]    ndk, \
         int[:,:]    nkv, \
         int[:]      nk,  \
         uint16_t[:,:,:] n_dk_samples,   \
@@ -222,22 +221,18 @@ def sample ( \
         double[:] dist
         double    distNorm, draw
         double    aSum, bSum
-        double[:] alphas = np.ndarray((weights.shape[0],), dtype=np.float64)
-        double    alpha_sum
 
     aSum = np.sum(a)
     bSum = np.sum(b)
     dist = np.empty((K,), dtype=np.float64)
     queryDelta = 0 if isQuery else 1
 
-    alphas = np.dot(X, weights)
     for s in range(count):
         start = 0
         with nogil:
             for d in range(D):
                 # we randomise the point at which we start looping
                 # through words in documents
-                dot_product_f64(X, d, weights, alphas)
                 nsimple = rand_lim(0, docLens[d] - 1) #<int> (gsl_rng_uniform (global_rng) * docLens[d])
                 for ncount in range(docLens[d]):
                     nsimple = (nsimple + 1) % docLens[d]
@@ -255,7 +250,7 @@ def sample ( \
                     # Generate a distribution over topics
                     distNorm = 0.0
                     for j in range(K):
-                        dist[j] = (ndk[d,j] + alphas[j]) \
+                        dist[j] = (ndk[d,j] + alphas[d,j]) \
                                 * (nkv[j,v] + b[v]) \
                                 / (nk[j] + bSum)
                         distNorm += dist[j]
@@ -287,6 +282,7 @@ def sample ( \
                 for d in range(D):
                     for k in range(K):
                         n_dk_samples[d,k,trueSampleCount] = ndk[d,k]
+                        topicSum[d,k] += (ndk[d,k] + alphas[d,k]) / (docLens[d] + aSum)
                 if not isQuery:
                     for k in range(K):
                         for v in range(T):
@@ -295,9 +291,9 @@ def sample ( \
                 trueSampleCount += 1
 
 
-    if debug: print ("Updating hyperparameters...")
-    a[:] = inferPolyaHyper(ndk, docLens)
-    b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
+    # if debug: print ("Updating hyperparameters...")
+    # a[:] = inferPolyaHyper(ndk, docLens)
+    # b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
 
     aSum = np.sum(a)
     bSum = np.sum(b)

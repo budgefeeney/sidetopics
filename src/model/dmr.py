@@ -20,8 +20,10 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import numpy.random as rd
-import scipy.special as fns
 import scipy.optimize as optim
+import scipy.special as fns
+
+import numba as nb
 
 import model.dmr_fast as compiled
 
@@ -140,6 +142,7 @@ def newQueryState(data, modelState, debug=False):
     D,T = data.words.shape
     if debug: print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
     w_list, docLens = compiled.flatten(data.words)
+    docLens = np.asarray(docLens, dtype=np.int32)
     if debug: print("Done")
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -192,17 +195,23 @@ def train (data, model, query, plan):
     compiled.sumSuffStats(w_list, z_list, docLens, ndk, nkv, nk)
     
     # Burn in
+    alphas = X.dot(weights.T)
     if debug: print ("Burning")
-    compiled.sample (burnIn, burnIn + 1, w_list, X, z_list, docLens, \
-            weights, ndk, nkv, nk, n_dk_samples, vocabSum, \
+    compiled.sample (10, burnIn + 1, w_list, z_list, docLens, \
+            alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
             topicPrior, vocabPrior, False, debug)
     
     # True samples
+    if debug: print ("Training")
+    sample_count = 0
     for _ in range(0, iterations - burnIn, weightUpdateInterval):
-        numSamples = compiled.sample (iterations - burnIn, thin, w_list, X, z_list, docLens, \
-                weights, ndk, nkv, nk, n_dk_samples, vocabSum, \
+        alphas[:,:] = X.dot(weights.T)
+        sample_count += compiled.sample (weightUpdateInterval, thin, w_list, z_list, docLens, \
+                alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
                 topicPrior, vocabPrior, False, debug)
-        updateWeights(n_dk_samples, X, weights)
+
+        objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        updateWeights(n_dk_samples, sample_count, X, weights)
     
 #     compiled.freeGlobalRng()
     
@@ -212,13 +221,51 @@ def train (data, model, query, plan):
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
-def updateWeights(n_dk_samples, X, weights):
+def updateWeights(n_dk_samples, sample_count, X, weights):
     for k in range(weights.shape[1]):
-        opt_result = optim.minimize(compiled.objective, weights[k,:], (k, weights, n_dk_samples, X, Sigma))
+        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma),  method='BFGS')
         if opt_result.success:
             weights[k,:] = opt_result.x
         else:
             print("Optimization error : %s " % opt_result.message)
+
+
+@nb.autojit
+def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
+    D = X.shape[0]
+    K = W.shape[0]
+    result = 0.0
+
+    print ("Calling into objective")
+
+    for d in range(D):
+        expectation = 0.0
+
+        alphas = np.squeeze(np.array(X[d,:].dot(W.T)))
+        alphas[k] = X[d,:].dot(weights)
+
+        for s in range(sample_count):
+            num   = fns.gammaln (n_dk_samples[d,k,s] + alphas[k])
+            denom = 0.0
+            for j in range(K):
+                denom += fns.gammaln (n_dk_samples[d,j,s] + alphas[j])
+
+            expectation += num / denom
+
+        expectation /= sample_count
+
+        result += expectation
+        result += fns.gammaln(alphas[k])
+
+        num = 0.0
+        for j in range(K):
+            num += alphas[k]
+        result += num
+
+        for f in range(len(weights)):
+            result -= 0.5 / sigma * weights[f] * weights[f]
+
+    return result
 
 
 
