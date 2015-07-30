@@ -20,8 +20,10 @@ from math import e
 from collections import namedtuple
 import numpy as np
 import numpy.random as rd
+import scipy.special as fns
+import scipy.optimize as optim
 
-import model.lda_gibbs_fast as compiled
+import model.dmr_fast as compiled
 
 from util.misc import constantArray
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -38,6 +40,8 @@ DEBUG=False
 DTYPE = np.float64
 MODEL_NAME = "lda/gibbs"
 
+Sigma = 0.01
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -45,7 +49,7 @@ MODEL_NAME = "lda/gibbs"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations burnIn thin logFrequency debug')                            
+    'iterations burnIn thin weightUpdateInterval logFrequency debug')
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -54,7 +58,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K T weights topicPrior vocabPrior topicSum vocabSum numSamples dtype name'
+    'K T weights topicPrior vocabPrior n_dk_samples topicSum vocabSum numSamples dtype name'
 )
 
 # ==============================================================
@@ -92,12 +96,13 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     if vocabPrior is None:
         vocabPrior = constantArray((T,), 0.1, dtype=dtype) # Also from G&S
         
-    topicSum  = None # These start out at none until we actually
-    vocabSum  = None # go ahead and train this model.
-    numSamples = 0
-    weights   = np.ones((K, F))
+    n_dk_samples = None # These start out at none until we actually
+    topicSum     = None
+    vocabSum     = None # go ahead and train this model.
+    numSamples   = 0
+    weights      = np.ones((K, F))
     
-    return ModelState(K, T, weights, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, MODEL_NAME)
+    return ModelState(K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, numSamples, dtype, MODEL_NAME)
 
 
 def newModelFromExisting(model):
@@ -110,6 +115,7 @@ def newModelFromExisting(model):
         model.weights.copy(), \
         None if model.topicPrior is None else model.topicPrior.copy(), \
         model.vocabPrior, \
+        None if model.n_dk_samples is None else model.n_dk_samples.copy(), \
         None if model.topicSum is None else model.topicSum.copy(), \
         None if model.vocabSum is None else model.vocabSum.copy(), \
         model.numSamples, \
@@ -144,7 +150,7 @@ def newQueryState(data, modelState, debug=False):
     return QueryState(w_list, z_list, docLens, None, 0)
 
 
-def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
+def newTrainPlan (iterations, burnIn = -1, thin = -1, weightUpdateInterval = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
     if burnIn < 0:
         burnIn = iterations // 5
         iterations += burnIn
@@ -154,25 +160,31 @@ def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastBu
             else 10 if iterations <= 1000 \
             else 50
 
-    return TrainPlan(iterations, burnIn, thin, logFrequency, debug)
+    if weightUpdateInterval < 0:
+        weightUpdateInterval = thin * 5;
+
+    return TrainPlan(iterations, burnIn, thin, weightUpdateInterval, logFrequency, debug)
 
 
 def train (data, model, query, plan):
-    iterations, burnIn, thin, _, debug = \
-        plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
-    w_list, z_list, docLens, _, _ = \
-        query.w_list, query.z_list, query.docLens, query.topicSum, query.numSamples
+    iterations, burnIn, thin, weightUpdateInterval, _, debug = \
+        plan.iterations, plan.burnIn, plan.thin, plan.weightUpdateInterval, plan.logFrequency, plan.debug
+    w_list, z_list, docLens = \
+        query.w_list, query.z_list, query.docLens
     K, T, weights, topicPrior, vocabPrior, _, _, _, dtype, name = \
         model.K, model.T, model.weights, model.topicPrior, model.vocabPrior, model.topicSum, model.vocabSum, model.numSamples, model.dtype, model.name
     
     assert model.dtype == np.float64, "This is only implemented for 64-bit floats"
     D = docLens.shape[0]
     X = data.feats
-    
-    ndk = np.zeros((D,K), dtype=np.int32)
+    assert docLens.max() < 65536, "This only works for documents with fewer than 65,536 words"
+
+    numSamples = (iterations - burnIn) // thin
+    ndk = np.zeros((D,K), dtype=np.uint16)
     nkv = np.zeros((K,T), dtype=np.int32)
     nk  = np.zeros((K,),  dtype=np.int32)
-    
+
+    n_dk_samples = np.zeros((D,K,numSamples), dtype=np.uint16)
     topicSum = np.zeros((D,K), dtype=dtype)
     vocabSum = np.zeros((K,T), dtype=dtype)
     
@@ -182,21 +194,32 @@ def train (data, model, query, plan):
     # Burn in
     if debug: print ("Burning")
     compiled.sample (burnIn, burnIn + 1, w_list, X, z_list, docLens, \
-            weights, ndk, nkv, nk, topicSum, vocabSum, \
+            weights, ndk, nkv, nk, n_dk_samples, vocabSum, \
             topicPrior, vocabPrior, False, debug)
     
     # True samples
-    if debug: print ("Sampling")
-    numSamples = compiled.sample (iterations - burnIn, thin, w_list, X, z_list, docLens, \
-            weights, ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, vocabPrior, False, debug)
+    for _ in range(0, iterations - burnIn, weightUpdateInterval):
+        numSamples = compiled.sample (iterations - burnIn, thin, w_list, X, z_list, docLens, \
+                weights, ndk, nkv, nk, n_dk_samples, vocabSum, \
+                topicPrior, vocabPrior, False, debug)
+        updateWeights(n_dk_samples, X, weights)
     
 #     compiled.freeGlobalRng()
     
     return \
-        ModelState (K, T, weights, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
+        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, numSamples, dtype, name), \
         QueryState (w_list, z_list, docLens, topicSum, numSamples), \
         (np.zeros(1), np.zeros(1), np.zeros(1))
+
+
+def updateWeights(n_dk_samples, X, weights):
+    for k in range(weights.shape[1]):
+        opt_result = optim.minimize(compiled.objective, weights[k,:], (k, weights, n_dk_samples, X, Sigma))
+        if opt_result.success:
+            weights[k,:] = opt_result.x
+        else:
+            print("Optimization error : %s " % opt_result.message)
+
 
 
 def query (data, model, query, plan):
@@ -242,7 +265,7 @@ def query (data, model, query, plan):
 def topicDists(query):
     '''
     Returns the topic distribution for the given query
-    ''' 
+    '''
     topicDist = query.topicSum.copy()
     topicDist /= query.numSamples
     return topicDist
