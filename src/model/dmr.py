@@ -233,9 +233,9 @@ def updateWeights(n_dk_samples, sample_count, X, weights):
         else:
             print("Optimization error : %s " % opt_result.message)
 
-
+BatchSize=5000
 @nb.autojit
-def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
+def objective_old(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D = X.shape[0]
     result = 0.0
 
@@ -261,7 +261,34 @@ def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
     print ("Returning after %d ms" % (current_time_millis() - start))
     return -result
 
-BatchSize=5000
+
+def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
+    D, K = X.shape[0], W.shape[0]
+    result = 0.0
+
+    print ("Calling into objective for topic " + str(k))
+    start = current_time_millis()
+
+    alpha = np.empty((BatchSize, K), dtype=np.float64)
+    for d in range(0, D, BatchSize):
+        max_d = min(D, d + BatchSize)
+        top   = max_d - d
+
+        alpha[:top,:] = X[d:max_d,:].dot(W.T)
+        alpha[:top,k] = X[d:max_d,:].dot(weights)
+        np.exp(alpha[:top], out=alpha[:top])
+
+        result += fns.gammaln(alpha[:top].sum(axis=1)).sum()
+        result -= fns.gammaln(alpha[:top].sum(axis=1)[:,np.newaxis] + n_dk_samples[d:max_d,:,:sample_count].sum(axis=1)).sum() / sample_count
+        result += fns.gammaln(alpha[:top,k,np.newaxis] + n_dk_samples[d:max_d,k,:sample_count]).sum() / sample_count
+        result -= fns.gammaln(alpha[:top,k]).sum()
+
+    result -= 0.5 / sigma * np.sum(weights * weights)
+
+    print ("Returning after %d ms" % (current_time_millis() - start))
+    return -result
+
+
 def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D, K = X.shape[0], W.shape[0]
     print ("Calling into gradient for topic 0")
