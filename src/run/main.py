@@ -291,6 +291,8 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             train_word_count = train_data.word_count
             train_perp       = perplexity_from_like(train_like, train_word_count)
 
+            print ("DEBUG Train perplexity is " + str(train_perp))
+
             # Query the model - if there are no features we need to split the text
             print ("Starting query.")
             query_estim, query_eval = query_data.doc_completion_split()

@@ -166,7 +166,7 @@ def newTrainPlan (iterations, burnIn = -1, thin = -1, weightUpdateInterval = -1,
             else 50
 
     if weightUpdateInterval < 0:
-        weightUpdateInterval = thin * 5;
+        weightUpdateInterval = thin * 5
 
     return TrainPlan(iterations, burnIn, thin, weightUpdateInterval, logFrequency, debug)
 
@@ -184,12 +184,12 @@ def train (data, model, query, plan):
     X = data.feats
     assert docLens.max() < 65536, "This only works for documents with fewer than 65,536 words"
 
-    numSamples = (iterations - burnIn) // thin
     ndk = np.zeros((D,K), dtype=np.uint16)
     nkv = np.zeros((K,T), dtype=np.int32)
     nk  = np.zeros((K,),  dtype=np.int32)
 
-    n_dk_samples = np.zeros((D,K,numSamples), dtype=np.uint16)
+    num_samples = (iterations - burnIn) // thin
+    n_dk_samples = np.zeros((D,K,num_samples), dtype=np.uint16)
     topicSum = np.zeros((D,K), dtype=dtype)
     vocabSum = np.zeros((K,T), dtype=dtype)
     
@@ -199,7 +199,7 @@ def train (data, model, query, plan):
     # Burn in
     alphas = X.dot(weights.T)
     if debug: print ("Burning")
-    compiled.sample (10, burnIn + 1, w_list, z_list, docLens, \
+    compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
             topicPrior, vocabPrior, False, debug)
     
@@ -221,25 +221,30 @@ def train (data, model, query, plan):
 #     compiled.freeGlobalRng()
     
     return \
-        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, numSamples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, numSamples), \
+        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, num_samples, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, num_samples), \
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
 def updateWeights(n_dk_samples, sample_count, X, weights):
     for k in range(weights.shape[0]):
-        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method='BFGS')
-        weights[k,:] = np.squeeze(np.asarray(opt_result.x))
+        print ("Updating weights for topics %d" % k, end="... ")
+        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method='L-BFGS-B', options={ "maxiter": 20}, bounds=[(1E-30, log(1E+30))] * weights.shape[1])
+
+        if np.any(np.isnan(opt_result.x)) or np.any(np.isinf(opt_result.x)):
+            print ("Returned a vector including NaNs or Infs... ")
+        else:
+            weights[k,:] = np.squeeze(np.asarray(opt_result.x))
+
         if not opt_result.success:
             print("Optimization error : %s " % opt_result.message)
+        else:
+            print("Done")
 
 BatchSize=5000
 def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D, K = X.shape[0], W.shape[0]
     result = 0.0
-
-    print ("Calling into objective for topic %d with weights %f < %f < %f " % (k, np.min(weights), np.mean(weights), np.max(weights)))
-    start = current_time_millis()
 
     alpha = np.empty((BatchSize, K), dtype=np.float64)
     for d in range(0, D, BatchSize):
@@ -257,14 +262,11 @@ def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
 
     result -= 0.5 / sigma * np.sum(weights * weights)
 
-    print ("Returning after %d ms" % (current_time_millis() - start))
     return -result
 
 
 def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D, K = X.shape[0], W.shape[0]
-    print ("Calling into gradient for topic %d with weights %f < %f < %f " % (k, np.min(weights), np.mean(weights), np.max(weights)))
-    start = current_time_millis()
 
     result = 0.0
     alpha = np.empty((BatchSize, K), dtype=np.float64)
@@ -289,7 +291,6 @@ def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
         result += np.array(P_2.sum(axis=0))
 
     result -= weights / sigma
-    print ("Returning after %d ms" % (current_time_millis() - start))
 
     return -np.squeeze(np.asarray(result))
 
@@ -307,8 +308,11 @@ def query (data, model, query, plan):
     X = data.feats
     
     compiled.initGlobalRng(0xC0FFEE)
-    
-    ndk = np.zeros((D, K), dtype=np.int32)
+
+    num_samples = (iterations - burnIn) // thin
+    n_dk_samples = np.zeros((D,K,num_samples), dtype=np.uint16)
+
+    ndk = np.zeros((D, K), dtype=np.uint16)
     nkv = (wordDists(model) * 1000000).astype(np.int32)
     nk  = nkv.sum(axis=1).astype(np.int32)
     adjustedVocabPrior = np.zeros((T,), dtype=model.dtype) # already incorporated into nkv
@@ -319,18 +323,19 @@ def query (data, model, query, plan):
     compiled.sumSuffStats(w_list, z_list, docLens, ndk, nkv, nk)
     
     # Burn in
-    compiled.sample (burnIn, burnIn + 1, w_list, X, z_list, docLens, \
-            weights, ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, adjustedVocabPrior, True, debug)
+    alphas = X.dot(weights.T)
+    compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
+            alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
+            topicPrior, vocabPrior, True, debug)
     
     # True samples
-    numSamples = compiled.sample (iterations - burnIn, thin, w_list, X, z_list, docLens, \
-            weights, ndk, nkv, nk, topicSum, vocabSum, \
-            topicPrior, adjustedVocabPrior, True, debug)
+    sample_count = compiled.sample (iterations, thin, w_list, z_list, docLens, \
+            alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
+            topicPrior, vocabPrior, True, debug)
     
     return \
-        ModelState (K, T, weights, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, numSamples)
+        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, num_samples, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, num_samples)
 
 
 
