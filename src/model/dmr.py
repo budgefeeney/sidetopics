@@ -104,7 +104,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     topicSum     = None
     vocabSum     = None # go ahead and train this model.
     numSamples   = 0
-    weights      = np.ones((K, F))
+    weights      = np.ones((K, F)) * 0.05
     
     return ModelState(K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, numSamples, dtype, MODEL_NAME)
 
@@ -212,8 +212,9 @@ def train (data, model, query, plan):
                 alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
                 topicPrior, vocabPrior, False, debug)
 
-        g = gradient(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
-        o = objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        # g = gradient(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        # o = objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
+        # o_old = objective_old(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
 
         updateWeights(n_dk_samples, sample_count, X, weights)
     
@@ -226,47 +227,18 @@ def train (data, model, query, plan):
 
 
 def updateWeights(n_dk_samples, sample_count, X, weights):
-    for k in range(weights.shape[1]):
+    for k in range(weights.shape[0]):
         opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method='BFGS')
-        if opt_result.success:
-            weights[k,:] = opt_result.x
-        else:
+        weights[k,:] = np.squeeze(np.asarray(opt_result.x))
+        if not opt_result.success:
             print("Optimization error : %s " % opt_result.message)
 
 BatchSize=5000
-@nb.autojit
-def objective_old(weights, k, W, sample_count, n_dk_samples, X, sigma):
-    D = X.shape[0]
-    result = 0.0
-
-    print ("Calling into objective for topic " + str(k))
-    start = current_time_millis()
-
-    for d in range(D):
-        if d % 1000 == 0:
-            print ("d = %7d  t=%10d ms" % (d, current_time_millis() - start))
-        alphas = np.exp(np.squeeze(np.array(X[d,:].dot(W.T))))
-        alphas[k] = np.exp(X[d,:].dot(weights))
-
-        part1_top    = fns.gammaln(alphas.sum())
-        part1_bottom = fns.gammaln(alphas.sum() + n_dk_samples[d,:,:sample_count].sum(axis=0)).sum() / sample_count
-        part2_top    = fns.gammaln(alphas[k,np.newaxis] + n_dk_samples[d,k,:sample_count]).sum() / sample_count
-        part2_bottom = fns.gammaln(alphas[k])
-
-        result += part1_top - part1_bottom
-        result += part2_top - part2_bottom
-
-    result -= 0.5 / sigma * np.sum(weights * weights)
-
-    print ("Returning after %d ms" % (current_time_millis() - start))
-    return -result
-
-
 def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D, K = X.shape[0], W.shape[0]
     result = 0.0
 
-    print ("Calling into objective for topic " + str(k))
+    print ("Calling into objective for topic %d with weights %f < %f < %f " % (k, np.min(weights), np.mean(weights), np.max(weights)))
     start = current_time_millis()
 
     alpha = np.empty((BatchSize, K), dtype=np.float64)
@@ -291,7 +263,7 @@ def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
 
 def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
     D, K = X.shape[0], W.shape[0]
-    print ("Calling into gradient for topic 0")
+    print ("Calling into gradient for topic %d with weights %f < %f < %f " % (k, np.min(weights), np.mean(weights), np.max(weights)))
     start = current_time_millis()
 
     result = 0.0
@@ -319,7 +291,7 @@ def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
     result -= weights / sigma
     print ("Returning after %d ms" % (current_time_millis() - start))
 
-    return -result
+    return -np.squeeze(np.asarray(result))
 
 
 def query (data, model, query, plan):
