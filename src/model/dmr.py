@@ -42,7 +42,7 @@ LN_OF_2_PI_E = log(2 * pi * e)
 DEBUG=False
 
 DTYPE = np.float64
-MODEL_NAME = "lda/gibbs"
+MODEL_NAME = "dmr/gibbs_em"
 
 Sigma = 0.01
 
@@ -201,7 +201,7 @@ def train (data, model, query, plan):
     if debug: print ("Burning")
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
-            topicPrior, vocabPrior, False, debug)
+            vocabPrior, False, debug)
     
     # True samples
     if debug: print ("Training")
@@ -210,7 +210,7 @@ def train (data, model, query, plan):
         alphas[:,:] = X.dot(weights.T)
         sample_count += compiled.sample (weightUpdateInterval, thin, w_list, z_list, docLens, \
                 alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
-                topicPrior, vocabPrior, False, debug)
+                vocabPrior, False, debug)
 
         # g = gradient(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
         # o = objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
@@ -326,12 +326,12 @@ def query (data, model, query, plan):
     alphas = X.dot(weights.T)
     compiled.sample (burnIn, burnIn + 1, w_list, z_list, docLens, \
             alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True, debug)
+            vocabPrior, True, debug)
     
     # True samples
     sample_count = compiled.sample (iterations, thin, w_list, z_list, docLens, \
             alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
-            topicPrior, vocabPrior, True, debug)
+            vocabPrior, True, debug)
     
     return \
         ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, num_samples, dtype, name), \

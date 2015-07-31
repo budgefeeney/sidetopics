@@ -182,7 +182,6 @@ def sample ( \
         uint16_t[:,:,:] n_dk_samples,   \
         np.ndarray[np.float64_t, ndim=2] topicSum,   \
         np.ndarray[np.float64_t, ndim=2] vocabSum,   \
-        double[:]   a, \
         double[:]   b, \
         bint        isQuery,
         bint        debug):
@@ -198,6 +197,7 @@ def sample ( \
     X          - The DxF matrix of F-dimensional features vectors for each document d
     z_list     - the corresponding list of topic identifiers
     docLens    - the lengths of every document, helps partition the lists above
+    alphas     - The parameter of the Dirichlet prior over topics for each document, a DxK matrix
     weights    - the K F-dimensional features predicting topic strength
     ndk        - the DxK matrix of how many times each topic has been assigned
                  to each document
@@ -207,7 +207,6 @@ def sample ( \
                  topic
     n_dk_samples - the DxKxS array of samples of per-document topic-counts
     vocabSum   - The KxT sum of vocabulary mean samples
-    a          - the prior over topics, a vector
     b          - the prior over vocabulary, a vector
     isQuery    - if true the vocabulary distribution is kept fixed
     '''
@@ -222,7 +221,6 @@ def sample ( \
         double    distNorm, draw
         double    aSum, bSum
 
-    aSum = np.sum(a)
     bSum = np.sum(b)
     dist = np.empty((K,), dtype=np.float64)
     queryDelta = 0 if isQuery else 1
@@ -280,6 +278,9 @@ def sample ( \
                 # Avoid fully vectorising so we don't materialise huge, temporary, DxK or KxV matrices
                 # TODO Consider doing this a row at a time, using numpy, for speedup
                 for d in range(D):
+                    aSum = 0.0
+                    for k in range(K):
+                        aSum += alphas[d,k]
                     for k in range(K):
                         n_dk_samples[d,k,trueSampleCount] = ndk[d,k]
                         topicSum[d,k] += (ndk[d,k] + alphas[d,k]) / (docLens[d] + aSum)
@@ -292,10 +293,8 @@ def sample ( \
 
 
     # if debug: print ("Updating hyperparameters...")
-    # a[:] = inferPolyaHyper(ndk, docLens)
     # b[:] = inferPolyaHyper(nkv, np.sum(nkv, axis=1, dtype=np.int32))
 
-    aSum = np.sum(a)
     bSum = np.sum(b)
     if debug: print ("Done")
 
