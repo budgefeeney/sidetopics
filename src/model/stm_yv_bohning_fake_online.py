@@ -40,9 +40,12 @@ DEBUG=False
 
 VocabPrior=0.1
 
-MODEL_NAME="stm-yv/bohning"
+MODEL_NAME="stm-yv/bohning/online/fake"
 
 STABLE_SORT_ALG="mergesort"
+
+Tau=5
+Kappa=0.5
 
 
 # ==============================================================
@@ -162,7 +165,7 @@ def is_undirected_link_predictor():
     '''
     return False
 
-BatchSize=1000
+BatchSize=5000
 #@nb.autojit
 def train (data, modelState, queryState, trainPlan):
     '''
@@ -233,9 +236,10 @@ def train (data, modelState, queryState, trainPlan):
     expMeans = np.zeros((BatchSize, K), dtype=dtype)
     R = np.zeros((BatchSize, K), dtype=dtype)
     S = np.zeros((BatchSize, K), dtype=dtype)
-    vocabScale = W.copy()
+    vocabScale = np.ones(vocab.shape, dtype=dtype)
     
     # Iterate over parameters
+    batchIter = 0
     for itr in range(iterations):
         
         # We start with the M-Step, so the parameters are consistent with our
@@ -253,15 +257,15 @@ def train (data, modelState, queryState, trainPlan):
         # scales whenever we use the inverse of the unscaled covariance
         sigScale  = 1. / (P+D+F)
         isigScale = 1. / sigScale
-        
+
         isigT = la.inv(sigT)
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
         
         # Update the vocabulary
-        vocab *= vocabScale
-        vocab += vocabPrior
-        vocab = normalizerows_ip(vocab)
-        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
+        # vocab *= vocabScale
+        # vocab += vocabPrior
+        # vocab = normalizerows_ip(vocab)
+        # debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
         
         # Finally update the parameter V
         V = la.inv(sigScale * R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
@@ -300,20 +304,38 @@ def train (data, modelState, queryState, trainPlan):
                 end_d = min(d + BatchSize, end)
                 span  = end_d - d
 
-                expMeans = np.exp(means[d:end_d,:] - means[d:end_d,:].max(axis=1)[:,np.newaxis], out=expMeans[:span,:])
-                R = sparseScalarQuotientOfDot(W[d:end_d,:], expMeans[d:end_d,:], vocab, out=R)
-                S[:,:] = expMeans[:span, :] * R.dot(vocab.T)
+                expMeans[:span,:] = np.exp(means[d:end_d,:] - means[d:end_d,:].max(axis=1)[:span,np.newaxis], out=expMeans[:span,:])
+                R = sparseScalarQuotientOfDot(W[d:end_d,:], expMeans[d:end_d,:], vocab)
+                S[:span,:] = expMeans[:span, :] * R.dot(vocab.T)
 
-                rhs = X[start:end,:].dot(A.T).dot(isigT) * isigScale
-                rhs += S
-                rhs += docLens[:,np.newaxis] * means.dot(Ab)
-                rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
+                # Convert expMeans to a softmax(means)
+                expMeans[:span,:] /= expMeans[:span,:].sum(axis=1)[:span,np.newaxis]
 
-                means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
+                mu   = X[d:end_d,:].dot(A.T)
+                rhs  = mu.dot(isigT) * isigScale
+                rhs += S[:span,:]
+                rhs += docLens[d:end_d,np.newaxis] * means[d:end_d,:].dot(Ab)
+                rhs -= docLens[d:end_d,np.newaxis] * expMeans[:span,:] # here expMeans is actually softmax(means)
 
-                expMeans = np.exp(means[d:end_d,:] - means[d:end_d,:].max(axis=1)[:,np.newaxis], out=expMeans[:span,:])
-                R[:span,:] = sparseScalarQuotientOfDot(W[d:end_d,:], expMeans[:span,:], vocab, out=R)
-                vocabScale += (R.T.dot(expMeans[:span,:])).T
+                means[d:end_d,:] = rhs.dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
+
+                expMeans[:span,:] = np.exp(means[d:end_d,:] - means[d:end_d,:].max(axis=1)[:span,np.newaxis], out=expMeans[:span,:])
+                R = sparseScalarQuotientOfDot(W[d:end_d,:], expMeans[:span,:], vocab, out=R)
+
+                stepSize = (Tau + batchIter) ** -Kappa
+                batchIter += 1
+
+                # Do a gradient update of the vocab
+                vocabScale = (R.T.dot(expMeans[:span,:])).T
+                vocabScale *= vocab
+                normalizerows_ip(vocabScale)
+                # vocabScale += vocabPrior
+                vocabScale *= stepSize
+                vocab *= (1 - stepSize)
+                vocab += vocabScale
+
+                diff = (means[d:end_d,:] - mu)
+                means_cov_with_x_a += diff.T.dot(diff)
 
 #       print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
         debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
@@ -439,73 +461,75 @@ def var_bound(data, modelState, queryState, XTX=None):
     '''
     
     # Unpack the the structs, for ease of access and efficiency
-    W, X = data.words, data.feats
-    D, _ = W.shape
-    means, expMeans, varcs, docLens = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
-    F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
-    
-    # Calculate some implicit  variables
-    isigT = la.inv(sigT)
-    lnDetSigT = lnDetOfDiagMat(sigT)
-    verifyProper(lnDetSigT, "lnDetSigT")
-    
-    if XTX is None:
-        XTX = X.T.dot(X)
-    
-    bound = 0
-    
-    # Distribution over latent space
-    bound -= (P*K)/2. * LN_OF_2_PI
-    bound -= P * lnDetSigT
-    bound -= K * P * log(lfv)
-    bound -= 0.5 * np.sum(1./lfv * isigT.dot(Y) * Y)
-    bound -= 0.5 * K * np.trace(R_Y)
-    
-    # And its entropy
-    detR_Y = safeDet(R_Y, "R_Y")
-    bound += 0.5 * LN_OF_2_PI_E + P/2. * lnDetSigT + K/2. * log(detR_Y)
-    
-    # Distribution over mapping from features to topics
-    diff   = (A - Y.dot(V))
-    bound -= (F*K)/2. * LN_OF_2_PI
-    bound -= F * lnDetSigT
-    bound -= K * P * log(fv)
-    bound -= 0.5 * np.sum (1./lfv * isigT.dot(diff) * diff)
-    bound -= 0.5 * K * np.trace(R_A)
-    
-    # And its entropy
-    detR_A = safeDet(R_A, "R_A")
-    bound += 0.5 * LN_OF_2_PI_E + F/2. * lnDetSigT + K/2. * log(detR_A)
-    
-    # Distribution over document topics
-    bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * lnDetSigT
-    diff   = means - X.dot(A.T)
-    bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
-    bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
-    bound -= 0.5 * K * np.trace(XTX.dot(R_A))
-       
-    # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
-        
-    # Distribution over word-topic assignments, and their entropy
-    # and distribution over words. This is re-arranged as we need 
-    # means for some parts, and exp(means) for other parts
-    expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    S = expMeans * (R.dot(vocab.T)) # D x K
-    
-    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
-    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
+    # W, X = data.words, data.feats
+    # D, _ = W.shape
+    # means, expMeans, varcs, docLens = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
+    # F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.Ab, modelState.dtype
+    #
+    # # Calculate some implicit  variables
+    # isigT = la.inv(sigT)
+    # lnDetSigT = lnDetOfDiagMat(sigT)
+    # verifyProper(lnDetSigT, "lnDetSigT")
+    #
+    # if XTX is None:
+    #     XTX = X.T.dot(X)
+    #
+    # bound = 0
+    #
+    # # Distribution over latent space
+    # bound -= (P*K)/2. * LN_OF_2_PI
+    # bound -= P * lnDetSigT
+    # bound -= K * P * log(lfv)
+    # bound -= 0.5 * np.sum(1./lfv * isigT.dot(Y) * Y)
+    # bound -= 0.5 * K * np.trace(R_Y)
+    #
+    # # And its entropy
+    # detR_Y = safeDet(R_Y, "R_Y")
+    # bound += 0.5 * LN_OF_2_PI_E + P/2. * lnDetSigT + K/2. * log(detR_Y)
+    #
+    # # Distribution over mapping from features to topics
+    # diff   = (A - Y.dot(V))
+    # bound -= (F*K)/2. * LN_OF_2_PI
+    # bound -= F * lnDetSigT
+    # bound -= K * P * log(fv)
+    # bound -= 0.5 * np.sum (1./lfv * isigT.dot(diff) * diff)
+    # bound -= 0.5 * K * np.trace(R_A)
+    #
+    # # And its entropy
+    # detR_A = safeDet(R_A, "R_A")
+    # bound += 0.5 * LN_OF_2_PI_E + F/2. * lnDetSigT + K/2. * log(detR_A)
+    #
+    # # Distribution over document topics
+    # bound -= (D*K)/2. * LN_OF_2_PI
+    # bound -= D/2. * lnDetSigT
+    # diff   = means - X.dot(A.T)
+    # bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
+    # bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
+    # bound -= 0.5 * K * np.trace(XTX.dot(R_A))
+    #
+    # # And its entropy
+    # bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs))
+    #
+    # # Distribution over word-topic assignments, and their entropy
+    # # and distribution over words. This is re-arranged as we need
+    # # means for some parts, and exp(means) for other parts
+    # expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
+    # R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
+    # S = expMeans * (R.dot(vocab.T)) # D x K
+    #
+    # bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
+    # bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
+    #
+    # bound += np.sum(means * S)
+    # bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
+    # bound -= 2. * scaledSelfSoftDot(means, docLens)
+    # bound -= 0.5 * np.sum(docLens[:,np.newaxis] * S * (np.diag(Ab))[np.newaxis,:])
+    #
+    # bound -= np.sum(means * S)
+    #
+    # return bound
 
-    bound += np.sum(means * S)
-    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(Ab) * means)
-    bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * S * (np.diag(Ab))[np.newaxis,:])
-    
-    bound -= np.sum(means * S) 
-    
-    return bound
+    return 0
         
 
 # ==============================================================

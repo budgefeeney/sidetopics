@@ -30,7 +30,9 @@ Rtm           = "rtm_vb"
 Mtm           = "mtm_vb"
 Dmr           = "dmr"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Dmr])
+StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
+
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Dmr])
 
 
 DefaultPriorCov = 0.001
@@ -134,6 +136,9 @@ def run(args):
         templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
     elif args.model == StmYvBohning:
         import model.stm_yv_bohning as mdl
+        templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
+    elif args.model == StmYvBohningFakeOnline:
+        import model.stm_yv_bohning_fake_online as mdl
         templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaCvbZero:
         import model.lda_cvb as mdl

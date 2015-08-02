@@ -10,7 +10,8 @@ import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
-    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, CtmBohning, CtmBouchard, Dmr
+    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, \
+    CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
@@ -122,19 +123,19 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 500, 50, 10
+        TrainIters, QueryIters, LogFreq = 999, 100, 10
         PriorCov = 0.001
-        VocabPrior = 1
-        Debug = True
+        VocabPrior = 0.01
+        Debug = False
 
         modelFileses = []
         for DataSetName in [TweetsFreq]:
             for k in [10]: # [10, 25, 100]:
-                for modelName in [ Dmr ]: #ModelNames:
+                for modelName in [ StmYvBohning ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'u2:f8'      \
+                            + ' --dtype '          + 'f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
