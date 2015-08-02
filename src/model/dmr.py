@@ -25,8 +25,6 @@ import scipy.special as fns
 import scipy.sparse as ssp
 import time
 
-import numba as nb
-
 import model.dmr_fast as compiled
 
 from util.misc import constantArray
