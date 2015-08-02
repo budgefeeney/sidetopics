@@ -212,10 +212,6 @@ def train (data, model, query, plan):
                 alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
                 vocabPrior, False, debug)
 
-        # g = gradient(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
-        # o = objective(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
-        # o_old = objective_old(weights[0,:], 0, weights, sample_count, n_dk_samples, X, Sigma)
-
         updateWeights(n_dk_samples, sample_count, X, weights)
     
 #     compiled.freeGlobalRng()
