@@ -26,9 +26,10 @@ import scipy.sparse as ssp
 import time
 
 import model.dmr_fast as compiled
+from model.evals import perplexity_from_like
 
 from util.misc import constantArray
-from util.sparse_elementwise import sparseScalarProductOfSafeLnDot, sparseScalarProductOf
+from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 
 # ==============================================================
 # CONSTANTS
@@ -154,17 +155,17 @@ def newQueryState(data, modelState, debug=False):
 
 
 def newTrainPlan (iterations, burnIn = -1, thin = -1, weightUpdateInterval = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
-    if burnIn < 0:
-        burnIn = iterations // 5
-        iterations += burnIn
-
-    if thin < 0:
-        thin = 5 if iterations <= 100 \
+    if thin < 0: # TODO Revert to thin = 5 if  <= 100
+        thin = 5 if iterations <= 500 \
             else 10 if iterations <= 1000 \
             else 50
 
+    if burnIn < 0:
+        burnIn = iterations // 4
+        iterations += burnIn
+
     if weightUpdateInterval < 0:
-        weightUpdateInterval = thin * 5
+        weightUpdateInterval = thin * 10 # TODO Revert to 5
 
     return TrainPlan(iterations, burnIn, thin, weightUpdateInterval, logFrequency, debug)
 
@@ -210,30 +211,45 @@ def train (data, model, query, plan):
                 alphas, ndk, nkv, nk, n_dk_samples, topicSum, vocabSum, \
                 vocabPrior, False, debug)
 
-        updateWeights(n_dk_samples, sample_count, X, weights)
+        if debug: # Print out the perplexity so far
+            likely = log_likelihood(data, \
+                ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, sample_count, dtype, name), \
+                QueryState (w_list, z_list, docLens, topicSum, sample_count))
+            perp = perplexity_from_like(likely, data)
+            print ("Sample-Count = %3d  Perplexity = %7.2f" % (sample_count, perp))
+
+        updateWeights(n_dk_samples, sample_count, X, weights, debug)
     
 #     compiled.freeGlobalRng()
     
     return \
-        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, num_samples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, num_samples), \
+        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, sample_count, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, sample_count), \
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
-def updateWeights(n_dk_samples, sample_count, X, weights):
-    for k in range(weights.shape[0]):
-        print ("Updating weights for topics %d" % k, end="... ")
-        opt_result = optim.minimize(objective, weights[k,:], args=(k, weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method='L-BFGS-B', options={ "maxiter": 20}, bounds=[(1E-30, log(1E+30))] * weights.shape[1])
+OptimMethod="L-BFGS-B"
+def updateWeights(n_dk_samples, sample_count, X, old_weights, debug=False):
+    new_weights = old_weights.copy()
+    for k in range(old_weights.shape[0]):
+        if debug: print ("Updating weights for topics %d with method %s. Total objective is %f " % (k, OptimMethod, total_objective(new_weights, sample_count, n_dk_samples, X, Sigma)), end="... ")
+        opt_result = optim.minimize(objective, new_weights[k,:], args=(k, old_weights, sample_count, n_dk_samples, X, Sigma), jac=gradient, method=OptimMethod, options={ "maxiter": 30}) #, bounds=[(1E-30, log(1E+30))] * new_weights.shape[1])
 
         if np.any(np.isnan(opt_result.x)) or np.any(np.isinf(opt_result.x)):
             print ("Returned a vector including NaNs or Infs... ")
         else:
-            weights[k,:] = np.squeeze(np.asarray(opt_result.x))
+            new_weights[k,:] = np.squeeze(np.asarray(opt_result.x))
 
-        if not opt_result.success:
+        if debug and not opt_result.success:
             print("Optimization error : %s " % opt_result.message)
-        else:
-            print("Done")
+
+    old_weights[:,:] = new_weights
+
+def total_objective(W, sample_count, n_dk_samples, X, sigma):
+    result = 0.0
+    for k in range(W.shape[0]):
+        result += objective(W[k,:], k, W, sample_count, n_dk_samples, X, sigma)
+    return result
 
 BatchSize=5000
 def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
@@ -245,17 +261,23 @@ def objective(weights, k, W, sample_count, n_dk_samples, X, sigma):
         max_d = min(D, d + BatchSize)
         top   = max_d - d
 
+        batch_result = 0.0
+
         alpha[:top,:] = X[d:max_d,:].dot(W.T)
         alpha[:top,k] = X[d:max_d,:].dot(weights)
         np.exp(alpha[:top], out=alpha[:top])
 
-        result += fns.gammaln(alpha[:top].sum(axis=1)).sum()
-        result -= fns.gammaln(alpha[:top].sum(axis=1)[:,np.newaxis] + n_dk_samples[d:max_d,:,:sample_count].sum(axis=1)).sum() / sample_count
-        result += fns.gammaln(alpha[:top,k,np.newaxis] + n_dk_samples[d:max_d,k,:sample_count]).sum() / sample_count
-        result -= fns.gammaln(alpha[:top,k]).sum()
+        batch_result += fns.gammaln(alpha[:top, :].sum(axis=1)).sum()
+        batch_result -= fns.gammaln(alpha[:top, :].sum(axis=1)[:,np.newaxis] + n_dk_samples[d:max_d,:,:sample_count].sum(axis=1)).sum() / sample_count
+        batch_result += fns.gammaln(alpha[:top,k,np.newaxis] + n_dk_samples[d:max_d,k,:sample_count]).sum() / sample_count
+        batch_result -= fns.gammaln(alpha[:top,k]).sum()
 
+        result += batch_result
+
+    result -= 0.5 * np.log(2 * pi * sigma)
     result -= 0.5 / sigma * np.sum(weights * weights)
 
+    print ("Topic = %2d  Objective = %f" % (k, -result))
     return -result
 
 
@@ -282,7 +304,8 @@ def gradient(weights, k, W, sample_count, n_dk_samples, X, sigma):
         P_1 = ssp.diags(alpha[:top,k], 0).dot(X[d:max_d,:])
         P_2 = ssp.diags(scale[:top], 0).dot(P_1)
 
-        result += np.array(P_2.sum(axis=0))
+        batch_result = np.array(P_2.sum(axis=0))
+        result += batch_result
 
     result -= weights / sigma
 
@@ -309,7 +332,6 @@ def query (data, model, query, plan):
     ndk = np.zeros((D, K), dtype=np.uint16)
     nkv = (wordDists(model) * 1000000).astype(np.int32)
     nk  = nkv.sum(axis=1).astype(np.int32)
-    adjustedVocabPrior = np.zeros((T,), dtype=model.dtype) # already incorporated into nkv
     
     topicSum = np.zeros((D,K), dtype=dtype)
     vocabSum = model.vocabSum
@@ -328,8 +350,8 @@ def query (data, model, query, plan):
             vocabPrior, True, debug)
     
     return \
-        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, num_samples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, num_samples)
+        ModelState (K, T, weights, topicPrior, vocabPrior, n_dk_samples, topicSum, vocabSum, sample_count, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, sample_count)
 
 
 
