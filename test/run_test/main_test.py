@@ -10,7 +10,7 @@ import cProfile
 
 from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
-    Rtm, LdaGibbs, LdaVb, Mtm, StmYvBohning, StmYvBouchard, \
+    Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline
 from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
 
@@ -123,23 +123,24 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 999, 100, 10
+        TrainIters, QueryIters, LogFreq = 50, 10, 10
         PriorCov = 0.001
-        VocabPrior = 0.01
-        Debug = False
+        VocabPrior = 1
+        Debug = True
 
+        print("long")
         modelFileses = []
-        for DataSetName in [TweetsFreq]:
+        for DataSetName in [Acl]:
             for k in [10]: # [10, 25, 100]:
-                for modelName in [ StmYvBohning ]: #ModelNames:
+                for modelName in [ Mtm2 ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'f8'      \
+                            + ' --dtype '          + 'f8:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + Perplexity  \
+                            + ' --eval '           + MeanPrecRecAtMAllDocs  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
@@ -153,7 +154,7 @@ class Test(unittest.TestCase):
                             + ' --lat-topic-var '  + str(PriorCov) \
                             + ' --lat-feat-var '   + str(PriorCov) \
                             + ' --vocab-prior '    + str(VocabPrior) \
-                            + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out'
+                            + ' --out-model '      + '/Users/bryanfeeney/Dropbox/acl-out'
         #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
         #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
         #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \

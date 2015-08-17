@@ -28,6 +28,7 @@ LdaVb         = 'lda_vb'
 LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
 Mtm           = "mtm_vb"
+Mtm2          = "mtm2_vb"
 Dmr           = "dmr"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
@@ -154,6 +155,9 @@ def run(args):
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Mtm:
         import model.mtm2 as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == Mtm2:
+        import model.mtm3 as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Dmr:
         import model.dmr as mdl
