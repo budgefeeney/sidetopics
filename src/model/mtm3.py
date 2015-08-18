@@ -247,6 +247,7 @@ def train (data, modelState, queryState, trainPlan):
         else:
             topicCov = np.cov(outMeans.T) if topicCov.dtype == np.float64 else np.cov(outMeans.T).astype(dtype)
             topicCov += np.diag(outVarcs.mean(axis=0))
+            topicCov += np.diag(inVarcs.mean(axis=0))
 
         if diagonalPriorCov:
             diag = np.diag(topicCov)
@@ -262,7 +263,7 @@ def train (data, modelState, queryState, trainPlan):
         expMeansCol = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
         lse_at_k = np.sum(expMeansCol, axis=0)
         F = 0.5 * inMeans \
-          - (1. / (2*D + 2)) * inMeans.sum(axis=0) \
+          - (0.5/ D) * inMeans.sum(axis=0) \
           - expMeansCol / lse_at_k[np.newaxis, :]
 
         expMeansRow = np.exp(outMeans - outMeans.max(axis=1)[:, np.newaxis])
@@ -291,38 +292,35 @@ def train (data, modelState, queryState, trainPlan):
         L_weight     = sparseScalarQuotientOfDot(L, expMeansRow, docVocab, out=L_weight)
         l_outtop_sums = L_weight.dot(docVocab.T) * expMeansRow
 
-        # Reset the means and use them to calculate the weighted sum of means
-        meanSum = outMeans.sum(axis=0) * in_counts
-
-        # And now this is the E-Step, though itr's followed by updates for the
-        # parameters also that handle the log-sum-exp approximation.
 
         # Update the Variances: var_d = (2 N_d * A + itopicCov)^{-1}
-        outVarcs = np.reciprocal(docLens[:, np.newaxis] * (0.5 - 1./K) + np.diagonal(topicCov))
+        outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
         debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
-        # Update the out-means
-        rhs  = w_top_sums.copy()
-        rhs += l_outtop_sums
-        rhs += itopicCov.dot(topicMean) / outDocCov
-        rhs += itopicCov.dot(inMeans) / inDocCov[:,np.newaxis]
-        rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
+        inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
+        debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+
+        # Update the out-means and in-means
+        out_rhs  = w_top_sums.copy()
+        out_rhs += l_outtop_sums
+        out_rhs += itopicCov.dot(topicMean) / outDocCov
+        out_rhs += itopicCov.dot(inMeans) / inDocCov[:,np.newaxis]
+        out_rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
+
+        scaled_n_in = ((D-1.)/(2*D)) * ssp.diags(in_counts, 0)
+        in_rhs = (-inMeans.sum(axis=0) * in_counts) / D
+        in_rhs += ssp.diags(inDocCov, 0).dot(outMeans).dot(itopicCov)
+        in_rhs += l_intop_sums
+        in_rhs += in_counts[:,np.newaxis] * F
         for d in range(D):
-            outMeans[d, :]  = la.inv((outDocCov - inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(rhs)
+            in_rhs[d, :]  -= inMeans[d, :]
+            inMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + scaled_n_in).dot(in_rhs[d, :])
+            in_rhs[d,:]  += inMeans[d, :]
+
+            outMeans[d, :]  = la.inv((outDocCov - inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
 
         debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-
-
-        # Update the in-means
-        rhs  = w_top_sums.copy()
-        rhs += l_outtop_sums
-        rhs += itopicCov.dot(topicMean) / outDocCov
-        rhs += itopicCov.dot(inMeans) / inDocCov[:,np.newaxis]
-        rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
-        for d in range(D):
-            outMeans[d, :]  = la.inv((outDocCov - inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(rhs)
-
-        debugFn (itr, outMeans, "inMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
 
         if logFrequency > 0 and itr % logFrequency == 0:
