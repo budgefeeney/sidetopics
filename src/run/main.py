@@ -570,7 +570,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
         print ("Fold %2d: Mean-Precisions at \n" % fold, end="")
 
         printTable("Precision", precs, doc_counts, ms)
-        printTable("Recall",    recs, doc_counts, ms)
+        printTable("Recall",    recs,  doc_counts, ms)
 
 
         model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)

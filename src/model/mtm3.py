@@ -19,6 +19,7 @@ import scipy.linalg as la
 import scipy.sparse as ssp
 import scipy.special as fns
 import numpy.random as rd
+from sphinx.addnodes import centered
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot, \
@@ -221,10 +222,8 @@ def train (data, modelState, queryState, trainPlan):
     L_weight  = L.copy()
     LT_weight = LT.copy()
 
-    pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
-    pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
-    priorSigT_diag = np.ndarray(shape=(K,), dtype=dtype)
-    priorSigT_diag.fill (NIW_PSI)
+    inDocCov  = np.ones((D,))
+    outDocCov = 1
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -233,33 +232,24 @@ def train (data, modelState, queryState, trainPlan):
         # initialisation of the RVs when we do the E-Step
 
         # Update the mean and covariance of the prior
-        topicMean = outMeans.sum(axis = 0) / (D + pseudoObsMeans) \
-                  if USE_NIW_PRIOR \
-                  else outMeans.mean(axis=0)
+        topicMean = outMeans.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
-        if USE_NIW_PRIOR:
-            diff = outMeans - topicMean[np.newaxis,:]
-            topicCov = diff.T.dot(diff) \
-                 + pseudoObsVar * np.outer(topicMean, topicMean)
-            topicCov += np.diag(outVarcs.mean(axis=0) + priorSigT_diag)
-            topicCov /= (D + pseudoObsVar - K)
-        else:
-            topicCov = np.cov(outMeans.T) if topicCov.dtype == np.float64 else np.cov(outMeans.T).astype(dtype)
-            topicCov += np.diag(outVarcs.mean(axis=0))
-            topicCov += np.diag(inVarcs.mean(axis=0))
+        diff = outMeans - topicMean[np.newaxis, :]
+        topicCov = 1./outDocCov * diff.T.dot(diff)
 
-        if diagonalPriorCov:
-            diag = np.diag(topicCov)
-            topicCov = np.diag(diag)
-            itopicCov = np.diag(1./ diag)
-        else:
-            itopicCov = la.inv(topicCov)
+        diff = inMeans - outMeans
+        topicCov += (inDocCov[:, np.newaxis] * diff).T.dot(diff)
+
+        topicCov += np.diag(outVarcs.mean(axis=0))
+        topicCov += np.diag(inVarcs.mean(axis=0))
+
+        topicCov /= (2 * D)
+        itopicCov = la.inv(topicCov)
 
         debugFn (itr, topicMean, "topicCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-#        print("                topicCov.det = " + str(la.det(topicCov)))
 
-        # Building Blocks - temporarily replaces means with exp(means)
+        # Apply the exp function to get the (unnormalised) softmaxes in both directions.
         expMeansCol = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
         lse_at_k = np.sum(expMeansCol, axis=0)
         F = 0.5 * inMeans \
@@ -294,30 +284,30 @@ def train (data, modelState, queryState, trainPlan):
 
 
         # Update the Variances: var_d = (2 N_d * A + itopicCov)^{-1}
-        outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
-        debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-
-        inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
-        debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        # outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
+        # debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        #
+        # inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
+        # debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
         # Update the out-means and in-means
         out_rhs  = w_top_sums.copy()
         out_rhs += l_outtop_sums
         out_rhs += itopicCov.dot(topicMean) / outDocCov
-        out_rhs += itopicCov.dot(inMeans) / inDocCov[:,np.newaxis]
+        out_rhs += inMeans.dot(itopicCov) / inDocCov[:,np.newaxis]
         out_rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
 
         scaled_n_in = ((D-1.)/(2*D)) * ssp.diags(in_counts, 0)
-        in_rhs = (-inMeans.sum(axis=0) * in_counts) / D
-        in_rhs += ssp.diags(inDocCov, 0).dot(outMeans).dot(itopicCov)
+        in_rhs = (inDocCov[:, np.newaxis] * outMeans).dot(itopicCov)
+        in_rhs += ((-inMeans.sum(axis=0) * in_counts) / D)[np.newaxis,:]
         in_rhs += l_intop_sums
-        in_rhs += in_counts[:,np.newaxis] * F
+        in_rhs += in_counts[np.newaxis, :] * F
         for d in range(D):
-            in_rhs[d, :]  -= inMeans[d, :]
-            inMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + scaled_n_in).dot(in_rhs[d, :])
-            in_rhs[d,:]  += inMeans[d, :]
-
-            outMeans[d, :]  = la.inv((outDocCov - inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
+            # in_rhs[d, :]  -= in_counts * inMeans[d, :] / D
+            # inMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + scaled_n_in).dot(in_rhs[d, :])
+            # in_rhs[d,:]  += in_counts * inMeans[d, :] / D
+        #
+            outMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
 
         debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
         debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
@@ -454,29 +444,7 @@ def var_bound(data, modelState, queryState):
     expMeansOut = np.exp(outMeans - outMeans.max(axis=1)[:, np.newaxis])
     expMeansIn  = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
     lse_at_k    = expMeansIn.sum(axis=0)
-    
-    if USE_NIW_PRIOR:
-        pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
-        pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
 
-        # distribution over topic covariance
-        bound -= 0.5 * K * pseudoObsVar * log(NIW_PSI)
-        bound -= 0.5 * K * pseudoObsVar * log(2)
-        bound -= fns.multigammaln(pseudoObsVar / 2., K)
-        bound -= 0.5 * (pseudoObsVar + K - 1) * safe_log_det(topicCov)
-        bound += 0.5 * NIW_PSI * np.trace(itopicCov)
-
-        # and its entropy
-        # is a constant which we skip
-        
-        # distribution over means
-        bound -= 0.5 * K * log(1./pseudoObsMeans) * safe_log_det(topicCov)
-        bound -= 0.5 / pseudoObsMeans * (topicMean).T.dot(itopicCov).dot(topicMean)
-        
-        # and its entropy
-        bound += 0.5 * safe_log_det(topicCov) # +  a constant
-        
-    
     # Distribution over document topics
     bound -= (D*K)/2. * LN_OF_2_PI
     bound -= D/2. * la.det(topicCov)
@@ -486,7 +454,7 @@ def var_bound(data, modelState, queryState):
     bound -= 0.5 * outDocCov * np.sum(outVarcs * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-#     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(outVarcs))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(outVarcs))
 
     # Distribution over document in-links
     bound -= (D*K)/2. * LN_OF_2_PI
@@ -497,28 +465,26 @@ def var_bound(data, modelState, queryState):
     bound -= 0.5 * np.sum((inVarcs * inDocCov[:,np.newaxis]) * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-#     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(inVarcs))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(inVarcs))
 
     # Distribution over word-topic assignments and words and the formers
-    # entropy, and similaarly for out-links. This is somewhat jumbled to
+    # entropy, and similarly for out-links. This is somewhat jumbled to
     # avoid repeatedly taking the exp and log of the means
-    W_weights  = sparseScalarQuotientOfDot(W, expMeansOut, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    w_top_sums = expMeansOut * (W_weights.dot(vocab.T)) # D x K
+    W_weights = sparseScalarQuotientOfDot(W, expMeansOut, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
+    top_sums  = expMeansOut * (W_weights.dot(vocab.T)) # D x K
 
     L_weights  = sparseScalarQuotientOfNormedDot(L, expMeansOut, expMeansIn, lse_at_k)
-    l_top_sums = L_weights.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
+    top_sums  += L_weights.dot(expMeansIn) / lse_at_k[np.newaxis, :] * expMeansOut
     
     bound += np.sum(docLens * np.log(np.sum(expMeansOut, axis=1)))
     bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeansOut, vocab).data)
-    # means = np.log(expMeans, out=expMeans)
-    #means = safe_log(expMeansOut, out=means)
     
-    bound += np.sum(outMeans * w_top_sums)
+    bound += np.sum(outMeans * top_sums)
     bound += np.sum(2 * ssp.diags(docLens,0) * outMeans.dot(A) * outMeans)
     bound -= 2. * scaledSelfSoftDot(outMeans, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * w_top_sums * (np.diag(A))[np.newaxis,:])
+    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * top_sums * (np.diag(A))[np.newaxis,:])
     
-    bound -= np.sum(outMeans * w_top_sums)
+    bound -= np.sum(outMeans * top_sums)
     
     
     return bound
@@ -545,7 +511,7 @@ def min_link_probs(model, topics, links):
     :return: a D-dimensional vector with the minimum probabilties for each
         link
     '''
-    D = topics.means.shape[0]
+    D = topics.outMeans.shape[0]
     col_maxes = topics.inMeans.max(axis=0)
     lse_at_k = np.sum(np.exp(topics.inMeans - col_maxes), axis=0)
     mins = np.empty((D,), dtype=model.dtype)
