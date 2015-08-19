@@ -298,16 +298,17 @@ def train (data, modelState, queryState, trainPlan):
         out_rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
 
         scaled_n_in = ((D-1.)/(2*D)) * ssp.diags(in_counts, 0)
-        in_rhs = (inDocCov[:, np.newaxis] * outMeans).dot(itopicCov)
-        in_rhs += ((-inMeans.sum(axis=0) * in_counts) / D)[np.newaxis,:]
+        inDocPre = np.reciprocal(inDocCov)
+        in_rhs = (inDocPre[:, np.newaxis] * outMeans).dot(itopicCov)
+        in_rhs += ((-inMeans.sum(axis=0) * in_counts) / (4*D))[np.newaxis,:]
         in_rhs += l_intop_sums
         in_rhs += in_counts[np.newaxis, :] * F
         for d in range(D):
-            # in_rhs[d, :]  -= in_counts * inMeans[d, :] / D
-            # inMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + scaled_n_in).dot(in_rhs[d, :])
-            # in_rhs[d,:]  += in_counts * inMeans[d, :] / D
+            in_rhs[d, :]  += in_counts * inMeans[d, :] / (4*D)
+            inMeans[d, :]  = la.inv(inDocPre[d] * itopicCov + scaled_n_in).dot(in_rhs[d, :])
+            in_rhs[d,:]   -= in_counts * inMeans[d, :] / (4*D)
         #
-            outMeans[d, :]  = la.inv((outDocCov + inDocCov[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
+            outMeans[d, :]  = la.inv((1./outDocCov + inDocPre[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
 
         debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
         debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)

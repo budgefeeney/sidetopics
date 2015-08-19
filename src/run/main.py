@@ -581,7 +581,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
 def printTable(title, scores, doc_counts, ms):
     print(title)
     print("| Group    | Doc Count | " + " | ".join("%5d" % m for m in ms)    + " |")
-    print("|----------|-----------|-" + "-|-".join("-----" for _ in len(ms)) + "-|")
+    print("|----------|-----------|-" + "-|-".join("-----" for _ in range(len(ms))) + "-|")
 
     groups = [g for g in scores.keys()]
     groups.sort()

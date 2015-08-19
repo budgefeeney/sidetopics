@@ -123,10 +123,10 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 50, 10, 10
+        TrainIters, QueryIters, LogFreq = 1000, 200, 10
         PriorCov = 0.001
         VocabPrior = 1
-        Debug = True
+        Debug = False
 
         print("long")
         modelFileses = []
