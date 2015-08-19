@@ -515,7 +515,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
         map = mean_average_prec (query_data.links, predicted_link_probs)
         print ("Fold %2d: Mean-Average-Precision %6.3f" % (fold, map))
 
-        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
 
     return model_files
 
@@ -573,7 +573,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
         printTable("Recall",    recs,  doc_counts, ms)
 
 
-        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
 
     return model_files
 

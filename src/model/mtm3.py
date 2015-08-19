@@ -48,11 +48,13 @@ NIW_PSEUDO_OBS_MEAN=+2  # set to NIW_NU = K + NIW_NU_STEP # this is called kapp
 NIW_PSEUDO_OBS_VAR=+2   # related to K
 NIW_MU=0
 
-VocabPrior = 0.1
+VocabPrior = 0.01
 
 DEBUG=False
 
 MODEL_NAME="mtm2/vb"
+
+INIT_WITH_CTM=False
 
 # ==============================================================
 # TUPLES
@@ -69,7 +71,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicMean topicCov outDocCov vocab A dtype name'
+    'K topicMean topicCov outDocCov vocab A trained dtype name'
 )
 
 # ==============================================================
@@ -98,13 +100,15 @@ def newModelFromExisting(model):
         model.outDocCov,
         model.vocab.copy(),
         model.A.copy(),
+        model.trained,
         model.dtype,
         model.name
     )
 
+
 def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE):
     '''
-    Creates a new CtmModelState for the given training set and
+    Creates a new ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
     at random. This contains all parameters independent of of
     the dataset (e.g. learnt priors)
@@ -135,7 +139,40 @@ def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE):
     
     A = np.eye(K, dtype=dtype) - 1./K
     
-    return ModelState(K, topicMean, topicCov, outDocCov, vocab, A, dtype, MODEL_NAME)
+    return ModelState(K, topicMean, topicCov, outDocCov, vocab, A, False, dtype, MODEL_NAME)
+
+
+def newQueryStateFromCtm(data, model):
+    import model.ctm_bohning as ctm
+
+    ctm_model = ctm.newModelAtRandom(data, model.K, VocabPrior, model.dtype)
+    ctm_query = ctm.newQueryState(data, model)
+    ctm_plan  = ctm.newTrainPlan(200, epsilon=1, logFrequency=100, debug=False)
+
+    ctm_model, ctm_query, (_, _, _) = ctm.train(data, ctm_model, ctm_query, ctm_plan)
+
+    model.vocab[:,:]    = ctm_model.vocab
+    model.topicCov[:,:] = ctm_model.sigT
+    model.topicMean[:]  = ctm_model.topicMean
+
+    K, vocab, dtype =  model.K, model.vocab, model.dtype
+
+    D,T = data.words.shape
+    assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
+    docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
+
+    outMeans = ctm_query.means
+    outVarcs = np.ones((D,K), dtype=dtype)
+
+    inMeans = np.ndarray(shape=(D,K), dtype=dtype)
+    for d in range(D):
+        inMeans[d,:] = rd.multivariate_normal(outMeans[d,:], model.topicCov)
+    inVarcs = np.ones((D,K), dtype=dtype)
+
+    inDocCov  = np.ones((D,), dtype=dtype)
+
+    return QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
+
 
 def newQueryState(data, modelState):
     '''
@@ -150,6 +187,9 @@ def newQueryState(data, modelState):
     REturn:
     A CtmQueryState object
     '''
+    if INIT_WITH_CTM:
+        return newQueryStateFromCtm(data, modelState)
+
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
     
     D,T = data.words.shape
@@ -315,7 +355,7 @@ def train (data, modelState, queryState, trainPlan):
 
 
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, dtype, MODEL_NAME)
+            modelState = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME)
             queryState = QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
 
             boundValues.append(var_bound(data, modelState, queryState))
@@ -328,12 +368,12 @@ def train (data, modelState, queryState, trainPlan):
                     printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
 
                 # Check to see if the improvement in the bound has fallen below the threshold
-                if False and itr > 100 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                if itr > 800 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
 
     return \
-        ModelState(K, topicMean, topicCov, outDocCov, vocab, A, dtype, MODEL_NAME), \
+        ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME), \
         QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens), \
         (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
 
@@ -582,7 +622,7 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, o
     if var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
 
-    model = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, dtype, MODEL_NAME)
+    model = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, False, dtype, MODEL_NAME)
     query = QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, n)
 
     old_bound = _debug_with_bound.old_bound

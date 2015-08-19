@@ -131,7 +131,7 @@ class Test(unittest.TestCase):
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
-            for k in [10]: # [10, 25, 100]:
+            for k in [25]: # [10, 25, 100]:
                 for modelName in [ Mtm2 ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
