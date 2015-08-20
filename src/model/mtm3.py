@@ -56,6 +56,13 @@ MODEL_NAME="mtm2/vb"
 
 INIT_WITH_CTM=False
 
+MinItersBeforeEarlyStop=150
+
+IGAMMA_A = 0.001
+IGAMMA_B = 0.001
+IWISH_S_SCALE = 0.001
+IWISH_DENOM_SCALE = 1.1
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -267,11 +274,13 @@ def train (data, modelState, queryState, trainPlan):
 
     # Iterate over parameters
     for itr in range(iterations):
+        if itr == 100:
+            print ("The ton")
 
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
 
-        # Update the mean and covariance of the prior
+        # Update the mean and covariance of the prior over out-topics
         topicMean = outMeans.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
@@ -284,10 +293,22 @@ def train (data, modelState, queryState, trainPlan):
         topicCov += np.diag(outVarcs.mean(axis=0))
         topicCov += np.diag(inVarcs.mean(axis=0))
 
-        topicCov /= (2 * D)
+        topicCov += IWISH_S_SCALE * np.eye(K,)
+        topicCov /= (2 * D + K * IWISH_DENOM_SCALE)
         itopicCov = la.inv(topicCov)
 
         debugFn (itr, topicMean, "topicCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+
+        # Update the document-covariance of the in-topics
+        diff      = inMeans - outMeans
+        diffSig   = diff.dot(itopicCov)
+        diffSig  *= diff
+
+        inDocCov  = diffSig.sum(axis=1)
+        inDocCov += (outVarcs * np.diagonal(itopicCov)[np.newaxis, :]).sum(axis=1)
+        inDocCov += (inVarcs  * np.diagonal(itopicCov)[np.newaxis, :]).sum(axis=1)
+        inDocCov += IGAMMA_B
+        inDocCov /= (IGAMMA_A - 1 + K)
 
         # Apply the exp function to get the (unnormalised) softmaxes in both directions.
         expMeansCol = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
@@ -347,11 +368,20 @@ def train (data, modelState, queryState, trainPlan):
             in_rhs[d, :]  += in_counts * inMeans[d, :] / (4*D)
             inMeans[d, :]  = la.inv(inDocPre[d] * itopicCov + scaled_n_in).dot(in_rhs[d, :])
             in_rhs[d,:]   -= in_counts * inMeans[d, :] / (4*D)
-        #
-            outMeans[d, :]  = la.inv((1./outDocCov + inDocPre[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
+
+            try:
+                outMeans[d, :]  = la.inv((1./outDocCov + inDocPre[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
+            except la.LinAlgError as err:
+                print ("ABORTING: " + str(err))
+                return \
+                    ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME), \
+                    QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens), \
+                    (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
+
 
         debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
         debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+
 
 
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -368,7 +398,7 @@ def train (data, modelState, queryState, trainPlan):
                     printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
 
                 # Check to see if the improvement in the bound has fallen below the threshold
-                if itr > 800 and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
 
