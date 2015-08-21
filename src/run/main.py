@@ -13,8 +13,10 @@ import time
 import traceback
 
 from model.common import DataSet
-from model.evals import perplexity_from_like, mean_average_prec, mean_prec_rec_at, \
-    EvalNames, Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
+from model.evals import perplexity_from_like, mean_average_prec, \
+    mean_reciprocal_rank, mean_prec_rec_at, \
+    EvalNames, Perplexity, MeanAveragePrecAllDocs,  \
+    MeanPrecRecAtMAllDocs, HashtagPrecAtM
 from util.sigmoid_utils import rowwise_softmax
 
 DTYPE=np.float32
@@ -539,7 +541,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
     directory.
     :return: the list of model files stored
     '''
-    ms = [10, 25, 50, 100, 250, 500]
+    ms = [10, 20, 30, 40, 50, 75, 100, 250, 500]
     model_files = []
     assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
     def prepareForTraining(data):
@@ -551,7 +553,8 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
         else:
             return data
 
-
+    combi_precs, combi_recs, combi_dcounts = None, None, None
+    mrr_sum, mrr_doc_count = 0, 0
     for fold in range(folds):
         model = mdl.newModelFromExisting(sample_model)
         train_data, query_data = data.link_prediction_split(symmetric=False)
@@ -572,10 +575,44 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
         printTable("Precision", precs, doc_counts, ms)
         printTable("Recall",    recs,  doc_counts, ms)
 
+        mrr = mean_reciprocal_rank(query_data.links, predicted_link_probs)
+        print ("Mean reciprocal-rank : %f" % mrr)
+        mrr_sum       += mrr * query_data.doc_count
+        mrr_doc_count += query_data.doc_count
+
+        combi_precs, _             = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
+        combi_recs,  combi_dcounts = combine_map(combi_recs,  combi_dcounts, recs,  doc_counts)
 
         model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
 
+    print ("-" * 80 + "\n\n Final Results\n\n")
+    printTable("Precision", combi_precs, combi_dcounts, ms)
+    printTable("Recall",    combi_recs,  combi_dcounts, ms)
+    print("Mean reciprocal-rank: %f" % (mrr_sum / mrr_doc_count))
+
     return model_files
+
+
+def combine_map (old_avgs, old_counts, new_avgs, new_counts):
+    '''
+    Given two maps of averages, organised as group-key -> [avg], we use
+    the document counts map (organised in the same fashion) to combine the averages
+    and counts in the "old" maps with the new values. The updated averages and counts
+    maps are returned
+    :return: a tuple with updated avgs and updated counts in that order
+    '''
+    if old_avgs is None and old_counts is None:
+        # create a copy
+        return { g:lst[:] for g,lst in new_avgs.items() }, \
+               { g:cnt for g,cnt in new_counts.items() }
+
+    upd_counts = { g:old_count + new_counts[g] for g,old_count in old_counts.items() }
+    upd_avgs   = { g:[(o * old_counts[g] + n * new_counts[g]) / upd_counts[g] \
+                      for o,n in zip(lst,new_avgs[g])] \
+                   for g,lst in old_avgs.items() }
+
+    return upd_avgs, upd_counts
+
 
 
 def printTable(title, scores, doc_counts, ms):
