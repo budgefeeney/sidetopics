@@ -118,11 +118,12 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     D = expected_links.shape[0]
     docCounts = { group : 0 for group in groups }
 
+    docs_lacking_links = []
     for d in range(D):
         # Take out the indices (i.e. IDs) of the expected links
         expt_indices = expected_links[d,:].indices
         if len(expt_indices) == 0:
-            print("No links to match in document %d" % (d,))
+            docs_lacking_links.append(d)
             continue
         g = find_group(len(expt_indices), groups)
 
@@ -141,7 +142,7 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
                 print ("Ruh-ro")
                 continue
 
-            precs_at_m[g][i] += len(recv_set.intersection(expt_set)) / len(recv_set)
+            precs_at_m[g][i] += len(recv_set.intersection(expt_set)) / m
             recs_at_m[g][i]  += len(recv_set.intersection(expt_set)) / len(expt_set)
         docCounts[g] += 1
 
@@ -153,6 +154,8 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
         recs = recs_at_m[g]
         recs_at_m[g] = [r / docCounts[g] for r in recs]
 
+    if len(docs_lacking_links) > 0:
+        print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(docs_lacking_links[:10]))
     return precs_at_m, recs_at_m, docCounts
 
 
