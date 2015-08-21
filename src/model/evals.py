@@ -40,11 +40,12 @@ def mean_reciprocal_rank(expected_links, estim_link_probs):
     rank_sum   = 0.0
     rank_count = 0
 
+    docs_lacking_links = []
     for d in range(D):
         # Take out the indices (i.e. IDs) of the expected links
         expt_indices = [e for e in expected_links[d,:].indices]
         if len(expt_indices) == 0:
-            print("No links to match in document %d" % (d,))
+            docs_lacking_links.append(d)
             continue
 
         # Rank the received indices by associated value in descending order
@@ -55,15 +56,17 @@ def mean_reciprocal_rank(expected_links, estim_link_probs):
         # Sum up reciprocal ranks
         r = 0
         while r < len(recv_indices) and len(expt_indices) > 0:
-            r += 1
             e = 0
             while e < len(expt_indices):
                 if recv_indices[r] == expt_indices[e]:
                     del expt_indices[e]
-                    rank_sum += r
+                    rank_sum += 1./(r+1)
                     rank_count += 1
                 e += 1
+            r += 1
 
+    if len(docs_lacking_links) > 0:
+        print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
     return rank_sum / rank_count
 
 
@@ -93,7 +96,7 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     includes everything. Also  documents with no outlinks are skipped always.
     :return: First a dictionary of tuples to lists, the tuples denoting how many links
     were in the documents considered, the lists being the precisions at m evaluated
-    for each of the values in "at'. Secondlay a similarly structured dictionary of
+    for each of the values in "at'. Secondly a similarly structured dictionary of
     recall at m, for every m and group. Thirdly a dictionary of those same groups to
     docCounts
     '''
@@ -155,7 +158,7 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
         recs_at_m[g] = [r / docCounts[g] for r in recs]
 
     if len(docs_lacking_links) > 0:
-        print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(docs_lacking_links[:10]))
+        print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
     return precs_at_m, recs_at_m, docCounts
 
 
