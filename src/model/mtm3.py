@@ -310,6 +310,8 @@ def train (data, modelState, queryState, trainPlan):
         inDocCov += IGAMMA_B
         inDocCov /= (IGAMMA_A - 1 + K)
 
+        outDocCov = (np.trace(diffSig) + np.diagonal(itopicCov) * outVarcs).sum() / (D * K)
+
         # Apply the exp function to get the (unnormalised) softmaxes in both directions.
         expMeansCol = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
         lse_at_k = np.sum(expMeansCol, axis=0)
