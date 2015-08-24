@@ -347,11 +347,11 @@ def train (data, modelState, queryState, trainPlan):
 
 
         # Update the Variances: var_d = (2 N_d * A + itopicCov)^{-1}
-        # outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
-        # debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-        #
-        # inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
-        # debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
+        debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+
+        inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
+        debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
         # Update the out-means and in-means
         out_rhs  = w_top_sums.copy()
@@ -402,6 +402,17 @@ def train (data, modelState, queryState, trainPlan):
                 # Check to see if the improvement in the bound has fallen below the threshold
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
+
+        if True or itr % logFrequency == 0:
+            print("# Covariance Statistics ")
+            print("#    Sigma    : log(deg(Sigma))     = %.f  \t min = %.3g, mean=%.3g, max=%.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()))
+            print("#    alpha    : log(deg(alpha I_K)) = %.f  \t min = %.3g, mean=%.3g, max=%.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov, outDocCov, outDocCov))
+            print("#    rho      : log(det(diag(rho))) = %.f  \t min = %.3g, mean=%.3g, max=%.3g  \sum_d log rho_d = %.f" % (safe_log_det(np.diag(inDocCov)), inDocCov.min(), inDocCov.mean(), inDocCov.max(), sum(log(inDocCov[d]) for d in range(D))))
+            print("#    outMeans : min = %.3g, mean=%.3g, max=%.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()) )
+            print("#    inMeans  : min = %.3g, mean=%.3g, max=%.3g" % (inMeans.min(), inMeans.mean(), inMeans.max()) )
+            print("#    outVarcs : mean-log-det = %.3g  \t  min = %.3g, mean=%.3g, max=%.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
+            print("#    inVarcs  : mean-log-det = %.3g  \t  min = %.3g, mean=%.3g, max=%.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()))
+
 
 
     return \
@@ -520,25 +531,24 @@ def var_bound(data, modelState, queryState):
 
     # Distribution over document topics
     bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * la.det(topicCov)
-    bound -= (D*K)/2 * np.log(outDocCov)
+    bound -= D/2. * safe_log_det(outDocCov * topicCov)
     diff   = outMeans - topicMean[np.newaxis,:]
     bound -= 0.5 * np.sum (diff.dot(itopicCov) * diff * outDocCov)
     bound -= 0.5 * outDocCov * np.sum(outVarcs * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(outVarcs))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * sum(np.sum(np.log(outVarcs[d,: ])) for d in range(D))
 
     # Distribution over document in-links
     bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * la.det(topicCov)
-    bound -= K/2 * np.log(inDocCov).sum()
+    bound -= D/2. * safe_log_det(topicCov)
+    bound -= K/2 * safe_log(inDocCov).sum()
     diff   = inMeans - outMeans
     bound -= 0.5 * np.sum (diff.dot(itopicCov) * diff * inDocCov[:,np.newaxis])
     bound -= 0.5 * np.sum((inVarcs * inDocCov[:,np.newaxis]) * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(inVarcs))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * sum(np.sum(np.log(inVarcs[d,: ])) for d in range(D))
 
     # Distribution over word-topic assignments and words and the formers
     # entropy, and similarly for out-links. This is somewhat jumbled to
@@ -558,8 +568,7 @@ def var_bound(data, modelState, queryState):
     bound -= 0.5 * np.sum(docLens[:,np.newaxis] * top_sums * (np.diag(A))[np.newaxis,:])
     
     bound -= np.sum(outMeans * top_sums)
-    
-    
+
     return bound
 
 
