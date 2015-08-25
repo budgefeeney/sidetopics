@@ -578,7 +578,7 @@ def var_bound(data, modelState, queryState):
            + ((L_weights.dot((np.log(docVocab) * docVocab).T)) * expMeansOut).sum() \
            - np.trace(sparseScalarProductOfSafeLnDot(L_weights, expMeansOut, docVocab).dot(docVocab.T).dot(expMeansOut.T))
 
-    # e[p(W)]
+    # E[p(W)]
     vlv = np.log(vocab) * vocab
     bound += np.trace(expMeansOut.T.dot(W_weights.dot(vlv.T)))
 
