@@ -62,7 +62,7 @@ MinItersBeforeEarlyStop=150
 IGAMMA_A = 0.001
 IGAMMA_B = 0.001
 IWISH_S_SCALE = 0.001
-IWISH_DENOM_SCALE = 1.1
+IWISH_DENOM   = 1.1
 
 # ==============================================================
 # TUPLES
@@ -289,13 +289,13 @@ def train (data, modelState, queryState, trainPlan):
         topicCov = 1./outDocCov * diff.T.dot(diff)
 
         diff = inMeans - outMeans
-        topicCov += (inDocCov[:, np.newaxis] * diff).T.dot(diff)
+        topicCov += (np.reciprocal(inDocCov)[:, np.newaxis] * diff).T.dot(diff)
 
         topicCov += np.diag(outVarcs.mean(axis=0))
         topicCov += np.diag(inVarcs.mean(axis=0))
 
         topicCov += IWISH_S_SCALE * np.eye(K,)
-        topicCov /= (2 * D + K * IWISH_DENOM_SCALE)
+        topicCov /= (2 * D + K * IWISH_DENOM)
         itopicCov = la.inv(topicCov)
 
         debugFn (itr, topicMean, "topicCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
@@ -351,11 +351,11 @@ def train (data, modelState, queryState, trainPlan):
 
 
         # Update the posterior variances
-        # outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
-        # debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-        #
-        # inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
-        # debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
+        debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+
+        inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
+        debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
         # Update the out-means and in-means
         out_rhs  = w_top_sums.copy()
