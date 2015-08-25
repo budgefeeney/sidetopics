@@ -285,17 +285,17 @@ def train (data, modelState, queryState, trainPlan):
         topicMean = outMeans.mean(axis=0)
         debugFn (itr, topicMean, "topicMean", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
-        # diff = outMeans - topicMean[np.newaxis, :]
-        # topicCov = 1./outDocCov * diff.T.dot(diff)
-        #
-        # diff = inMeans - outMeans
-        # topicCov += (inDocCov[:, np.newaxis] * diff).T.dot(diff)
-        #
-        # topicCov += np.diag(outVarcs.mean(axis=0))
-        # topicCov += np.diag(inVarcs.mean(axis=0))
-        #
-        # topicCov += IWISH_S_SCALE * np.eye(K,)
-        # topicCov /= (2 * D + K * IWISH_DENOM_SCALE)
+        diff = outMeans - topicMean[np.newaxis, :]
+        topicCov = 1./outDocCov * diff.T.dot(diff)
+
+        diff = inMeans - outMeans
+        topicCov += (inDocCov[:, np.newaxis] * diff).T.dot(diff)
+
+        topicCov += np.diag(outVarcs.mean(axis=0))
+        topicCov += np.diag(inVarcs.mean(axis=0))
+
+        topicCov += IWISH_S_SCALE * np.eye(K,)
+        topicCov /= (2 * D + K * IWISH_DENOM_SCALE)
         itopicCov = la.inv(topicCov)
 
         debugFn (itr, topicMean, "topicCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
@@ -311,6 +311,9 @@ def train (data, modelState, queryState, trainPlan):
         inDocCov += IGAMMA_B
         inDocCov /= (IGAMMA_A - 1 + K)
 
+        diff      = outMeans - topicMean[np.newaxis,:]
+        diffSig   = diff.dot(itopicCov)
+        diffSig  *= diff
         outDocCov = (diffSig.sum() + np.diagonal(itopicCov) * outVarcs).sum() / (D * K)
 
         # Apply the exp function to get the (unnormalised) softmaxes in both directions.
@@ -348,11 +351,11 @@ def train (data, modelState, queryState, trainPlan):
 
 
         # Update the posterior variances
-        outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
-        debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-
-        inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
-        debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        # outVarcs = np.reciprocal(docLens[:, np.newaxis] * ((K-1)/(2*K) + (1./outDocCov + np.reciprocal(inDocCov)[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:]))
+        # debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        #
+        # inVarcs = np.reciprocal((D-1)/(2*D) * in_counts[np.newaxis,:] + np.reciprocal(inDocCov)[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
+        # debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
         # Update the out-means and in-means
         out_rhs  = w_top_sums.copy()
