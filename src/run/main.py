@@ -179,7 +179,7 @@ def run(args):
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
-        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
+        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -522,7 +522,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
     return model_files
 
 
-def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir = None):
+def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None):
     '''
     Train on all the words and half the links. Predict the remaining links.
     Evaluate using precision at m using as values of m 50, 100, 250, and 500,
@@ -537,6 +537,8 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
             cross-validation run
     :param train_plan:  the training plan (number of iterations etc.)
     :param folds:  the number of folds to cross validation
+    :param target_folds: the number of folds to complete before finishing. Set
+    to folds by default
     :param model_dir: if not none, and folds > 1, the models are stored in this
     directory.
     :return: the list of model files stored
@@ -553,9 +555,12 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, model_dir =
         else:
             return data
 
+    if target_folds is None:
+        target_folds = folds
+
     combi_precs, combi_recs, combi_dcounts = None, None, None
     mrr_sum, mrr_doc_count = 0, 0
-    for fold in range(folds):
+    for fold in range(target_folds):
         model = mdl.newModelFromExisting(sample_model)
         train_data, query_data = data.link_prediction_split(symmetric=False)
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
