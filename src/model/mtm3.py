@@ -473,7 +473,7 @@ def query(data, modelState, queryState, queryPlan):
             for d in range(D):
                 outMeans[d, :] = la.inv(itopicCov + n[d] * A).dot(rhs[d, :])
         
-        debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, n)
     
     return modelState, queryState
 
