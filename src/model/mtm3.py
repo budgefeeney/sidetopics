@@ -541,7 +541,7 @@ def var_bound(data, modelState, queryState):
     bound -= (0.5 / outDocCov) * np.sum(outVarcs * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * sum(np.sum(np.log(outVarcs[d,: ])) for d in range(D))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.log(outVarcs).sum()
 
     # Distribution over document in-links
     inDocPre = np.reciprocal(inDocCov)
@@ -553,7 +553,7 @@ def var_bound(data, modelState, queryState):
     bound -= 0.5 * np.sum((inVarcs * inDocPre[:,np.newaxis]) * np.diag(itopicCov)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
 
     # And its entropy
-    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * sum(np.sum(np.log(inVarcs[d,: ])) for d in range(D))
+    bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.log(inVarcs).sum()
 
     # Distribution over topic assignments E[p(Z)] and E[p(Y)]
     W_weights  = sparseScalarQuotientOfDot(W, expMeansOut, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
