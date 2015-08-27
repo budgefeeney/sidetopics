@@ -271,7 +271,10 @@ def train (data, modelState, queryState, trainPlan):
     LT_weight = LT.copy()
 
     inDocCov,  inDocPre  = np.ones((D,)), np.ones((D,))
-    outDocCov, outDocPre = 1, 1
+    outDocCov, outDocPre = 1,1
+
+    outVarcs *= 0.01
+    inVarcs  *= 0.01
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -295,7 +298,7 @@ def train (data, modelState, queryState, trainPlan):
             topicCov += np.diag(outVarcs.sum(axis=0))
             topicCov += np.diag(inVarcs.sum(axis=0))
 
-            topicCov += IWISH_S_SCALE * np.eye(K,)
+            topicCov += IWISH_S_SCALE * K * np.eye(K)
             topicCov /= (2 * D + K * IWISH_DENOM)
             itopicCov = la.inv(topicCov)
 
@@ -356,9 +359,9 @@ def train (data, modelState, queryState, trainPlan):
 
 
         # Update the posterior variances
-        outVarcs = np.reciprocal(docLens[:, np.newaxis] * (K-1)/(2*K) + (outDocPre + inDocPre[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:])
+        outVarcs = np.reciprocal(emit_counts[:, np.newaxis] * (K-1)/(2*K) + (outDocPre + inDocPre[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:])
         debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-
+        
         inVarcs = np.reciprocal(in_counts[np.newaxis,:] * (D-1)/(2*D) + inDocPre[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
         debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
@@ -380,7 +383,8 @@ def train (data, modelState, queryState, trainPlan):
             in_rhs[d,:]   -= in_counts * inMeans[d, :] / (4*D)
 
             try:
-                outMeans[d, :]  = la.inv((1./outDocCov + inDocPre[d]) * itopicCov + emit_counts[d] * A).dot(out_rhs[d,:])
+                outCov          = la.inv((outDocPre + inDocPre[d]) * itopicCov + emit_counts[d] * A)
+                outMeans[d, :]  = outCov.dot(out_rhs[d,:])
             except la.LinAlgError as err:
                 print ("ABORTING: " + str(err))
                 return \
@@ -391,8 +395,6 @@ def train (data, modelState, queryState, trainPlan):
 
         debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
         # debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-
-
 
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME)
@@ -411,15 +413,16 @@ def train (data, modelState, queryState, trainPlan):
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
-        # if debug or itr % logFrequency == 0:
-        #     print("# Covariance Statistics ")
-        #     print("#    Sigma    : log(deg(Sigma))     = %.f  \t min = %.3g, mean=%.3g, max=%.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()))
-        #     print("#    alpha    : log(deg(alpha I_K)) = %.f  \t min = %.3g, mean=%.3g, max=%.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov, outDocCov, outDocCov))
-        #     print("#    rho      : log(det(diag(rho))) = %.f  \t min = %.3g, mean=%.3g, max=%.3g  \sum_d log rho_d = %.f" % (safe_log_det(np.diag(inDocCov)), inDocCov.min(), inDocCov.mean(), inDocCov.max(), sum(log(inDocCov[d]) for d in range(D))))
-        #     print("#    outMeans : min = %.3g, mean=%.3g, max=%.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()) )
-        #     print("#    inMeans  : min = %.3g, mean=%.3g, max=%.3g" % (inMeans.min(), inMeans.mean(), inMeans.max()) )
-        #     print("#    outVarcs : mean-log-det = %.3g  \t  min = %.3g, mean=%.3g, max=%.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
-        #     print("#    inVarcs  : mean-log-det = %.3g  \t  min = %.3g, mean=%.3g, max=%.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()))
+        if True or debug or itr % logFrequency == 0:
+
+            print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
+            print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
+            print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
+            print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
+            print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
+            print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
+            print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
+
 
 
 
