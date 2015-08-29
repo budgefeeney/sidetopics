@@ -59,10 +59,10 @@ INIT_WITH_CTM=False
 
 MinItersBeforeEarlyStop=150
 
-IGAMMA_A = 0.1
-IGAMMA_B = 0.1
-IWISH_S_SCALE = 0.1
-IWISH_DENOM   = 1.5
+IGAMMA_A = 10
+IGAMMA_B = 10
+IWISH_S_SCALE = 1
+IWISH_DENOM   = 0.1
 
 # ==============================================================
 # TUPLES
@@ -271,10 +271,13 @@ def train (data, modelState, queryState, trainPlan):
     LT_weight = LT.copy()
 
     inDocCov,  inDocPre  = np.ones((D,)), np.ones((D,))
-    outDocCov, outDocPre = 1,1
 
-    outVarcs *= 0.01
-    inVarcs  *= 0.01
+    # Interestingly, outDocCov trades off good perplexity fits
+    # with good ranking fits. > 10 gives better perplexity and
+    # worse ranking. At 10 both are good. Below 10 both get
+    # worse.
+    outDocCov, outDocPre = 10, 1./10
+
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -291,15 +294,16 @@ def train (data, modelState, queryState, trainPlan):
         outDiff = outMeans - topicMean[np.newaxis, :]
         inDiff =  inMeans - outMeans
 
-        for _ in range(3):
+        for _ in range(5): # It typically takes three iterations for the three dependant covariances -
+                           # outDocCov, inDocCov and topicCov - to become consistent w.r.t each other
             topicCov  = (outDocPre * outDiff).T.dot(outDiff)
             topicCov += (inDocPre[:,np.newaxis] * inDiff).T.dot(inDiff)
 
             topicCov += np.diag(outVarcs.sum(axis=0))
             topicCov += np.diag(inVarcs.sum(axis=0))
 
-            topicCov += IWISH_S_SCALE * K * np.eye(K)
-            topicCov /= (2 * D + K * IWISH_DENOM)
+            topicCov += IWISH_S_SCALE * np.eye(K)
+            topicCov /= (2 * D + IWISH_DENOM)
             itopicCov = la.inv(topicCov)
 
             debugFn (itr, topicMean, "topicCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
@@ -318,8 +322,8 @@ def train (data, modelState, queryState, trainPlan):
 
             diffSig   = outDiff.dot(itopicCov)
             diffSig  *= outDiff
-            outDocCov = (IGAMMA_B + diffSig.sum() + (np.diagonal(itopicCov) * outVarcs).sum()) / (IGAMMA_A - 1 + (D * K))
-            outDocPre = 1./ outDocCov
+            # outDocCov = (IGAMMA_B + diffSig.sum() + (np.diagonal(itopicCov) * outVarcs).sum()) / (IGAMMA_A - 1 + (D * K))
+            # outDocPre = 1./outDocCov
 
             debugFn (itr, outDocCov, "outDocCov", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
@@ -361,7 +365,7 @@ def train (data, modelState, queryState, trainPlan):
         # Update the posterior variances
         outVarcs = np.reciprocal(emit_counts[:, np.newaxis] * (K-1)/(2*K) + (outDocPre + inDocPre[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:])
         debugFn (itr, outVarcs, "outVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
-        
+
         inVarcs = np.reciprocal(in_counts[np.newaxis,:] * (D-1)/(2*D) + inDocPre[:,np.newaxis] * np.diagonal(itopicCov)[np.newaxis,:])
         debugFn (itr, inVarcs, "inVarcs", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
@@ -393,7 +397,7 @@ def train (data, modelState, queryState, trainPlan):
                     (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
 
 
-        debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
+        debugFn (itr, outMeans, "inMeans/outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
         # debugFn (itr, inMeans,  "inMeans",  data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, docLens)
 
         if logFrequency > 0 and itr % logFrequency == 0:
@@ -413,15 +417,15 @@ def train (data, modelState, queryState, trainPlan):
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
-        if True or debug or itr % logFrequency == 0:
-
-            print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
-            print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
-            print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
-            print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
-            print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
-            print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
-            print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
+        # if True or debug or itr % logFrequency == 0:
+        #
+        #     print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
+        #     print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
+        #     print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
+        #     print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
+        #     print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
+        #     print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
+        #     print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
 
 
 
@@ -684,7 +688,7 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, o
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
         printStderr ("WARNING: " + var_name + " contains INFs")
-    if var_value.dtype != dtype:
+    if "dtype" in dir(var_value) and var_value.dtype != dtype:
         printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
 
     model = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, False, dtype, MODEL_NAME)
@@ -698,9 +702,9 @@ def _debug_with_bound (itr, var_value, var_name, data, K, topicMean, topicCov, o
     addendum = ""
     if var_name == "topicCov":
         try:
-            addendum = "det(topicCov) = %g" % (la.det(topicCov))
+            addendum = "log det(topicCov) = %g" % (np.log(la.det(topicCov)))
         except:
-            addendum = "det(topicCov) = <undefined>"
+            addendum = "log det(topicCov) = <undefined>"
     
     if isnan(bound):
         printStderr ("Bound is NaN")
