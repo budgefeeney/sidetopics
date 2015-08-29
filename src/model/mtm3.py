@@ -281,9 +281,6 @@ def train (data, modelState, queryState, trainPlan):
 
     # Iterate over parameters
     for itr in range(iterations):
-        if itr % 30 == 0:
-            print ("The thirty")
-
         # We start with the M-Step, so the parameters are consistent with our
         # initialisation of the RVs when we do the E-Step
 
