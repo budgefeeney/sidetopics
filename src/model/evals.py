@@ -15,6 +15,8 @@ HashtagPrecAtM="hashtag_prec_at_m"
 
 EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM]
 
+AllGroups = (-1, -1)
+
 def perplexity_from_like(log_likely, token_count):
     if type(token_count) is DataSet:
         token_count = token_count.word_and_link_count
@@ -102,7 +104,9 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     '''
     def find_group (outLinkCount, rangeTuples):
         i = 0
-        while outLinkCount < rangeTuples[i][0] or outLinkCount > rangeTuples[i][1]:
+        while rangeTuples[i][0] == AllGroups[0] \
+            or outLinkCount < rangeTuples[i][0] \
+            or outLinkCount > rangeTuples[i][1]:
             i += 1
         return rangeTuples[i]
 
@@ -115,6 +119,8 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
 
     if groups is None:
         groups = [(0, 10000)]
+    if not AllGroups in groups:
+        groups.append(AllGroups)
 
     precs_at_m = {group : [0] * len(ms) for group in groups}
     recs_at_m  = {group : [0] * len(ms) for group in groups}
@@ -145,9 +151,17 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
                 print ("Ruh-ro")
                 continue
 
-            precs_at_m[g][i] += len(recv_set.intersection(expt_set)) / m
-            recs_at_m[g][i]  += len(recv_set.intersection(expt_set)) / len(expt_set)
+            prec_at_m = len(recv_set.intersection(expt_set)) / m
+            rec_at_m  = len(recv_set.intersection(expt_set)) / len(expt_set)
+
+            precs_at_m[g][i] += prec_at_m
+            recs_at_m[g][i]  += rec_at_m
+
+            precs_at_m[AllGroups][i] += prec_at_m
+            recs_at_m[AllGroups][i]  += rec_at_m
+
         docCounts[g] += 1
+        docCounts[AllGroups] += 1
 
     # Return the mean of average-precisions
     for g in precs_at_m.keys():
@@ -193,11 +207,12 @@ def mean_average_prec(expected_links, estim_link_probs):
     sum_ap = 0.0
     D      = expected_links.shape[0]
 
+    docs_lacking_links = []
     for d in range(D):
         # Take out the indices (i.e. IDs) of the expected links
         expt_indices = expected_links[d,:].indices
         if len(expt_indices) == 0:
-            print("No links to match in document %d" % (d,))
+            docs_lacking_links.append(d)
             continue
 
         # Rank the received indices by associated value in descending order
@@ -233,6 +248,8 @@ def mean_average_prec(expected_links, estim_link_probs):
         # print ("\tAverage Precision = %5.3f  Cumulant Sum = %5.3f" % (sum_prec / len(expt_indices), sum_ap))
 
     # Return the mean of average-precisions
+    if len(docs_lacking_links) > 0:
+        print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
     return sum_ap / D
 
 
