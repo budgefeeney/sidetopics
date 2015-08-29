@@ -585,6 +585,9 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
         mrr_sum       += mrr * query_data.doc_count
         mrr_doc_count += query_data.doc_count
 
+        map = mean_average_prec (query_data.links, predicted_link_probs)
+        print ("Mean Average Precision : %f" % map)
+
         combi_precs, _             = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
         combi_recs,  combi_dcounts = combine_map(combi_recs,  combi_dcounts, recs,  doc_counts)
 
