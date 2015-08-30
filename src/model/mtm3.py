@@ -339,7 +339,7 @@ def train (data, modelState, queryState, trainPlan):
         vocab += VocabPrior
         vocab = normalizerows_ip(vocab)
 
-        docVocab = (expMeansCol / lse_at_k[np.newaxis, :]).T # FIXME Dupes line in definition of F
+        docVocab = (expMeansCol / lse_at_k[np.newaxis, :]).T.copy() # FIXME Dupes line in definition of F
 
         # Recalculate w_top_sums with the new vocab and log vocab improvement
         W_weight = sparseScalarQuotientOfDot(W, expMeansRow, vocab, out=W_weight)
