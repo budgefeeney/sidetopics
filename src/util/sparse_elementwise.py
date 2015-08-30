@@ -6,6 +6,7 @@ Created on 1 Dec 2013
 import os
 
 import numpy as np
+import scipy.sparse as ssp
 import util.se_fast as compiled
 from math import log
 import sys
@@ -24,6 +25,8 @@ def scaledSumOfLnOnePlusExp(weights, matrix):
     
     Temporarily placed here for convenience
     '''
+    assert not np.isfortran(matrix), "Matrix is not stored in row-major form"
+
     if matrix.dtype == np.float64:
         return compiled.scaledSumOfLnOnePlusExp_f8(weights, matrix)
     elif matrix.dtype == np.float32:
@@ -40,6 +43,7 @@ def lse(matrix):
     
     albeit a bit more efficiently than that code would suggest.
     '''
+    assert not np.isfortran(matrix), "Matrix is not stored in row-major form"
     return np.log(np.sum(np.exp(matrix), axis=1))
 
 def selfSoftDot(matrix):
@@ -55,6 +59,7 @@ def selfSoftDot(matrix):
     and double-precision numbers, uses fast-ish numpy code as a
     fallback, but at the cost of creating a copy of of the matrix.
     '''
+    assert not np.isfortran(matrix), "Matrix is not stored in row-major form"
     if matrix.dtype == np.float64:
         return compiled.selfSoftDot_f8(matrix)
     elif matrix.dtype == np.float32:
@@ -77,6 +82,9 @@ def entropyOfDot (topics, vocab):
     
     This calculates and returns that entropy.
     '''
+    assert not np.isfortran(topics), "Topics matrix is not stored in row-major form"
+    assert not np.isfortran(vocab),  "Vocab matrix is not stored in row-major form"
+
     if topics.dtype == np.float64:
         return compiled.entropyOfDot_f8(topics, vocab)
     elif topics.dtype == np.float32:
@@ -134,6 +142,10 @@ def sparseScalarQuotientOfDot (A, B, C, out=None):
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
     '''
+    assert ssp.isspmatrix_csr(A), "A matrix is not a CSR matrix"
+    assert not np.isfortran(B), "B matrix is not stored in row-major form"
+    assert not np.isfortran(C), "C matrix is not stored in row-major form"
+
     if out is None:
         out = A.copy()
         
@@ -161,6 +173,10 @@ def sparseScalarQuotientOfNormedDot (A, B, C, d, out=None):
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
     '''
+    assert ssp.isspmatrix_csr(A), "A matrix is not a CSR matrix"
+    assert not np.isfortran(B), "B matrix is not stored in row-major form"
+    assert not np.isfortran(C), "C matrix is not stored in row-major form"
+
     if out is None:
         out = A.copy()
 
@@ -187,6 +203,10 @@ def sparseScalarProductOfDot (A, B, C, out=None):
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
     '''
+    assert ssp.isspmatrix_csr(A), "A matrix is not a CSR matrix"
+    assert not np.isfortran(B), "B matrix is not stored in row-major form"
+    assert not np.isfortran(C), "C matrix is not stored in row-major form"
+
     if out is None:
         out = A.copy()
     if A.dtype == np.float64:
@@ -237,6 +257,10 @@ def sparseScalarProductOfSafeLnDot (A, B, C, out=None):
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
     '''
+    assert ssp.isspmatrix_csr(A), "A matrix is not a CSR matrix"
+    assert not np.isfortran(B), "B matrix is not stored in row-major form"
+    assert not np.isfortran(C), "C matrix is not stored in row-major form"
+
     if out is None:
         out = A.copy()
     if A.dtype == np.float64:
@@ -286,6 +310,9 @@ def sparseScalarProductOf(A,B, out=None):
     the sparse matrix A. If this has an integral type, this will
     only provide integer-based multiplication.
     '''
+    assert ssp.isspmatrix_csr(A), "A matrix is not a CSR matrix"
+    assert not np.isfortran(B), "B matrix is not stored in row-major form"
+
     if WarnIfSlow:
         sys.stderr.write("WARNING: Slow code path triggered (sparseScalarProductOf)")
         
@@ -328,7 +355,7 @@ def csr_indices(ptr, ind):
     '''
     Returns the indices of a CSR matrix, given its indptr and indices arrays.
     '''
-    rowCount = len(ptr) - 1 
+    rowCount = len(ptr) - 1
     
     rows = [0] * len(ind)
     totalElemCount = 0
