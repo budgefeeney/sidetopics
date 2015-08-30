@@ -17,9 +17,7 @@ from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
-import scipy.special as fns
 import numpy.random as rd
-from sphinx.addnodes import centered
 
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot, \
