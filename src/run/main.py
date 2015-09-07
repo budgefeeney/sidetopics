@@ -31,11 +31,12 @@ LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
 Mtm           = "mtm_vb"
 Mtm2          = "mtm2_vb"
+Lro           = "lro_vb"
 Dmr           = "dmr"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Dmr])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Lro, Dmr])
 
 
 DefaultPriorCov = 0.001
@@ -295,6 +296,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             train_tops = mdl.newQueryState(train_data, model)
 
             print ("Starting training")
+
             model, train_tops, (train_itrs, train_vbs, train_likes) \
                 = mdl.train(train_data, model, train_tops, train_plan)
 
@@ -543,7 +545,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
     directory.
     :return: the list of model files stored
     '''
-    ms = [10, 20, 30, 40, 50, 75, 100, 250, 500]
+    ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
     model_files = []
     assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
     def prepareForTraining(data):
