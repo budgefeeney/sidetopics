@@ -273,9 +273,8 @@ def train (data, modelState, queryState, trainPlan):
     # Interestingly, outDocCov trades off good perplexity fits
     # with good ranking fits. > 10 gives better perplexity and
     # worse ranking. At 10 both are good. Below 10 both get
-    # worse.
+    # worse. Below 0.5, convergence stalls after the first iter.
     outDocCov, outDocPre = 10, 1./10
-
 
     # Iterate over parameters
     for itr in range(iterations):
@@ -412,18 +411,14 @@ def train (data, modelState, queryState, trainPlan):
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
-        # if True or debug or itr % logFrequency == 0:
-        #
-        #     print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
-        #     print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
-        #     print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
-        #     print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
-        #     print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
-        #     print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
-        #     print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
-
-
-
+        if True or debug or itr % logFrequency == 0:
+            print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
+            print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
+            print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
+            print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
+            print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
+            print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
+            print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
 
     return \
         ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME), \
