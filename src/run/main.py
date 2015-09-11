@@ -103,6 +103,8 @@ def run(args):
                     help="If set, discard all but the initial given number of rows of the input dataset")
     parser.add_argument('--word-dict', dest='word_dict', default=None, metavar=' ', \
                     help='A dictionary of all words. Used to identify hashtag indices')
+    parser.add_argument('--lda-model', dest='ldaModel', default=None, metavar=' ', \
+                    help='A trained LDA model, used with the LRO model')
 
     #
     # Parse the arguments
@@ -165,6 +167,14 @@ def run(args):
     elif args.model == Dmr:
         import model.dmr as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == Lro:
+        import model.lro_vb as mdl
+        if args.ldaModel is not None:
+            ldaModels = args.ldaModel.split(",")
+            if len(ldaModels) == args.folds or len(ldaModels) == args.eval_fold_count:
+                templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+            else:
+                templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
@@ -180,7 +190,7 @@ def run(args):
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
-        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model)
+        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModels)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -524,7 +534,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
     return model_files
 
 
-def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None):
+def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModels=None):
     '''
     Train on all the words and half the links. Predict the remaining links.
     Evaluate using precision at m using as values of m 50, 100, 250, and 500,
@@ -559,11 +569,13 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
 
     if target_folds is None:
         target_folds = folds
+    if ldaModels is None:
+        ldaModels = [None] * folds
 
     combi_precs, combi_recs, combi_dcounts = None, None, None
     mrr_sum, mrr_doc_count = 0, 0
     for fold in range(target_folds):
-        model = mdl.newModelFromExisting(sample_model)
+        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModels[fold])
         train_data, query_data = data.link_prediction_split(symmetric=False)
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
                                                     # can compare symmetric with non-symmetric models

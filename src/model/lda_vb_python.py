@@ -8,7 +8,7 @@ import numpy as np
 import numpy.random as rd
 import scipy.linalg as la
 import scipy.special as fns
-#import numba as nb
+import numba as nb
 
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -33,12 +33,12 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'docLens topicDists'\
+    'docLens topicDists processed'\
 )
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicPrior vocabPrior wordDists dtype name'
+    'K topicPrior vocabPrior wordDists processed dtype name'
 )
 
 def newModelFromExisting(model):
@@ -50,6 +50,7 @@ def newModelFromExisting(model):
         model.topicPrior.copy(), \
         model.vocabPrior, \
         None if model.wordDists is None else model.wordDists.copy(),
+        model.processed, \
         model.dtype, \
         model.name)
 
@@ -95,7 +96,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
         wordDists[k,:] /= wordDists[k,:].sum()
 
 
-    return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
+    return ModelState(K, topicPrior, vocabPrior, wordDists, False, dtype, MODEL_NAME)
 
 
 def newQueryState(data, modelState):
@@ -123,7 +124,7 @@ def newQueryState(data, modelState):
     topicDists *= docLens[:, np.newaxis]
     topicDists += modelState.topicPrior[np.newaxis, :]
 
-    return QueryState(docLens, topicDists)
+    return QueryState(docLens, topicDists, False)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -201,7 +202,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -224,7 +225,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.autojit
+@nb.autojit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -246,7 +247,7 @@ def _inplace_softmax_rowwise(z):
 
 
 
-#@nb.autojit
+@nb.autojit
 def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -271,7 +272,7 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     topicMeans[d, :] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-#@nb.autojit
+@nb.autojit
 def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -291,7 +292,6 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     :return: the indices of the non-zero words in document d, and the KxV matrix of
             topic assignments for each of the V non-zero words.
     '''
-    K = diWordDists.shape[0]
     wordIdx = data.words[d, :].indices
 
     z  = diWordDists[:, wordIdx]
@@ -307,7 +307,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-#@nb.autojit
+@nb.autojit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -393,8 +393,8 @@ def train(data, model, query, plan, updateVocab=True):
 
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
 
-    return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, model.name), \
-           QueryState(docLens, topicMeans), \
+    return ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, model.name), \
+           QueryState(docLens, topicMeans, True), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
@@ -409,7 +409,7 @@ def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
     the difference between the previous and current estimate is less than
     0.001 / K where K is the number of topics.
 
-    This is taken from Tom Minka's tech-note on "Estimating a Dircihlet
+    This is taken from Tom Minka's tech-note on "Estimating a Dirichlet
     Distribution", specifically the section on estimating a Polya distribution,
     which performed best in experiments. We'll be substituted in the expected
     count of topic assignments to variables.
@@ -474,7 +474,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-#@nb.autojit
+@nb.autojit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -497,7 +497,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) = train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.autojit
+@nb.autojit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -506,7 +506,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-#@nb.autojit
+@nb.autojit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
