@@ -16,7 +16,7 @@ import scipy.sparse as ssp
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 
-import model.lda_vb_python as lda
+import model.lda_gibbs as lda
 
 # ==============================================================
 # CONSTANTS
@@ -44,7 +44,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'ldaModel noiseVar predVar scale dtype name'
+    'ldaModel K noiseVar predVar scale dtype name'
 )
 
 # ==============================================================
@@ -53,6 +53,7 @@ ModelState = namedtuple ( \
 
 def wordDists(model):
     return lda.wordDists(model.ldaModel)
+
 
 def is_undirected_link_predictor():
     return False
@@ -65,6 +66,7 @@ def newModelFromExisting(model, withLdaModel=None):
         withLdaModel \
             if withLdaModel is not None \
             else lda.newModelFromExisting(model.ldaModel), \
+        model.K, \
         model.noiseVar, \
         np.array(model.predVar), \
         model.scale, \
@@ -105,7 +107,7 @@ def newModelAtRandom(data, K, noiseVar=9, predVar=None, topicPrior=None, vocabPr
     assert len(predVar) == 2
     scale = 1
 
-    return ModelState(ldaModel, noiseVar, predVar, scale, dtype, MODEL_NAME)
+    return ModelState(ldaModel, K, noiseVar, predVar, scale, dtype, MODEL_NAME)
 
 
 def newQueryState(data, model, ldaQuery=None):
@@ -123,12 +125,12 @@ def newQueryState(data, model, ldaQuery=None):
     '''
     if ldaQuery is None:
         ldaQuery = lda.newQueryState(data, model.ldaModel)
-    offsets  = np.zeros(ldaQuery.topicDists.shape)
+    offsets  = np.zeros((data.doc_count, model.K))
 
     return QueryState(ldaQuery, offsets)
 
 
-def newTrainPlan(iterations=100, epsilon=None, ldaIterations=100, ldaEpilson=1, logFrequency=10, fastButInaccurate=False, debug=False):
+def newTrainPlan(iterations=100, epsilon=None, ldaIterations=None, ldaEpilson=1, logFrequency=10, fastButInaccurate=False, debug=False):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -138,6 +140,8 @@ def newTrainPlan(iterations=100, epsilon=None, ldaIterations=100, ldaEpilson=1, 
     the last value of the bound and the current, and if it's less than the given angle,
     then stop.
     '''
+    if ldaIterations is None:
+        ldaIterations = 500 # iterations
     ldaPlan = lda.newTrainPlan(ldaIterations, ldaEpilson, logFrequency, fastButInaccurate, debug)
 
     return TrainPlan(ldaPlan, iterations, epsilon, logFrequency, fastButInaccurate, debug)
@@ -178,7 +182,7 @@ def train (data, model, query, trainPlan, isQuery=False):
     elif not ldaModel.processed:
         ldaModel, ldaQuery, (_, _, _) = lda.train(data, ldaModel, ldaQuery, ldaPlan)
 
-    tops = ldaQuery.topicDists
+    tops = lda.topicDists(ldaQuery)
     offs = tops.copy()
     topsSum = tops.T.dot(tops)
 
@@ -213,11 +217,11 @@ def train (data, model, query, trainPlan, isQuery=False):
 
         # Check has the offsets changed significantly
         after = offs.sum()
-        if before - after < epsilon:
+        if abs(before - after) < epsilon:
             break
 
 
-    return ModelState(ldaModel, noiseVar, predVar, scale, dtype, MODEL_NAME), \
+    return ModelState(ldaModel, K, noiseVar, predVar, scale, dtype, MODEL_NAME), \
            QueryState(ldaQuery, offs), \
            ([0], [0], [0])
 
@@ -250,17 +254,7 @@ def log_likelihood (data, model, query):
 
     This deliberately excludes links
     '''
-    probs = query.ldaQuery.topicDists
-
-    word_likely = np.sum( \
-        sparseScalarProductOfSafeLnDot(\
-            data.words, \
-            probs, \
-            lda.wordDists(model.ldaModel) \
-        ).data \
-    )
-
-    return word_likely
+    return lda.log_likelihood(data, model.ldaModel, query.ldaQuery)
 
 
 def var_bound(data, modelState, queryState):
@@ -286,7 +280,7 @@ def min_link_probs(model, query, links):
         link
     '''
     scale = model.scale
-    tops  = query.ldaQuery.topicDists
+    tops  = lda.topicDists(query.ldaQuery)
     offs  = query.offsetTopicDists
     D     = tops.shape[0]
 
@@ -302,7 +296,7 @@ def min_link_probs(model, query, links):
     return mins
 
 
-def link_probs(model, topics, min_link_probs):
+def link_probs(model, query, min_link_probs):
     '''
     Generate the probability of a link for all possible pairs of documents,
     but only store those probabilities that are bigger than or equal to the
@@ -317,7 +311,7 @@ def link_probs(model, topics, min_link_probs):
     :return: a (hopefully) sparse DxD matrix of link probabilities
     '''
     scale = model.scale
-    tops  = query.ldaQuery.topicDists
+    tops  = lda.topicDists(query.ldaQuery)
     offs  = query.offsetTopicDists
     D     = tops.shape[0]
 

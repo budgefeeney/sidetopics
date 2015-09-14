@@ -150,6 +150,13 @@ def wordDists (modelState):
 
     return result
 
+def topicDists (queryState):
+    '''
+    The D x T matrix of distributions over K topics for each of the
+    D documents
+    '''
+    return queryState.topicDists
+
 
 def topicDists (queryState):
     '''

@@ -123,7 +123,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 500, 50, 10
+        TrainIters, QueryIters, LogFreq = 100, 100, 10
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
@@ -132,15 +132,15 @@ class Test(unittest.TestCase):
         modelFileses = []
         for DataSetName in [Acl]:
             for k in [175]: #[10, 20, 30, 40, 50, 60, 80, 100]:
-                for modelName in [ LdaVb ]: #ModelNames:
+                for modelName in [ Lro ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'f8:f8'      \
+                            + ' --dtype '          + 'i4:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + Perplexity  \
+                            + ' --eval '           + MeanPrecRecAtMAllDocs  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \

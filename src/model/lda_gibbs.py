@@ -25,6 +25,7 @@ import model.lda_gibbs_fast as compiled
 
 from util.misc import constantArray
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+import model.lda_vb_python as lda_vb
 
 # ==============================================================
 # CONSTANTS
@@ -38,6 +39,8 @@ DEBUG=False
 DTYPE = np.float64
 MODEL_NAME = "lda/gibbs"
 
+VocabPrior = lda_vb.VocabPrior
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -49,12 +52,12 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'w_list z_list docLens topicSum numSamples'\
+    'w_list z_list docLens topicSum numSamples processed'\
 )
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K T topicPrior vocabPrior topicSum vocabSum numSamples dtype name'
+    'K T topicPrior vocabPrior topicSum vocabSum numSamples processed dtype name'
 )
 
 # ==============================================================
@@ -91,12 +94,14 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
         topicPrior = constantArray((K,), topicPrior, dtype=dtype)
     if vocabPrior is None:
         vocabPrior = constantArray((T,), 0.1, dtype=dtype) # Also from G&S
+    elif type(vocabPrior) is float:
+        vocabPrior = constantArray((T,), vocabPrior, dtype=dtype) # Also from G&S
         
     topicSum  = None # These start out at none until we actually
     vocabSum  = None # go ahead and train this model.
     numSamples = 0
     
-    return ModelState(K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, MODEL_NAME)
+    return ModelState(K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, False, dtype, MODEL_NAME)
 
 
 def newModelFromExisting(model):
@@ -111,6 +116,7 @@ def newModelFromExisting(model):
         None if model.topicSum is None else model.topicSum.copy(), \
         None if model.vocabSum is None else model.vocabSum.copy(), \
         model.numSamples, \
+        model.processed, \
         model.dtype,      \
         model.name)
 
@@ -139,7 +145,7 @@ def newQueryState(data, modelState, debug=False):
     z_list = rd.randint(0, K, w_list.shape[0]).astype(np.uint8)
     if debug: print("Done")
     
-    return QueryState(w_list, z_list, docLens, None, 0)
+    return QueryState(w_list, z_list, docLens, None, 0, False)
 
 
 def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
@@ -191,8 +197,8 @@ def train (data, model, query, plan):
 #     compiled.freeGlobalRng()
     
     return \
-        ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, numSamples), \
+        ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, True, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, numSamples, True), \
         (np.zeros(1), np.zeros(1), np.zeros(1))
 
 
@@ -230,8 +236,8 @@ def query (data, model, query, plan):
             topicPrior, adjustedVocabPrior, True, debug)
     
     return \
-        ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, dtype, name), \
-        QueryState (w_list, z_list, docLens, topicSum, numSamples)
+        ModelState (K, T, topicPrior, vocabPrior, topicSum, vocabSum, numSamples, model.processed, dtype, name), \
+        QueryState (w_list, z_list, docLens, topicSum, numSamples, True)
 
 
 

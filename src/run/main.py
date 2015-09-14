@@ -130,6 +130,7 @@ def run(args):
     #
     # Instantiate and configure the model
     #
+    ldaModel = None
     print ("Building template model... ", end="")
     if args.model == CtmBouchard:
         import model.ctm as mdl
@@ -170,11 +171,8 @@ def run(args):
     elif args.model == Lro:
         import model.lro_vb as mdl
         if args.ldaModel is not None:
-            ldaModels = args.ldaModel.split(",")
-            if len(ldaModels) == args.folds or len(ldaModels) == args.eval_fold_count:
-                templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
-            else:
-                templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+            ldaModel = pkl.load(args.ldaModel, 'rb')
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
@@ -190,7 +188,7 @@ def run(args):
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
-        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModels)
+        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -285,7 +283,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
         print("Train-set Likelihood: %12f" % (likely))
         print("Train-set Perplexity: %12f" % (perp))
 
-        model_files = save_if_necessary(model_files, model_dir, model, data, 0, train_itrs, train_vbs, train_likes, train_tops, train_tops)
+        model_files = save_if_necessary(model_files, model_dir, model, data, 0, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
         return model_files
 
     query_like_sum    = 0 # to calculate the overall likelihood and
@@ -534,7 +532,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
     return model_files
 
 
-def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModels=None):
+def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None):
     '''
     Train on all the words and half the links. Predict the remaining links.
     Evaluate using precision at m using as values of m 50, 100, 250, and 500,
@@ -567,15 +565,15 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
         else:
             return data
 
+    if ldaModel is not None:
+        (_, _, _, _, ldaModel, ldaTopics, _) = ldaModel
     if target_folds is None:
         target_folds = folds
-    if ldaModels is None:
-        ldaModels = [None] * folds
 
     combi_precs, combi_recs, combi_dcounts = None, None, None
     mrr_sum, mrr_doc_count = 0, 0
     for fold in range(target_folds):
-        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModels[fold])
+        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel)
         train_data, query_data = data.link_prediction_split(symmetric=False)
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
                                                     # can compare symmetric with non-symmetric models
