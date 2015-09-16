@@ -11,8 +11,10 @@ import cProfile
 from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
-    CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro
-from model.evals import Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM
+    CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
+    SimLda, SimTfIdf
+from model.evals import Perplexity, MeanAveragePrecAllDocs, \
+    MeanPrecRecAtMAllDocs, HashtagPrecAtM
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
 _AclWordPath  = AclPath + "words-freq.pkl"
@@ -131,8 +133,8 @@ class Test(unittest.TestCase):
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
-            for k in [175]: #[10, 20, 30, 40, 50, 60, 80, 100]:
-                for modelName in [ Lro ]: #ModelNames:
+            for k in [150]: #[10, 20, 30, 40, 50, 60, 80, 100]:
+                for modelName in [ SimTfIdf ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \

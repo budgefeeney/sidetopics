@@ -178,14 +178,17 @@ def _log_likelihood_internal(data, model, query):
     return result
 
 
-def log_likelihood (data, modelState, queryState):
+def log_likelihood (data, modelState, queryState, topicDistOverride=None):
     '''
     Return the log-likelihood of the given data according to the model
     and the parameters inferred for datapoints in the query-state object
 
     Actually returns a vector of D document specific log likelihoods
     '''
-    wordLikely = sparseScalarProductOfSafeLnDot(data.words, topicDists(queryState), wordDists(modelState)).sum()
+    tops = topicDistOverride \
+        if topicDistOverride is not None \
+        else topicDists(query)
+    wordLikely = sparseScalarProductOfSafeLnDot(data.words, tops, wordDists(modelState)).sum()
 
     return wordLikely
 

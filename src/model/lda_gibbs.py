@@ -258,7 +258,7 @@ def wordDists(model):
     return vocabDist
 
     
-def log_likelihood (data, model, query):
+def log_likelihood (data, model, query, topicDistOverride):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
@@ -266,6 +266,9 @@ def log_likelihood (data, model, query):
     
     '''
     W = data.words if data.words.dtype is model.dtype else data.words.astype(model.dtype)
-    return sparseScalarProductOfSafeLnDot(W, topicDists(query), wordDists(model)).sum()
+    tops = topicDistOverride \
+        if topicDistOverride is not None \
+        else topicDists(query)
+    return sparseScalarProductOfSafeLnDot(W, tops, wordDists(model)).sum()
 
 

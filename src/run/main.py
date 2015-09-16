@@ -33,6 +33,8 @@ Mtm           = "mtm_vb"
 Mtm2          = "mtm2_vb"
 Lro           = "lro_vb"
 Dmr           = "dmr"
+SimLda        = "sim_lda_vb"
+SimTfIdf      = "sim_tfidf"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
@@ -173,10 +175,15 @@ def run(args):
         if args.ldaModel is not None:
             ldaModel = pkl.load(args.ldaModel, 'rb')
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == SimLda:
+        import model.sim_based_rec as mdl
+        templateModel = mdl.newModelAtRandom(data, K, method=mdl.LDA, dtype=output_dtype)
+    elif args.model == SimTfIdf:
+        import model.sim_based_rec as mdl
+        templateModel = mdl.newModelAtRandom(data, K, method=mdl.TF_IDF, dtype=output_dtype)
     else:
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
-
 
     trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
     queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
