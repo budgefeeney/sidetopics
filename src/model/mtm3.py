@@ -598,7 +598,7 @@ def softmax(x):
     return r
 
 
-def min_link_probs(model, topics, links):
+def min_link_probs(model, topics, links, docSubset=None):
     '''
     For every document, for each of the given links, determine the
     probability of the least likely link (i.e the document-specific
@@ -608,25 +608,35 @@ def min_link_probs(model, topics, links):
     :param topics: the topics that were inferred for each document
         represented by the links matrix
     :param links: a DxD matrix of links for each document (row)
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
     :return: a D-dimensional vector with the minimum probabilties for each
         link
     '''
-    D = topics.outMeans.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(topics.outMeans.shape[0])]
+    D = len(docSubset)
+
     col_maxes = topics.inMeans.max(axis=0)
     lse_at_k = np.sum(np.exp(topics.inMeans - col_maxes), axis=0)
     mins = np.empty((D,), dtype=model.dtype)
-    for d in range(D):
+
+    outRow = -1
+    for d in docSubset:
+        outRow += 1
         topDist = softmax(topics.outMeans[d, :])
         probs = []
+
         for i in range(len(links[d,:].indices)):
             l = links[d,:].indices[i]
             linkDist  = np.exp(topics.inMeans[l, :] - col_maxes) / lse_at_k
             probs.append(np.dot(topDist, linkDist))
-        mins[d] = min(probs) if len(probs) > 0 else -1
+        mins[outRow] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
-def link_probs(model, topics, min_link_probs):
+
+def link_probs(model, topics, min_link_probs, docSubset=None):
     '''
     Generate the probability of a link for all possible pairs of documents,
     but only store those probabilities that are bigger than or equal to the
@@ -638,6 +648,8 @@ def link_probs(model, topics, min_link_probs):
     :param topics: the topics for each of the documents we're generating
         links for
     :param min_link_probs: the minimum link probability for each document
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
     :return: a (hopefully) sparse DxD matrix of link probabilities
     '''
     # We build the result up as a COO matrix
@@ -646,16 +658,22 @@ def link_probs(model, topics, min_link_probs):
     vals = []
 
     # Calculate the softmax transform parameters
-    D = topics.inMeans.shape[0]
+    actualDocCount = topics.outMeans.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(actualDocCount)]
+    D = len(docSubset)
     linkDist = colwise_softmax(topics.inMeans)
 
     # Infer the link probabilities
-    for d in range(D):
+    outRow = -1
+    for d in docSubset:
+        outRow += 1
+
         topDistAtD = softmax(topics.outMeans[d, :])
         probs      = linkDist.dot(topDistAtD)
-        relevant   = np.where(probs >= min_link_probs[d] - 1E-9)[0]
+        relevant   = np.where(probs >= min_link_probs[outRow] - 1E-9)[0]
 
-        rows.extend([d] * len(relevant))
+        rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
         vals.extend(probs[relevant])
 
@@ -665,7 +683,7 @@ def link_probs(model, topics, min_link_probs):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(D, actualDocCount)).tocsr()
 
 # ==============================================================
 # PUBLIC HELPERS
