@@ -16,7 +16,7 @@ from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec, \
     mean_reciprocal_rank, mean_prec_rec_at, \
     EvalNames, Perplexity, MeanAveragePrecAllDocs,  \
-    MeanPrecRecAtMAllDocs, HashtagPrecAtM
+    MeanPrecRecAtMAllDocs, LroMeanPrecRecAtMAllDocs, HashtagPrecAtM
 from util.sigmoid_utils import rowwise_softmax
 
 DTYPE=np.float32
@@ -41,8 +41,13 @@ StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Lro, Dmr])
 
 
+from model.lro_vb import MODEL_NAME as LRO_MODEL_NAME
+
 DefaultPriorCov = 0.001
 FastButInaccurate=False
+
+MinLinkCountPrune=0 # 2
+MinLinkCountEval=5
 
 def run(args):
     '''
@@ -122,7 +127,8 @@ def run(args):
 
     data = DataSet.from_files(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
-    data.prune_and_shuffle(min_doc_len=3, min_link_count=2)
+    data.prune_and_shuffle(min_doc_len=3, min_link_count=MinLinkCountPrune)
+
     print ("The combined word-count of the %d documents is %.0f, drawn from a vocabulary of %d distinct terms" % (data.doc_count, data.word_count, data.words.shape[1]))
     if data.add_intercept_to_feats_if_required():
         print ("Appended an intercept to the given features")
@@ -196,6 +202,8 @@ def run(args):
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
         return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
+    elif args.eval == LroMeanPrecRecAtMAllDocs:
+        return insample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -579,8 +587,12 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
 
     combi_precs, combi_recs, combi_dcounts = None, None, None
     mrr_sum, mrr_doc_count = 0, 0
+    map_sum, map_doc_count = 0, 0
     for fold in range(target_folds):
-        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel)
+        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel) \
+                if sample_model.name == LRO_MODEL_NAME \
+                else mdl.newModelFromExisting(sample_model)
+
         train_data, query_data = data.link_prediction_split(symmetric=False)
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
                                                     # can compare symmetric with non-symmetric models
@@ -592,25 +604,138 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
 
         min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
         predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
+        expected_links       = query_data.links
 
-        precs, recs, doc_counts = mean_prec_rec_at (query_data.links, predicted_link_probs, at=ms, groups=[(0,3), (3,5), (5,10), (10,1000)])
+        precs, recs, doc_counts = mean_prec_rec_at (expected_links, predicted_link_probs, at=ms, groups=[(0,3), (3,5), (5,10), (10,1000)])
         print ("Fold %2d: Mean-Precisions at \n" % fold, end="")
 
         printTable("Precision", precs, doc_counts, ms)
         printTable("Recall",    recs,  doc_counts, ms)
 
-        mrr = mean_reciprocal_rank(query_data.links, predicted_link_probs)
+        mrr = mean_reciprocal_rank(expected_links, predicted_link_probs)
         print ("Mean reciprocal-rank : %f" % mrr)
-        mrr_sum       += mrr * query_data.doc_count
-        mrr_doc_count += query_data.doc_count
+        mrr_sum       += mrr * expected_links.shape[0]
+        mrr_doc_count += expected_links.shape[0]
 
-        map = mean_average_prec (query_data.links, predicted_link_probs)
+        map = mean_average_prec (expected_links, predicted_link_probs)
         print ("Mean Average Precision : %f" % map)
+        map_sum       += map * expected_links.shape[0]
+        map_doc_count += expected_links.shape[0]
 
         combi_precs, _             = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
         combi_recs,  combi_dcounts = combine_map(combi_recs,  combi_dcounts, recs,  doc_counts)
 
         model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
+
+    print ("-" * 80 + "\n\n Final Results\n\n")
+    printTable("Precision", combi_precs, combi_dcounts, ms)
+    printTable("Recall",    combi_recs,  combi_dcounts, ms)
+    print("Mean reciprocal-rank: %f" % (mrr_sum / mrr_doc_count))
+
+    return model_files
+
+def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None):
+    '''
+    For documents with > 5 links remove a portion. The portion is determined by
+    the number of folds (e.g. five-fold implied remove one fifth of links, three
+    fold implies remove a third, etc.)
+
+    Train on all documents and all remaining links.
+
+    Predict remaining links.
+
+    Evaluate using precision@m, recall@m, mean reciprocal-rank and
+    mean average-precision
+
+    Average all results.
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param folds:  the number of folds to cross validation
+    :param target_folds: the number of folds to complete before finishing. Set
+    to folds by default
+    :param model_dir: if not none, and folds > 1, the models are stored in this
+    directory.
+    :param ldaModel: for those models that utilise and LDA component, a pre-trained
+    LDA model can be supplied.
+    :return: the list of model files stored
+    '''
+    ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
+    model_files = []
+    assert folds > 1, "Need at least two folds for this to make any sense whatsoever"
+    def prepareForTraining(data):
+        if mdl.is_undirected_link_predictor():
+            result = data.copy()
+            result.convert_to_undirected_graph()
+            result.convert_to_binary_link_matrix()
+            return result
+        else:
+            return data
+
+    if ldaModel is not None:
+        (_, _, _, _, ldaModel, ldaTopics, _) = ldaModel
+    if target_folds is None:
+        target_folds = folds
+
+    combi_precs, combi_recs, combi_dcounts = None, None, None
+    mrr_sum, mrr_doc_count = 0, 0
+    map_sum, map_doc_count = 0, 0
+    fold_count = 0
+    for fold in range(folds):
+        # try:
+        # Prepare the training and query data
+        train_data, query_data, docSubset = data.folded_link_prediction_split(MinLinkCountEval, fold, folds)
+        train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
+                                                    # can compare symmetric with non-symmetric models
+
+        # Train the model
+        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel) \
+            if sample_model.name == LRO_MODEL_NAME \
+            else mdl.newModelFromExisting(sample_model)
+
+        train_tops = mdl.newQueryState(train_data, model)
+        model, train_tops, (train_itrs, train_vbs, train_likes) = \
+            mdl.train(train_data, model, train_tops, train_plan)
+
+        print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
+
+        # Infer the expected link probabilities
+        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links, docSubset)
+        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs, docSubset)
+        expected_links       = query_data.links[docSubset, :]
+
+        # Evaluation 1/3: Precision and Recall at M
+        precs, recs, doc_counts = mean_prec_rec_at (expected_links, predicted_link_probs, at=ms, groups=[(0,3), (3,5), (5,10), (10,1000)])
+        print ("Fold %2d: Mean-Precisions at \n" % fold, end="")
+
+        printTable("Precision", precs, doc_counts, ms)
+        printTable("Recall",    recs,  doc_counts, ms)
+
+        combi_precs, _             = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
+        combi_recs,  combi_dcounts = combine_map(combi_recs,  combi_dcounts, recs,  doc_counts)
+
+        # Evaluation 2/3: Mean Reciprocal-Rank
+        mrr = mean_reciprocal_rank(expected_links, predicted_link_probs)
+        print ("Mean reciprocal-rank : %f" % mrr)
+        mrr_sum       += mrr * expected_links.shape[0]
+        mrr_doc_count += expected_links.shape[0]
+
+        # Evaluation 3/3: Mean Average-Precision
+        map = mean_average_prec (expected_links, predicted_link_probs)
+        print ("Mean Average Precision : %f" % map)
+        map_sum       += map * expected_links.shape[0]
+        map_doc_count += expected_links.shape[0]
+
+        # Save the files if necessary and move onto the next fold if required
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
+        fold_count += 1
+        if fold_count == target_folds:
+            break
+        # except Exception as e:
+        #     print("Fold " + str(fold) + " failed: " + str(e))
 
     print ("-" * 80 + "\n\n Final Results\n\n")
     printTable("Precision", combi_precs, combi_dcounts, ms)

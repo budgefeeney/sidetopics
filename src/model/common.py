@@ -381,10 +381,33 @@ class DataSet:
         else:
             links_train, links_query = _split(self._links, rng)
 
-
         return \
             DataSet(self._words, self._feats, links_train), \
             DataSet(self._words, self._feats, links_query)
+
+
+    def folded_link_prediction_split(self, min_link_count, fold_id, fold_count, symmetric=False):
+        '''
+        Returns two variants of this DataSet, both having the exact same words and features
+        (by reference, no copies), but having different sets of links. For each document
+        having more than min_link_count links, a proportion of those links is removed.
+        The proportion is 1/folds. Which links are removed are chosen deterministically
+        by the fold_id
+
+        If symmetric is true, the two partitioned matrices will also be symmetric. This is
+        primarily a requirement of undirected graphs.
+        '''
+        assert self._links is not None, "Can't do a link prediction split if there are no links!"
+
+        if symmetric:
+            raise ValueError("Symmetric splits are not supported")
+        else:
+            links_train, links_query, docSubset = _folded_split(self._links, fold_id, fold_count, min_link_count)
+
+        return \
+            DataSet(self._words, self._feats, links_train), \
+            DataSet(self._words, self._feats, links_query), \
+            docSubset
 
 
 def _split(X, rng):
@@ -462,3 +485,71 @@ def _split_symm(X, rng):
     return \
         _symm_csr (dat[left_ind],  row[left_ind],  col[left_ind],  X.shape), \
         _symm_csr (dat[right_ind], row[right_ind], col[right_ind], X.shape),
+
+
+def _folded_split(X, fold_id, fold_count, min_link_count):
+    '''
+    Given a  matrix, splits it into two matrices such that their sum is equal to the
+    given matrix. Moreover, if an element of one of the partitioned matrices is non-zero,
+    then it _will_ be zero in the other partitioned matrix
+
+    The left matrix has (1-fold_count)/fold_count links. The right matrix has
+    the remnants. The split is determined by links, not link counts - i.e. all of a
+    links counts are either in the left matrix or the right.
+
+    Which links move where is set deterministically by the fold_id
+
+    Return a typle containing
+     - a matrix with the majority of links
+     - a matrix with the removed links
+     - a list of the rows where links were removed.
+    '''
+    Lptr, Lind, Ldat = [0], [], []
+    Rptr, Rind, Rdat = [0], [], []
+    docSubset = []
+
+    start = 0
+    row   = 0
+    while row < X.shape[0]:
+        col_count  = X.indptr[row + 1] - X.indptr[row]
+        end        = start + col_count
+
+        if col_count < min_link_count:
+            cols = [c for c in X.indices[start:end]]
+            vals = [v for v in X.data[start:end]]
+
+            Lind += cols
+            Ldat += vals
+            Lptr.append(Lptr[-1] + len(cols))
+
+            Rind += cols
+            Rdat += vals
+            Rptr.append(Rptr[-1] + len(cols))
+        else:
+            query_size   = col_count // fold_count
+            query_start  = start + query_size * fold_id
+            query_end    = min(query_start + query_size, end)
+
+            Lind += [c for c in X.indices[start:query_start]]
+            Lind += [c for c in X.indices[query_end:end]]
+            Ldat += [v for v in X.data[start:query_start]]
+            Ldat += [v for v in X.data[query_end:end]]
+            Lptr.append (Lptr[-1] + col_count - query_size)
+
+            Rind += [c for c in X.indices[query_start:query_end]]
+            Rdat += [v for v in X.data[query_start:query_end]]
+            Rptr.append (Rptr[-1] + query_size)
+
+            docSubset.append(row)
+
+        start  = end
+        row   += 1
+
+    L = ssp.csr_matrix((np.array(Ldat, dtype=X.dtype), \
+                        np.array(Lind, dtype=np.int32), \
+                        np.array(Lptr, dtype=np.int32)), shape=X.shape)
+    R = ssp.csr_matrix((np.array(Rdat, dtype=X.dtype), \
+                        np.array(Rind, dtype=np.int32), \
+                        np.array(Rptr, dtype=np.int32)), shape=X.shape)
+
+    return L, R, docSubset

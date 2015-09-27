@@ -11,9 +11,10 @@ from model.common import DataSet
 Perplexity="perplexity"
 MeanAveragePrecAllDocs="meanavgprec_all"
 MeanPrecRecAtMAllDocs="meanprecrec_all"
+LroMeanPrecRecAtMAllDocs="lro_meanprecrec_all"
 HashtagPrecAtM="hashtag_prec_at_m"
 
-EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM]
+EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs]
 
 AllGroups = (-1, -1)
 

@@ -14,7 +14,7 @@ from run.main import run, ModelNames, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
     SimLda, SimTfIdf
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
-    MeanPrecRecAtMAllDocs, HashtagPrecAtM
+    MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
 _AclWordPath  = AclPath + "words-freq.pkl"
@@ -125,7 +125,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5, 1
         K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 100, 100, 10
+        TrainIters, QueryIters, LogFreq = 4, 2, 2
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
@@ -133,16 +133,16 @@ class Test(unittest.TestCase):
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
-            for k in [150]: #[10, 20, 30, 40, 50, 60, 80, 100]:
-                for modelName in [ SimTfIdf ]: #ModelNames:
+            for k in [50]:
+                for modelName in [ Mtm2 ]: #ModelNames:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'i4:f8'      \
+                            + ' --dtype '          + 'f8:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + MeanPrecRecAtMAllDocs  \
+                            + ' --eval '           + LroMeanPrecRecAtMAllDocs  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
