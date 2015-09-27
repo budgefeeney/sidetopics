@@ -14,9 +14,8 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 
-from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 
-import model.lda_gibbs as lda
+import model.lda_vb_python as lda
 
 # ==============================================================
 # CONSTANTS

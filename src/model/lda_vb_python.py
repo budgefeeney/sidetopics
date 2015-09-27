@@ -178,7 +178,7 @@ def _log_likelihood_internal(data, model, query):
     return result
 
 
-def log_likelihood (data, modelState, queryState, topicDistOverride=None):
+def log_likelihood (data, model, query, topicDistOverride=None):
     '''
     Return the log-likelihood of the given data according to the model
     and the parameters inferred for datapoints in the query-state object
@@ -188,7 +188,7 @@ def log_likelihood (data, modelState, queryState, topicDistOverride=None):
     tops = topicDistOverride \
         if topicDistOverride is not None \
         else topicDists(query)
-    wordLikely = sparseScalarProductOfSafeLnDot(data.words, tops, wordDists(modelState)).sum()
+    wordLikely = sparseScalarProductOfSafeLnDot(data.words, tops, wordDists(model)).sum()
 
     return wordLikely
 

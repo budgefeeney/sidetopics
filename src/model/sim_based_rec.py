@@ -8,9 +8,6 @@ to it.
 
 __author__ = 'bryanfeeney'
 
-
-
-
 from collections import namedtuple
 import numpy as np
 import scipy.linalg as la
@@ -18,7 +15,6 @@ import scipy.sparse as ssp
 
 
 import model.lda_gibbs as lda
-
 
 # ==============================================================
 # CONSTANTS
@@ -30,7 +26,9 @@ DEBUG=False
 
 MODEL_NAME_PREFIX="sim/"
 TF_IDF="/tfidf"
-LDA="/lda/vb"
+LDA="/lda/gibbs"
+
+SQRT_TWO=1.414213562
 
 
 # ==============================================================
@@ -48,7 +46,7 @@ QueryState = namedtuple ( \
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'ldaModel method K dtype name'
+    'ldaModel K method dtype name'
 )
 
 # ==============================================================
@@ -68,9 +66,7 @@ def newModelFromExisting(model, withLdaModel=None):
             if withLdaModel is not None \
             else lda.newModelFromExisting(model.ldaModel), \
         model.K, \
-        model.noiseVar, \
-        np.array(model.predVar), \
-        model.scale, \
+        model.method, \
         model.dtype, \
         model.name)
 
@@ -125,11 +121,8 @@ def newQueryState(data, model, ldaQuery=None):
     Return:
     A QueryState object
     '''
-    if ldaQuery is None:
-        ldaQuery = lda.newQueryState(data, model.ldaModel)
-    offsets  = np.zeros((data.doc_count, model.K))
 
-    return QueryState(ldaQuery, offsets)
+    return QueryState(None)
 
 
 def newTrainPlan(iterations=500, epsilon=None, ldaIterations=None, ldaEpilson=1, logFrequency=10, fastButInaccurate=False, debug=False):
@@ -166,10 +159,10 @@ def train (data, model, query, trainPlan, isQuery=False):
     and and a tuple of iteration, vb-bound measurement and log-likelhood
     measurement
     '''
-    ldaPlan, iterations, epsilon, logFrequency, fastButInaccurate, debug = \
-        trainPlan.ldaPlan, trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug = \
+        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     ldaModel, method, K, dtype, modelName = \
-        model.ldaModel, model.method, model.K, model.dtype, model.modelName
+        model.ldaModel, model.method, model.K, model.dtype, model.name
     reps = query.reps
 
     D, K = data.doc_count, ldaModel.K
@@ -180,21 +173,22 @@ def train (data, model, query, trainPlan, isQuery=False):
         # First do TF
         docLens = np.squeeze(np.array(data.words.sum(axis=1)))
         reps = data.words.copy()
-        reps /= docLens[:, np.newaxis]
+        reps /= docLens[:, np.newaxis] # FIXME Gets promoted to a dense matrix
 
         occ  = data.words.astype(np.bool).astype(dtype)
-        docCount = occ.sum(axis=0)
+        docCount = np.squeeze(np.array(occ.sum(axis=0)))
         docCount += 1
         idf = np.log(D / docCount)
 
-        reps *= idf[np.newaxis, :]
+        reps.data *= idf[np.newaxis, :]
+        reps = ssp.csr_matrix(reps)
     elif method == LDA:
+        plan = lda.newTrainPlan(iterations, logFrequency=logFrequency, debug=debug)
         if isQuery:
-            ldaQuery = lda.query(data, ldaModel, ldaQuery, ldaPlan)
-            reps = lda.topicDists(ldaQuery)
+            ldaQuery = lda.query(data, ldaModel, ldaQuery, plan)
         elif not ldaModel.processed:
-            ldaModel, ldaQuery, (_, _, _) = lda.train(data, ldaModel, ldaQuery, ldaPlan)
-            reps = lda.topicDists(ldaQuery)
+            ldaModel, ldaQuery, (_, _, _) = lda.train(data, ldaModel, ldaQuery, plan)
+        reps = np.sqrt(lda.topicDists(ldaQuery))
     else:
         raise ValueError("Unknown method %s" % method)
 
@@ -232,11 +226,10 @@ def log_likelihood (data, model, query):
 
     This deliberately excludes links
     '''
-
     if model.method == TF_IDF:
         return 0
     elif model.method == LDA:
-        return lda.log_likelihood(data, model.ldaModel, query=None, topicDistOverride=query.reps)
+        return lda.log_likelihood(data, model.ldaModel, query=None, topicDistOverride=query.reps ** 2)
     else:
         raise ValueError ("Unknown method %s " %  model.method)
 
@@ -263,34 +256,25 @@ def min_link_probs(model, query, links):
     :return: a D-dimensional vector with the minimum probabilties for each
         link
     '''
-    scale = model.scale
-    tops  = lda.topicDists(query.ldaQuery)
-    offs  = query.offsetTopicDists
-    D     = tops.shape[0]
-
-    mins = np.empty((D,), dtype=model.dtype)
-    for d in range(D):
-        probs = []
-        for i in range(len(links[d,:].indices)): # For each observed link
-            l = links[d,:].indices[i]            # which we denote l
-            linkProb = scale * tops[d,:].dot(offs[l,:])
-            probs.append(linkProb)
-        mins[d] = min(probs) if len(probs) > 0 else -1
-
-    return mins
+    if model.method == TF_IDF:
+        return min_link_probs_tfidf(model, query, links)
+    elif model.method == LDA:
+        return min_link_probs_lda(model, query, links)
+    else:
+        raise ValueError ("Unknown method %s " %  model.method)
 
 def min_link_probs_tfidf(model, query, links):
     assert model.method == TF_IDF
     reps = query.reps
     D    = reps.shape[0]
 
-    norms = np.sum(np.abs(reps)**2, axis=-1) ** (1./2) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
+    norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
     mins = np.empty((D,), dtype=model.dtype)
     for d in range(D):
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
             l = links[d,:].indices[i]            # which we denote l
-            linkProb = reps[d].dot(reps[l]) / (norms[d] * norms[l])
+            linkProb = reps[d, :].dot(reps[l, :].T).data[0] / (norms[d] * norms[l])
             probs.append(linkProb)
         mins[d] = min(probs) if len(probs) > 0 else -1
 
@@ -298,8 +282,22 @@ def min_link_probs_tfidf(model, query, links):
 
 
 def min_link_probs_lda(model, query, links):
-    raise ValueError("Not Implemented")
+    assert model.method == LDA
+    reps = query.reps
+    D    = reps.shape[0]
 
+    print ("Inferring minimal link probabilities (Similarity/LDA) ")
+    mins = np.empty((D,), dtype=model.dtype)
+    for d in range(D):
+        probs = []
+        for i in range(len(links[d,:].indices)): # For each observed link
+            l = links[d,:].indices[i]            # which we denote l
+            diffNorm = la.norm(reps[d] - reps[l])
+            linkProb = SQRT_TWO / max(diffNorm, 1E-30)
+            probs.append(linkProb)
+        mins[d] = min(probs) if len(probs) > 0 else -1
+
+    return mins
 
 
 def link_probs(model, query, min_link_probs):
@@ -340,11 +338,11 @@ def link_probs_tfidf(model, query, min_link_probs):
     vals = []
 
     # Infer the link probabilities
-    norms = np.sum(np.abs(reps)**2, axis=-1) ** (1./2) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
+    norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
     for d in range(D):
         inrep = reps[d,:]
 
-        probs = reps.dot(inrep)
+        probs = reps.dot(inrep.T).data
         probs /= norms
         probs /= norms[d]
 
@@ -362,12 +360,20 @@ def link_probs_tfidf(model, query, min_link_probs):
 
     return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
 
+def csr_row_norms(X):
+    norm_dat = np.abs(X.data * X.data)
+
+    X2 = ssp.csr_matrix((norm_dat, X.indices, X.indptr), shape=X.shape)
+
+    norms = np.squeeze(np.array(X2.sum(axis=1)))
+    norms **= 0.5
+
+    return norms
 
 def link_probs_lda(model, query, min_link_probs):
-    scale = model.scale
-    tops  = lda.topicDists(query.ldaQuery)
-    offs  = query.offsetTopicDists
-    D     = tops.shape[0]
+    assert model.method == LDA
+    reps = query.reps
+    D    = reps.shape[0]
 
     # We build the result up as a COO matrix
     rows = []
@@ -375,9 +381,18 @@ def link_probs_lda(model, query, min_link_probs):
     vals = []
 
     # Infer the link probabilities
+    print ("Inferring link probabilities (Similarity/LDA) ")
     for d in range(D):
-        probs      = scale * offs.dot(tops[d,:])
-        relevant   = np.where(probs >= min_link_probs[d] - 1E-9)[0]
+        inrep = reps[d,:]
+
+        # Helliger distance
+        probs = inrep[np.newaxis,:] - reps
+        probs *= probs
+        probs = probs.sum(axis=1)
+        np.sqrt(probs, out=probs)
+        probs = SQRT_TWO / probs
+
+        relevant = np.where(probs >= min_link_probs[d] - 1E-9)[0]
 
         rows.extend([d] * len(relevant))
         cols.extend(relevant)

@@ -258,7 +258,7 @@ def wordDists(model):
     return vocabDist
 
     
-def log_likelihood (data, model, query, topicDistOverride):
+def log_likelihood (data, model, query, topicDistOverride=None):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
