@@ -610,7 +610,7 @@ def min_link_probs(model, topics, links, docSubset=None):
     :param links: a DxD matrix of links for each document (row)
     :param docSubset: a list of documents to consider for evaluation. If
     none all documents are considered.
-    :return: a vector with the minimum out-link probabilties for each
+    :return: a vector with the minimum out-link probabilities for each
         document in the subset
     '''
     if docSubset is None:
@@ -648,6 +648,7 @@ def link_probs(model, topics, min_link_probs, docSubset=None):
     :param topics: the topics for each of the documents we're generating
         links for
     :param min_link_probs: the minimum link probability for each document
+    in the subset
     :param docSubset: a list of documents to consider for evaluation. If
     none all documents are considered.
     :return: a (hopefully) sparse len(docSubset)xD matrix of link probabilities
