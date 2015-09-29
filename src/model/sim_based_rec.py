@@ -280,7 +280,7 @@ def min_link_probs_tfidf(model, query, links, docSubset):
     norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
     mins  = np.empty((D,), dtype=model.dtype)
     outRow = -1
-    for d in range(D):
+    for d in docSubset:
         outRow += 1
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
@@ -304,7 +304,7 @@ def min_link_probs_lda(model, query, links, docSubset):
     print ("Inferring minimal link probabilities (Similarity/LDA) ")
     mins = np.empty((D,), dtype=model.dtype)
     outRow = -1
-    for d in range(D):
+    for d in docSubset:
         outRow += 1
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
@@ -364,7 +364,7 @@ def link_probs_tfidf(model, query, min_link_probs, docSubset=None):
     # Infer the link probabilities
     outRow = -1
     norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
-    for d in range(D):
+    for d in docSubset:
         outRow += 1
         inrep = reps[d,:]
 
@@ -415,7 +415,7 @@ def link_probs_lda(model, query, min_link_probs, docSubset=None):
     # Infer the link probabilities
     print ("Inferring link probabilities (Similarity/LDA) ")
     outRow = -1
-    for d in range(D):
+    for d in docSubset:
         outRow += 1
         inrep = reps[d,:]
 
