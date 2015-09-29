@@ -123,18 +123,18 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        Folds, ExecutedFoldCount = 5, 1
-        K,P = 25, 50
-        TrainIters, QueryIters, LogFreq = 4, 2, 2
+        Folds, ExecutedFoldCount = 5,5
+        K,P = 50, 50
+        TrainIters, QueryIters, LogFreq = 1000, 400, 10
         PriorCov = 0.001
-        VocabPrior = 1
+        VocabPrior = 0.001
         Debug = False
 
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
             for k in [50]:
-                for modelName in [ Mtm2 ]: #ModelNames:
+                for modelName in [ SimTfIdf ]:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
