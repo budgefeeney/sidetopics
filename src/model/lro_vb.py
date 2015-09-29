@@ -14,8 +14,10 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 
+import time
 
-import model.lda_vb_python as lda
+
+import model.lda_gibbs as lda
 
 # ==============================================================
 # CONSTANTS
@@ -25,7 +27,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=False
 
-MODEL_NAME="lro/vb"
+MODEL_NAME="lro/gibbs"
 
 
 # ==============================================================
@@ -176,10 +178,12 @@ def train (data, model, query, trainPlan, isQuery=False):
     tau = [predVar[0], predVar[1]]
 
     # Step 1: Learn the topics using vanilla LDA
+    print (time.strftime('%X') + " Beginning Topic Inference")
     if isQuery and not ldaQuery.processed:
         ldaQuery = lda.query(data, ldaModel, ldaQuery, ldaPlan)
     elif not ldaModel.processed:
         ldaModel, ldaQuery, (_, _, _) = lda.train(data, ldaModel, ldaQuery, ldaPlan)
+    print (time.strftime('%X') + " Topic Inference Completed")
 
     tops = lda.topicDists(ldaQuery)
     offs = tops.copy()
