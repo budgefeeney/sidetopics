@@ -13,8 +13,13 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 
+from util.sparse_elementwise import sparseScalarQuotientOfDot
 
-import model.lda_gibbs as lda
+import model.lda_vb_python as lda
+LDA="/lda/vb"
+
+# import model.gibbs as lda
+# LDA="/lda/gibbs"
 
 # ==============================================================
 # CONSTANTS
@@ -26,7 +31,6 @@ DEBUG=False
 
 MODEL_NAME_PREFIX="sim/"
 TF_IDF="/tfidf"
-LDA="/lda/gibbs"
 
 SQRT_TWO=1.414213562
 
@@ -173,15 +177,16 @@ def train (data, model, query, trainPlan, isQuery=False):
         # First do TF
         docLens = np.squeeze(np.array(data.words.sum(axis=1)))
         reps = data.words.copy()
-        reps /= docLens[:, np.newaxis] # FIXME Gets promoted to a dense matrix
+        #reps /= docLens[:, np.newaxis] replaced with line below to retain sparsity
+        reps = ssp.diags(np.reciprocal(docLens), 0).dot(reps)
 
         occ  = data.words.astype(np.bool).astype(dtype)
         docCount = np.squeeze(np.array(occ.sum(axis=0)))
         docCount += 1
         idf = np.log(D / docCount)
 
-        reps.data *= idf[np.newaxis, :]
-        reps = ssp.csr_matrix(reps)
+        # reps *= idf[np.newaxis, :]
+        reps = reps.dot(ssp.diags(idf, 0))
     elif method == LDA:
         plan = lda.newTrainPlan(iterations, logFrequency=logFrequency, debug=debug)
         if isQuery:
@@ -243,7 +248,7 @@ def var_bound(data, modelState, queryState):
     return 0
 
 
-def min_link_probs(model, query, links):
+def min_link_probs(model, query, links, docSubset=None):
     '''
     For every document, for each of the given links, determine the
     probability of the least likely link (i.e the document-specific
@@ -253,54 +258,66 @@ def min_link_probs(model, query, links):
     :param query: the query state object, contains topics and topic
     offsets
     :param links: a DxD matrix of links for each document (row)
-    :return: a D-dimensional vector with the minimum probabilties for each
-        link
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
+    :return: a vector with the minimum out-link probabilties for each
+        document in the subset
     '''
     if model.method == TF_IDF:
-        return min_link_probs_tfidf(model, query, links)
+        return min_link_probs_tfidf(model, query, links, docSubset)
     elif model.method == LDA:
-        return min_link_probs_lda(model, query, links)
+        return min_link_probs_lda(model, query, links, docSubset)
     else:
         raise ValueError ("Unknown method %s " %  model.method)
 
-def min_link_probs_tfidf(model, query, links):
+def min_link_probs_tfidf(model, query, links, docSubset):
     assert model.method == TF_IDF
     reps = query.reps
-    D    = reps.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(reps.shape[0])]
+    D = len(docSubset)
 
     norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
-    mins = np.empty((D,), dtype=model.dtype)
+    mins  = np.empty((D,), dtype=model.dtype)
+    outRow = -1
     for d in range(D):
+        outRow += 1
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
             l = links[d,:].indices[i]            # which we denote l
-            linkProb = reps[d, :].dot(reps[l, :].T).data[0] / (norms[d] * norms[l])
+            linkProbMat = reps[d,:].dot(reps[l,:].T)
+            linkProb = 0 if linkProbMat.nnz == 0 else linkProbMat.data[0]
+            linkProb /= norms[d] * norms[l]
             probs.append(linkProb)
-        mins[d] = min(probs) if len(probs) > 0 else -1
+        mins[outRow] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
 
-def min_link_probs_lda(model, query, links):
+def min_link_probs_lda(model, query, links, docSubset):
     assert model.method == LDA
     reps = query.reps
-    D    = reps.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(reps.shape[0])]
+    D = len(docSubset)
 
     print ("Inferring minimal link probabilities (Similarity/LDA) ")
     mins = np.empty((D,), dtype=model.dtype)
+    outRow = -1
     for d in range(D):
+        outRow += 1
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
             l = links[d,:].indices[i]            # which we denote l
             diffNorm = la.norm(reps[d] - reps[l])
             linkProb = SQRT_TWO / max(diffNorm, 1E-30)
             probs.append(linkProb)
-        mins[d] = min(probs) if len(probs) > 0 else -1
+        mins[outRow] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
 
-def link_probs(model, query, min_link_probs):
+def link_probs(model, query, min_link_probs, docSubset):
     '''
     Generate the probability of a link for all possible pairs of documents,
     but only store those probabilities that are bigger than or equal to the
@@ -312,17 +329,19 @@ def link_probs(model, query, min_link_probs):
     :param topics: the topics for each of the documents we're generating
         links for
     :param min_link_probs: the minimum link probability for each document
-    :return: a (hopefully) sparse DxD matrix of link probabilities
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
+    :return: a (hopefully) sparse len(docSubset)xD matrix of link probabilities
     '''
     if model.method == TF_IDF:
-        return link_probs_tfidf(model, query, min_link_probs)
+        return link_probs_tfidf(model, query, min_link_probs, docSubset)
     elif model.method == LDA:
-        return link_probs_lda(model, query, min_link_probs)
+        return link_probs_lda(model, query, min_link_probs, docSubset)
     else:
         raise ValueError ("Unknown method %s " %  model.method)
 
 
-def link_probs_tfidf(model, query, min_link_probs):
+def link_probs_tfidf(model, query, min_link_probs, docSubset=None):
     '''
     This is essentially just the cosine similarity between the TF-IDF
     scores of all possible pairs. This ranges from zero to one, with
@@ -330,7 +349,12 @@ def link_probs_tfidf(model, query, min_link_probs):
     '''
     assert model.method == TF_IDF
     reps = query.reps
-    D    = reps.shape[0]
+
+    # Determine the size of the output
+    actualDocCount = reps.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(actualDocCount)]
+    D = len(docSubset)
 
     # We build the result up as a COO matrix
     rows = []
@@ -338,17 +362,19 @@ def link_probs_tfidf(model, query, min_link_probs):
     vals = []
 
     # Infer the link probabilities
+    outRow = -1
     norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
     for d in range(D):
+        outRow += 1
         inrep = reps[d,:]
 
-        probs = reps.dot(inrep.T).data
+        probs = reps.dot(inrep.T).todense().data
         probs /= norms
         probs /= norms[d]
 
         relevant   = np.where(probs >= min_link_probs[d] - 1E-9)[0]
 
-        rows.extend([d] * len(relevant))
+        rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
         vals.extend(probs[relevant])
 
@@ -358,7 +384,8 @@ def link_probs_tfidf(model, query, min_link_probs):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(D, actualDocCount)).tocsr()
+
 
 def csr_row_norms(X):
     norm_dat = np.abs(X.data * X.data)
@@ -370,10 +397,15 @@ def csr_row_norms(X):
 
     return norms
 
-def link_probs_lda(model, query, min_link_probs):
+def link_probs_lda(model, query, min_link_probs, docSubset=None):
     assert model.method == LDA
     reps = query.reps
-    D    = reps.shape[0]
+
+    # Determine the size of the output
+    actualDocCount = reps.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(actualDocCount)]
+    D = len(docSubset)
 
     # We build the result up as a COO matrix
     rows = []
@@ -382,7 +414,9 @@ def link_probs_lda(model, query, min_link_probs):
 
     # Infer the link probabilities
     print ("Inferring link probabilities (Similarity/LDA) ")
+    outRow = -1
     for d in range(D):
+        outRow += 1
         inrep = reps[d,:]
 
         # Helliger distance
@@ -394,7 +428,7 @@ def link_probs_lda(model, query, min_link_probs):
 
         relevant = np.where(probs >= min_link_probs[d] - 1E-9)[0]
 
-        rows.extend([d] * len(relevant))
+        rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
         vals.extend(probs[relevant])
 
@@ -404,4 +438,4 @@ def link_probs_lda(model, query, min_link_probs):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(D, actualDocCount)).tocsr()
