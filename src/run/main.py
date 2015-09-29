@@ -741,6 +741,7 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
     printTable("Precision", combi_precs, combi_dcounts, ms)
     printTable("Recall",    combi_recs,  combi_dcounts, ms)
     print("Mean reciprocal-rank: %f" % (mrr_sum / mrr_doc_count))
+    print("Mean average-precision: %f" % (map_sum / map_doc_count))
 
     return model_files
 
