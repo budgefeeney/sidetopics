@@ -374,7 +374,7 @@ def link_probs_tfidf(model, query, min_link_probs, docSubset=None):
         probs /= norms
         probs /= norms[d]
 
-        relevant   = np.where(probs >= min_link_probs[d] - 1E-9)[0]
+        relevant   = np.where(probs >= min_link_probs[outRow] - 1E-9)[0]
 
         rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
@@ -428,7 +428,7 @@ def link_probs_lda(model, query, min_link_probs, docSubset=None):
         np.sqrt(probs, out=probs)
         probs = SQRT_TWO / probs
 
-        relevant = np.where(probs >= min_link_probs[d] - 1E-9)[0]
+        relevant = np.where(probs >= min_link_probs[outRow] - 1E-9)[0]
 
         rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
