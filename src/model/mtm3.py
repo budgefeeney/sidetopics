@@ -411,14 +411,14 @@ def train (data, modelState, queryState, trainPlan):
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
 
-        if True or debug or itr % logFrequency == 0:
-            print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
-            print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
-            print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
-            print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
-            print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
-            print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
-            print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
+        # if True or debug or itr % logFrequency == 0:
+        #     print("   Sigma     %6.1f  \t %9.3g, %9.3g, %9.3g" % (np.log(la.det(topicCov)), topicCov.min(), topicCov.mean(), topicCov.max()), end="  |")
+        #     print("   rho       %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(log(inDocCov[d]) for d in range(D)), inDocCov.min(), inDocCov.mean(), inDocCov.max()), end="  |")
+        #     print("   alpha     %6.1f  \t %9.3g" % (np.log(la.det(np.eye(K,) * outDocCov)), outDocCov), end="  |")
+        #     print("   inMeans   %9.3g, %9.3g, %9.3g" % (inMeans.min(),  inMeans.mean(),  inMeans.max()), end="  |")
+        #     print("   outMeans  %9.3g, %9.3g, %9.3g" % (outMeans.min(), outMeans.mean(), outMeans.max()), end="  |")
+        #     print("   inVarcs   %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(inVarcs[d]))  for d in range(D)) / D, inVarcs.min(),  inVarcs.mean(),  inVarcs.max()), end="  |")
+        #     print("   outVarcs  %6.1f  \t %9.3g, %9.3g, %9.3g" % (sum(safe_log_det(np.diag(outVarcs[d])) for d in range(D)) / D, outVarcs.min(), outVarcs.mean(), outVarcs.max()))
 
     return \
         ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME), \
@@ -610,8 +610,8 @@ def min_link_probs(model, topics, links, docSubset=None):
     :param links: a DxD matrix of links for each document (row)
     :param docSubset: a list of documents to consider for evaluation. If
     none all documents are considered.
-    :return: a D-dimensional vector with the minimum probabilties for each
-        link
+    :return: a vector with the minimum out-link probabilties for each
+        document in the subset
     '''
     if docSubset is None:
         docSubset = [d for d in range(topics.outMeans.shape[0])]
@@ -650,18 +650,20 @@ def link_probs(model, topics, min_link_probs, docSubset=None):
     :param min_link_probs: the minimum link probability for each document
     :param docSubset: a list of documents to consider for evaluation. If
     none all documents are considered.
-    :return: a (hopefully) sparse DxD matrix of link probabilities
+    :return: a (hopefully) sparse len(docSubset)xD matrix of link probabilities
     '''
     # We build the result up as a COO matrix
     rows = []
     cols = []
     vals = []
 
-    # Calculate the softmax transform parameters
+    # Determine the size of the output
     actualDocCount = topics.outMeans.shape[0]
     if docSubset is None:
         docSubset = [d for d in range(actualDocCount)]
     D = len(docSubset)
+
+    # Calculate the softmax transform parameters
     linkDist = colwise_softmax(topics.inMeans)
 
     # Infer the link probabilities
