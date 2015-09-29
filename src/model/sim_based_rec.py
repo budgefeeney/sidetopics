@@ -282,6 +282,7 @@ def min_link_probs_tfidf(model, query, links, docSubset):
     outRow = -1
     for d in docSubset:
         outRow += 1
+
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
             l = links[d,:].indices[i]            # which we denote l
@@ -366,9 +367,10 @@ def link_probs_tfidf(model, query, min_link_probs, docSubset=None):
     norms = csr_row_norms(reps) # Numpy 1.9 allows la.norm(X, axis=1), but is too modern
     for d in docSubset:
         outRow += 1
+
         inrep = reps[d,:]
 
-        probs = reps.dot(inrep.T).todense().data
+        probs = np.squeeze(np.asarray(reps.dot(inrep.T).todense()))
         probs /= norms
         probs /= norms[d]
 
