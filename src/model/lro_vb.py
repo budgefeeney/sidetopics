@@ -17,7 +17,11 @@ import scipy.sparse as ssp
 import time
 
 
-import model.lda_gibbs as lda
+# import model.lda_gibbs as lda
+# MODEL_NAME="lro/gibbs"
+
+import model.lda_vb_python as lda
+MODEL_NAME="lro/vb"
 
 # ==============================================================
 # CONSTANTS
@@ -26,8 +30,6 @@ import model.lda_gibbs as lda
 DTYPE=np.float32 # A default, generally we should specify this in the model setup
 
 DEBUG=False
-
-MODEL_NAME="lro/gibbs"
 
 
 # ==============================================================
@@ -269,7 +271,7 @@ def var_bound(data, modelState, queryState):
     return 0
 
 
-def min_link_probs(model, query, links):
+def min_link_probs(model, query, links, docSubset=None):
     '''
     For every document, for each of the given links, determine the
     probability of the least likely link (i.e the document-specific
@@ -279,27 +281,34 @@ def min_link_probs(model, query, links):
     :param query: the query state object, contains topics and topic
     offsets
     :param links: a DxD matrix of links for each document (row)
-    :return: a D-dimensional vector with the minimum probabilties for each
-        link
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
+    :return: a vector with the minimum out-link probabilities for each
+        document in the subset
     '''
+    if docSubset is None:
+        docSubset = [d for d in range(query.offsetTopicDists.shape[0])]
+    D = len(docSubset)
+
     scale = model.scale
     tops  = lda.topicDists(query.ldaQuery)
     offs  = query.offsetTopicDists
-    D     = tops.shape[0]
 
     mins = np.empty((D,), dtype=model.dtype)
-    for d in range(D):
+    outRow = -1
+    for d in docSubset:
+        outRow += 1
         probs = []
         for i in range(len(links[d,:].indices)): # For each observed link
             l = links[d,:].indices[i]            # which we denote l
             linkProb = scale * tops[d,:].dot(offs[l,:])
             probs.append(linkProb)
-        mins[d] = min(probs) if len(probs) > 0 else -1
+        mins[outRow] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
 
-def link_probs(model, query, min_link_probs):
+def link_probs(model, query, min_link_probs, docSubset=None):
     '''
     Generate the probability of a link for all possible pairs of documents,
     but only store those probabilities that are bigger than or equal to the
@@ -311,12 +320,20 @@ def link_probs(model, query, min_link_probs):
     :param topics: the topics for each of the documents we're generating
         links for
     :param min_link_probs: the minimum link probability for each document
-    :return: a (hopefully) sparse DxD matrix of link probabilities
+    in the subset
+    :param docSubset: a list of documents to consider for evaluation. If
+    none all documents are considered.
+    :return: a (hopefully) sparse len(docSubset)xD matrix of link probabilities
     '''
     scale = model.scale
     tops  = lda.topicDists(query.ldaQuery)
     offs  = query.offsetTopicDists
-    D     = tops.shape[0]
+
+    # Determine the size of the output
+    actualDocCount = tops.shape[0]
+    if docSubset is None:
+        docSubset = [d for d in range(actualDocCount)]
+    D = len(docSubset)
 
     # We build the result up as a COO matrix
     rows = []
@@ -324,11 +341,13 @@ def link_probs(model, query, min_link_probs):
     vals = []
 
     # Infer the link probabilities
-    for d in range(D):
+    outRow = -1
+    for d in docSubset:
+        outRow    += 1
         probs      = scale * offs.dot(tops[d,:])
-        relevant   = np.where(probs >= min_link_probs[d] - 1E-9)[0]
+        relevant   = np.where(probs >= min_link_probs[outRow] - 1E-9)[0]
 
-        rows.extend([d] * len(relevant))
+        rows.extend([outRow] * len(relevant))
         cols.extend(relevant)
         vals.extend(probs[relevant])
 
@@ -338,4 +357,4 @@ def link_probs(model, query, min_link_probs):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v, (r, c)), shape=(D, D)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(D, actualDocCount)).tocsr()

@@ -134,7 +134,7 @@ class Test(unittest.TestCase):
         modelFileses = []
         for DataSetName in [Acl]:
             for k in [50]:
-                for modelName in [ SimTfIdf ]:
+                for modelName in [ Lro ]:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
