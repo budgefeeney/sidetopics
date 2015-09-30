@@ -16,7 +16,8 @@ from model.common import DataSet
 from model.evals import perplexity_from_like, mean_average_prec, \
     mean_reciprocal_rank, mean_prec_rec_at, \
     EvalNames, Perplexity, MeanAveragePrecAllDocs,  \
-    MeanPrecRecAtMAllDocs, LroMeanPrecRecAtMAllDocs, HashtagPrecAtM
+    MeanPrecRecAtMAllDocs, LroMeanPrecRecAtMAllDocs, \
+    LroMeanPrecRecAtMFeatSplit, HashtagPrecAtM
 from util.sigmoid_utils import rowwise_softmax
 
 DTYPE=np.float32
@@ -48,6 +49,8 @@ FastButInaccurate=False
 
 MinLinkCountPrune=0 # 2
 MinLinkCountEval=5
+
+
 
 def run(args):
     '''
@@ -112,12 +115,15 @@ def run(args):
                     help='A dictionary of all words. Used to identify hashtag indices')
     parser.add_argument('--lda-model', dest='ldaModel', default=None, metavar=' ', \
                     help='A trained LDA model, used with the LRO model')
+    parser.add_argument('--feats-mask', dest='features_mask_str', default=None, metavar=' ', \
+                    help='Feature mask to use with FeatSplit runs, comma-delimited list of colon-delimited pairs')
 
     #
     # Parse the arguments
     #
     print("Args are : " + str(args))
     args = parser.parse_args(args)
+    features_mask = parse_features_mask(args)
 
     print("Random seed is 0xC0FFEE")
     rd.seed(0xC0FFEE)
@@ -204,6 +210,8 @@ def run(args):
         return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
     elif args.eval == LroMeanPrecRecAtMAllDocs:
         return insample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
+    elif args.eval == LroMeanPrecRecAtMFeatSplit:
+        return outsample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, features_mask, args.out_model, ldaModel)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
@@ -279,8 +287,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     :param num_folds:  the number of folds to cross validation
     :param fold_run_count: for debugging stop early after processing the number
     of the folds
-    :param model_dir: if not none, and folds > 1, the models are stored in this
-    directory.
+    :param model_dir: if not none, the models are stored in this directory.
     :return: the list of model files stored
     '''
     model_files = []
@@ -383,8 +390,7 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
     :param num_folds:  the number of folds to cross validation
     :param fold_run_count: for debugging stop early after processing the number
     of the folds
-    :param model_dir: if not none, and folds > 1, the models are stored in this
-    directory.
+    :param model_dir: if not none, the models are stored in this directory.
     :return: the list of model files stored
     '''
     MS = [10, 50, 100, 150, 200, 250, 1000, 1500, 3000, 5000, 10000]
@@ -634,6 +640,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
 
     return model_files
 
+
 def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None):
     '''
     For documents with > 5 links remove a portion. The portion is determined by
@@ -746,6 +753,105 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
     return model_files
 
 
+def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_mask, model_dir=None, ldaModel=None):
+    '''
+    Take a feature list. Train on all documents where none of those features
+    are set. Remove the first element from the feature list, query all documents
+    with that feature set, and then evaluate link prediction. Repeat until
+    feature-list is empty.
+
+    :param data: the DataSet object with the data
+    :param mdl:  the module with the train etc. functin
+    :param sample_model: a preconfigured model which is cloned at the start of each
+            cross-validation run
+    :param train_plan:  the training plan (number of iterations etc.)
+    :param feature_mask:  the list of features used to separate training from query
+    This is a list of tuples, the left side is the feature label, the right side
+    is the
+    :param model_dir: if not none, the models are stored in this directory.
+    :param ldaModel: for those models that utilise and LDA component, a pre-trained
+    LDA model can be supplied.
+    :return: the list of model files stored
+    '''
+    def prepareForTraining(data):
+        if mdl.is_undirected_link_predictor():
+            result = data.copy()
+            result.convert_to_undirected_graph()
+            result.convert_to_binary_link_matrix()
+            return result
+        else:
+            return data
+
+    ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
+    model_files = []
+
+    if ldaModel is not None:
+        (_, _, _, _, ldaModel, ldaTopics, _) = ldaModel
+
+    combi_precs, combi_recs, combi_dcounts = None, None, None
+    mrr_sum, mrr_doc_count = 0, 0
+    map_sum, map_doc_count = 0, 0
+    while len(feature_mask) > 0:
+        # try:
+        # Prepare the training and query data
+        train_data, query_data = data.split_on_feature(feature_mask)
+        (feat_label, feat_id) = feature_mask.pop(0)
+        train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
+                                                    # can compare symmetric with non-symmetric models
+
+        # Train the model
+        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel) \
+            if sample_model.name == LRO_MODEL_NAME \
+            else mdl.newModelFromExisting(sample_model)
+
+        train_tops = mdl.newQueryState(train_data, model)
+        model, train_tops, (train_itrs, train_vbs, train_likes) = \
+            mdl.train(train_data, model, train_tops, train_plan)
+
+        print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
+
+        # Infer the expected link probabilities
+        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
+        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
+        expected_links       = query_data.links
+
+        # Evaluation 1/3: Precision and Recall at M
+        precs, recs, doc_counts = mean_prec_rec_at (expected_links, predicted_link_probs, at=ms, groups=[(0,3), (3,5), (5,10), (10,1000)])
+        print (" Mean-Precisions for feature %s (#%d)" % (feat_label, feat_id), end="")
+
+        printTable("Precision", precs, doc_counts, ms)
+        printTable("Recall",    recs,  doc_counts, ms)
+
+        combi_precs, _             = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
+        combi_recs,  combi_dcounts = combine_map(combi_recs,  combi_dcounts, recs,  doc_counts)
+
+        # Evaluation 2/3: Mean Reciprocal-Rank
+        mrr = mean_reciprocal_rank(expected_links, predicted_link_probs)
+        print ("Mean reciprocal-rank : %f" % mrr)
+        mrr_sum       += mrr * expected_links.shape[0]
+        mrr_doc_count += expected_links.shape[0]
+
+        # Evaluation 3/3: Mean Average-Precision
+        map = mean_average_prec (expected_links, predicted_link_probs)
+        print ("Mean Average Precision : %f" % map)
+        map_sum       += map * expected_links.shape[0]
+        map_doc_count += expected_links.shape[0]
+
+        # Save the files if necessary and move onto the next fold if required
+        model_files = save_if_necessary(model_files, model_dir, model, data, feat_id, train_itrs, train_vbs, train_likes, train_tops, train_tops, mdl)
+        # except Exception as e:
+        #     print("Fold " + str(fold) + " failed: " + str(e))
+
+    print ("-" * 80 + "\n\n Final Results\n\n")
+    printTable("Precision", combi_precs, combi_dcounts, ms)
+    printTable("Recall",    combi_recs,  combi_dcounts, ms)
+    print("Mean reciprocal-rank: %f" % (mrr_sum / mrr_doc_count))
+    print("Mean average-precision: %f" % (map_sum / map_doc_count))
+
+    return model_files
+
+
+
 def combine_map (old_avgs, old_counts, new_avgs, new_counts):
     '''
     Given two maps of averages, organised as group-key -> [avg], we use
@@ -810,6 +916,18 @@ def newModelFile(modelName, K, P, fold=None, prefix="/Users/bryanfeeney/Desktop"
          + cfg + '_' \
          + foldDesc  \
          + timestamp + '.pkl'
+
+def parse_features_mask(args):
+    if args.features_mask_str is not None:
+        features_mask = []
+        parts = args.features_mask_str.split(',')
+        for part in parts:
+            subparts = part.split(':')
+            features_mask.append((subparts[0], int(subparts[1])))
+        return features_mask
+    else:
+        return None
+
 
 if __name__ == '__main__':
     run(args=sys.argv[1:])

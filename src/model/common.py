@@ -409,6 +409,32 @@ class DataSet:
             DataSet(self._words, self._feats, links_query), \
             docSubset
 
+    def split_on_feature(self, features):
+        '''
+        Returns two datasets. The left consists of all documents for which
+        none of the features are set. The right consists of all documents for
+        which the first feature is set.
+
+        :param features: the features used to make the split
+        :return: two DataSet object, with _shallow_ copies of the given
+        data
+        '''
+        Epsilon = 1E-30
+        assert self._feats is not None, "Need features to make this split"
+        assert len(features) > 0, "Need at least two features for this to work"
+
+        mask      = np.abs(self._feats[:,features].sum(axis=1))
+        trainDocs = np.where(mask < Epsilon)[0]
+        queryDocs = np.where(self._feats[:,features[0]] > Epsilon)[0]
+
+        if self._links is None:
+            return DataSet(self._words[trainDocs,:], feats=self._feats[trainDocs,:], order=self._order[trainDocs]), \
+                   DataSet(self._words[queryDocs,:], feats=self._feats[queryDocs,:], order=self._order[queryDocs])
+        else:
+            return DataSet(self._words[trainDocs,:], feats=self._feats[trainDocs,:], links=self._links[trainDocs,:], order=self._order[trainDocs]), \
+                   DataSet(self._words[queryDocs,:], feats=self._feats[queryDocs,:], links=self._links[queryDocs,:], order=self._order[queryDocs])
+
+
 
 def _split(X, rng):
     '''
