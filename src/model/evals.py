@@ -5,7 +5,7 @@ Created on 20 Apr 2015
 '''
 
 import numpy as np
-#import numba as nb
+# import numba as nb
 from model.common import DataSet
 
 Perplexity="perplexity"
@@ -47,6 +47,7 @@ def mean_reciprocal_rank(expected_links, estim_link_probs):
 
     docs_lacking_links = []
     for d in range(D):
+
         # Take out the indices (i.e. IDs) of the expected links
         expt_indices = [e for e in expected_links[d,:].indices]
         if len(expt_indices) == 0:
@@ -74,7 +75,7 @@ def mean_reciprocal_rank(expected_links, estim_link_probs):
         print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
     return rank_sum / rank_count
 
-
+#@nb.autojit Does not support cellvars
 def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     '''
     Returns the average, across all documents in the corpus, of the
@@ -178,7 +179,7 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
         print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
     return precs_at_m, recs_at_m, docCounts
 
-
+#@nb.autojit Does not support cellvars
 def mean_average_prec(expected_links, estim_link_probs):
     '''
     Returns the average of all documents' average-precision scores.

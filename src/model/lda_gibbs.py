@@ -148,6 +148,20 @@ def newQueryState(data, modelState, debug=False):
     return QueryState(w_list, z_list, docLens, None, 0, False)
 
 
+def pruneQueryState(query, indices):
+    '''
+    Returns a query state corresponding to the given indices only
+    '''
+    return QueryState( \
+        query.w_list[indices, :], \
+        query.z_list[indices, :], \
+        query.docLens[indices], \
+        query.topicSum[indices, :], \
+        query.numSamples,
+        query.processed
+        )
+
+
 def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
     if burnIn < 0:
         burnIn = iterations // 5

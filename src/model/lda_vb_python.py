@@ -127,6 +127,13 @@ def newQueryState(data, modelState):
     return QueryState(docLens, topicDists, False)
 
 
+def pruneQueryState (query, indices):
+    '''
+    Returns a query state corresponding to the given indices only
+    '''
+    return QueryState(query.docLens[indices], query.topicDists[indices,:], query.processed)
+
+
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
     '''
     Create a training plan determining how many iterations we

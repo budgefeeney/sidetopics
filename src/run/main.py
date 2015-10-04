@@ -41,8 +41,15 @@ StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
 ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Lro, Dmr])
 
+from model.lda_vb_python import pruneQueryState as pruneLdaVbQueryState
+from model.lda_vb_python import MODEL_NAME as LDA_VB_MODEL_NAME
+from model.lda_gibbs import pruneQueryState as pruneLdaGibbsQueryState
+from model.lda_gibbs import MODEL_NAME as LDA_GIBBS_MODEL_NAME
 
 from model.lro_vb import MODEL_NAME as LRO_MODEL_NAME
+from model.sim_based_rec import MODEL_NAME_PREFIX as SIM_MODEL_NAME_PREFIX
+from model.sim_based_rec import LDA as SIM_MODEL_NAME_SUFFIX
+LDA_SIM_MODEL_NAME = SIM_MODEL_NAME_PREFIX + SIM_MODEL_NAME_SUFFIX
 
 DefaultPriorCov = 0.001
 FastButInaccurate=False
@@ -119,18 +126,23 @@ def run(args):
                     help='Feature mask to use with FeatSplit runs, comma-delimited list of colon-delimited pairs')
 
     #
-    # Parse the arguments
+    # Initialization of the app: first parse the arguments
     #
-    print("Args are : " + str(args))
-    args = parser.parse_args(args)
-    features_mask = parse_features_mask(args)
-
     print("Random seed is 0xC0FFEE")
     rd.seed(0xC0FFEE)
 
+    print("Args are : " + str(args))
+    args = parser.parse_args(args)
     K, P, Q = args.K, args.P, args.Q
+
+    features_mask = parse_features_mask(args)
     (input_dtype, output_dtype)  = parse_dtypes(args.dtype)
 
+    fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
+
+    #
+    #  Load and prune the data
+    #
     data = DataSet.from_files(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
     data.prune_and_shuffle(min_doc_len=3, min_link_count=MinLinkCountPrune)
@@ -139,12 +151,15 @@ def run(args):
     if data.add_intercept_to_feats_if_required():
         print ("Appended an intercept to the given features")
 
-    fv, tv, lfv, ltv = args.feat_var, args.topic_var, args.lat_feat_var, args.lat_topic_var
 
     #
     # Instantiate and configure the model
     #
-    ldaModel = None
+    if (args.ldaModel is not None) and (args.model == Lro or args.model == SimLda):
+        ldaModel, ldaTopics = load_and_adapt_lda_model(args.ldaModel, data.order)
+    else:
+        ldaModel, ldaTopics = None, None
+
     print ("Building template model... ", end="")
     if args.model == CtmBouchard:
         import model.ctm as mdl
@@ -184,8 +199,6 @@ def run(args):
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == Lro:
         import model.lro_vb as mdl
-        if args.ldaModel is not None:
-            ldaModel = pkl.load(args.ldaModel, 'rb')
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == SimLda:
         import model.sim_based_rec as mdl
@@ -207,15 +220,32 @@ def run(args):
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
-        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
+        return link_split_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel, ldaTopics)
     elif args.eval == LroMeanPrecRecAtMAllDocs:
-        return insample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel)
+        return insample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, args.folds, args.eval_fold_count, args.out_model, ldaModel, ldaTopics)
     elif args.eval == LroMeanPrecRecAtMFeatSplit:
-        return outsample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, features_mask, args.out_model, ldaModel)
+        return outsample_lro_style_prec_rec (data, mdl, templateModel, trainPlan, features_mask, args.out_model, ldaModel, ldaTopics)
     else:
         raise ValueError("Unknown evaluation metric " + args.eval)
 
     return modelFiles
+
+
+def load_and_adapt_lda_model(path, desired_order):
+    '''
+    Loads the given LDA model, and ensure it follows the given order
+    :param path: the path to the LDA model files (see save_model())
+    :param desired_order: re-arrange the given elements to respect
+    the given order
+    :return: an LDA model and the trained-document topics
+    '''
+    with open(path, "rb") as f:
+        (saved_order, _, _, _, model, train_tops, _) = pkl.load(f)
+
+    if np.all(saved_order == desired_order):
+        return model, train_tops
+    else:
+        raise ValueError("Have not implemented code to re-order saved models")
 
 
 def load_dict(dict_path):
@@ -253,12 +283,13 @@ def parse_dtypes(dtype_str):
         if len(strs) == 1 \
         else (parse_dtype(strs[0]), parse_dtype(strs[1]))
 
+
 def parse_dtype(dtype_str):
     '''
     Parses a dtype string. Accepted values are f4 or f32, f8 or f64
-    or i4 or i32. Case is not sensitive. Two may be optionally
-    provided, in which case the first is the data dtype and the
-    second is the model-dtype
+    i4 or i32, or u2 or u16, corresponding to 32 and 64 bit floating
+    point numbers, 32-bit signed integers, and 16-bit unsigned
+    integers respectively. Case is not sensitive.
     '''
     if   dtype_str in ['f8', 'F8', 'f64', 'F64']:
         return np.float64
@@ -553,7 +584,7 @@ def link_split_map (data, mdl, sample_model, train_plan, folds, model_dir = None
     return model_files
 
 
-def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None):
+def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None, ldaTopics=None):
     '''
     Train on all the words and half the links. Predict the remaining links.
     Evaluate using precision at m using as values of m 50, 100, 250, and 500,
@@ -572,6 +603,9 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
     to folds by default
     :param model_dir: if not none, and folds > 1, the models are stored in this
     directory.
+    :param ldaModel: for those models that utilise and LDA component, a pre-trained
+    LDA model can be supplied.
+    :param ldaTopics: the topics of all documents in the corpus as given by the ldaModel
     :return: the list of model files stored
     '''
     ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
@@ -641,7 +675,7 @@ def link_split_prec_rec (data, mdl, sample_model, train_plan, folds, target_fold
     return model_files
 
 
-def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None):
+def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None, ldaModel=None, ldaTopics=None):
     '''
     For documents with > 5 links remove a portion. The portion is determined by
     the number of folds (e.g. five-fold implied remove one fifth of links, three
@@ -668,6 +702,7 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
     directory.
     :param ldaModel: for those models that utilise and LDA component, a pre-trained
     LDA model can be supplied.
+    :param ldaTopics: the topics of all documents in the corpus as given by the ldaModel
     :return: the list of model files stored
     '''
     ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
@@ -682,8 +717,6 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
         else:
             return data
 
-    if ldaModel is not None:
-        (_, _, _, _, ldaModel, ldaTopics, _) = ldaModel
     if target_folds is None:
         target_folds = folds
 
@@ -698,20 +731,24 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
                                                     # can compare symmetric with non-symmetric models
 
-        # Train the model
-        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel) \
-            if sample_model.name == LRO_MODEL_NAME \
-            else mdl.newModelFromExisting(sample_model)
+        print ("\n\nFold %d\n" % fold + ("-" * 80))
 
-        train_tops = mdl.newQueryState(train_data, model)
+        # Train the model
+        if model_uses_lda(sample_model):
+            model      = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel)
+            train_tops = mdl.newQueryState(train_data, model, ldaTopics=ldaTopics)
+        else:
+            model = mdl.newModelFromExisting(sample_model)
+            train_tops = mdl.newQueryState(train_data, model)
+
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
             mdl.train(train_data, model, train_tops, train_plan)
 
         print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
 
         # Infer the expected link probabilities
-        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links, docSubset)
-        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs, docSubset)
+        min_link_probs       = mdl.min_link_probs(model, train_tops, train_tops, query_data.links, docSubset)
+        predicted_link_probs = mdl.link_probs(model, train_tops, train_tops, min_link_probs, docSubset)
         expected_links       = query_data.links[docSubset, :]
 
         # Evaluation 1/3: Precision and Recall at M
@@ -753,7 +790,7 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
     return model_files
 
 
-def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_mask, model_dir=None, ldaModel=None):
+def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_mask, model_dir=None, ldaModel=None, ldaTopics=None):
     '''
     Take a feature list. Train on all documents where none of those features
     are set. Remove the first element from the feature list, query all documents
@@ -771,6 +808,7 @@ def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_m
     :param model_dir: if not none, the models are stored in this directory.
     :param ldaModel: for those models that utilise and LDA component, a pre-trained
     LDA model can be supplied.
+    :param ldaTopics: the topics of all documents in the corpus as given by the ldaModel
     :return: the list of model files stored
     '''
     def prepareForTraining(data):
@@ -785,34 +823,40 @@ def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_m
     ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
     model_files = []
 
-    if ldaModel is not None:
-        (_, _, _, _, ldaModel, ldaTopics, _) = ldaModel
-
     combi_precs, combi_recs, combi_dcounts = None, None, None
     mrr_sum, mrr_doc_count = 0, 0
     map_sum, map_doc_count = 0, 0
     while len(feature_mask) > 0:
         # try:
         # Prepare the training and query data
-        train_data, query_data = data.split_on_feature(feature_mask)
+        feature_mask_indices = [i for _,i in feature_mask]
+        train_data, query_data, train_indices = data.split_on_feature(feature_mask_indices)
         (feat_label, feat_id) = feature_mask.pop(0)
+        print ("\n\nFeature: %s\n" % (feat_label,) + ("-" * 80))
+
         train_data = prepareForTraining(train_data) # make symmetric, if necessary, after split, so we
                                                     # can compare symmetric with non-symmetric models
 
         # Train the model
-        model = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel) \
-            if sample_model.name == LRO_MODEL_NAME \
-            else mdl.newModelFromExisting(sample_model)
+        if model_uses_lda(sample_model):
+            ldaModelSubset, ldaTopicsSubset = subsetLda(ldaModel, ldaTopics, train_indices)
+            model      = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModelSubset)
+            train_tops = mdl.newQueryState(train_data, model, ldaTopics=ldaTopicsSubset)
+        else:
+            model = mdl.newModelFromExisting(sample_model)
+            train_tops = mdl.newQueryState(train_data, model)
 
-        train_tops = mdl.newQueryState(train_data, model)
         model, train_tops, (train_itrs, train_vbs, train_likes) = \
             mdl.train(train_data, model, train_tops, train_plan)
 
         print ("Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops), train_data.word_count))
 
         # Infer the expected link probabilities
-        min_link_probs       = mdl.min_link_probs(model, train_tops, query_data.links)
-        predicted_link_probs = mdl.link_probs(model, train_tops, min_link_probs)
+        query_tops    = mdl.newQueryState(query_data, model)
+        _, query_tops = mdl.query(query_data, model, query_tops, train_plan)
+
+        min_link_probs       = mdl.min_link_probs(model, train_tops, query_tops, query_data.links)
+        predicted_link_probs = mdl.link_probs(model, train_tops, query_tops, min_link_probs)
         expected_links       = query_data.links
 
         # Evaluation 1/3: Precision and Recall at M
@@ -850,6 +894,30 @@ def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_m
 
     return model_files
 
+
+def model_uses_lda(model):
+    return model.name == LRO_MODEL_NAME or model.name == LDA_SIM_MODEL_NAME
+
+
+def subsetLda(ldaModel, ldaTopics, doc_indices):
+    '''
+    Take a fully trainined LDA model, and then return only those rows
+    corresponding to the given document indices
+    :param ldaModel: the model, returned as is
+    :param ldaTopics: the topics
+    :param doc_indices: a simple list of integers in the range 0..D where
+    D is the number of documents used to train the LDA model.
+    :return:
+    '''
+    if ldaModel is None:
+        return None
+    else:
+        if ldaModel.name == LDA_GIBBS_MODEL_NAME:
+            return ldaModel, pruneLdaGibbsQueryState(ldaTopics, doc_indices)
+        elif ldaModel.name == LDA_VB_MODEL_NAME:
+            return ldaModel, pruneLdaVbQueryState(ldaTopics, doc_indices)
+        else:
+            raise ValueError("Can't prune queries for LDA models of type " + ldaModel.name)
 
 
 def combine_map (old_avgs, old_counts, new_avgs, new_counts):

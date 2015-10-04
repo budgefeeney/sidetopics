@@ -205,10 +205,7 @@ class DataSet:
         '''
         self._words = self._words[order, :]
         self._feats = None if self._feats is None else self._feats[order, :]
-        self._links = None if self._links is None \
-            else ((self._links[order, :])[:, order] \
-                if self._links.shape[0] == self._links.shape[1] \
-                else self._links[order, :])
+        self._links = _reorder_link_matrix(self._links, order)
 
 
     def convert_to_undirected_graph(self):
@@ -419,21 +416,26 @@ class DataSet:
         :return: two DataSet object, with _shallow_ copies of the given
         data
         '''
+        def two_dim_reorder(matrix, row_order, col_order):
+            return (matrix[row_order,:])[:,col_order]
+
         Epsilon = 1E-30
         assert self._feats is not None, "Need features to make this split"
         assert len(features) > 0, "Need at least two features for this to work"
 
-        mask      = np.abs(self._feats[:,features].sum(axis=1))
+        mask      = np.squeeze(np.array(np.abs(self._feats[:,features].sum(axis=1))))
         trainDocs = np.where(mask < Epsilon)[0]
-        queryDocs = np.where(self._feats[:,features[0]] > Epsilon)[0]
+        queryDocs = np.where(np.ndarray(buffer=self._feats[:,features[0]].todense(), shape=(self._feats.shape[0],)) > Epsilon)[0]
 
-        if self._links is None:
-            return DataSet(self._words[trainDocs,:], feats=self._feats[trainDocs,:], order=self._order[trainDocs]), \
-                   DataSet(self._words[queryDocs,:], feats=self._feats[queryDocs,:], order=self._order[queryDocs])
-        else:
-            return DataSet(self._words[trainDocs,:], feats=self._feats[trainDocs,:], links=self._links[trainDocs,:], order=self._order[trainDocs]), \
-                   DataSet(self._words[queryDocs,:], feats=self._feats[queryDocs,:], links=self._links[queryDocs,:], order=self._order[queryDocs])
-
+        return DataSet(words=self._words[trainDocs,:], \
+                       feats=self._feats[trainDocs,:], \
+                       links=two_dim_reorder(self._links, trainDocs, trainDocs), \
+                       order=self._order[trainDocs]), \
+               DataSet(words=self._words[queryDocs,:], \
+                       feats=self._feats[queryDocs,:], \
+                       links=two_dim_reorder(self._links, queryDocs, trainDocs), \
+                       order=self._order[queryDocs]), \
+               trainDocs
 
 
 def _split(X, rng):
@@ -579,3 +581,18 @@ def _folded_split(X, fold_id, fold_count, min_link_count):
                         np.array(Rptr, dtype=np.int32)), shape=X.shape)
 
     return L, R, docSubset
+
+
+def _reorder_link_matrix(matrix, order):
+    '''
+    Returns a matrix containing only the given rows (in order).
+    If the original matrix is square, the resulting matrix will
+     also only have the columns specific by order
+    :param matrix: the matrix to reorder
+    :param order: the ordering to apply to rows (and maybe columns)
+    :return:the re-ordered matrix
+    '''
+    return None if matrix is None \
+            else ((matrix[order, :])[:, order] \
+                if matrix.shape[0] == matrix.shape[1] \
+                else matrix[order, :])
