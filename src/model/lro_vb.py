@@ -65,6 +65,7 @@ def newModelFromExisting(model, withLdaModel=None):
     '''
     Creates a _deep_ copy of the given model
     '''
+    print ("Model variant is " + model.name)
     return ModelState(\
         withLdaModel \
             if withLdaModel is not None \
