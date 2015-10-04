@@ -169,10 +169,10 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     # Return the mean of average-precisions
     for g in precs_at_m.keys():
         precs = precs_at_m[g]
-        precs_at_m[g] = [p / docCounts[g] for p in precs]
+        precs_at_m[g] = [p / max(1, docCounts[g]) for p in precs]
 
         recs = recs_at_m[g]
-        recs_at_m[g] = [r / docCounts[g] for r in recs]
+        recs_at_m[g] = [r / max(1, docCounts[g]) for r in recs]
 
     if len(docs_lacking_links) > 0:
         print (str(len(docs_lacking_links)) + " of the " + str(D) + " documents had no links to check, including documents " + ", ".join(str(d) for d in docs_lacking_links[:10]))
