@@ -429,7 +429,14 @@ def train (data, modelState, queryState, trainPlan):
 def query(data, modelState, queryState, queryPlan):
     '''
     Given a _trained_ model, attempts to predict the topics for each of
-    the inputs.
+    the inputs. The assumption is that there are no out-links associated
+    with the documents, and that no documents in the training set link
+    to any of these documents in the query set.
+
+    The word and link vocabularies are kept fixed. Due to the assumption
+    of no in-links, we don't learn the prior in-document covariance, nor
+    the posterior distribution over in-links. Also, we don't modify
+
     
     Params:
     data - the dataset of words, features and links of which only words are used in this model
@@ -441,42 +448,68 @@ def query(data, modelState, queryState, queryPlan):
     The model state and query state, in that order. The model state is
     unchanged, the query is.
     '''
+    W, L, LT, X = data.words, data.links, ssp.csr_matrix(data.links.T), data.feats
+    D,_ = W.shape
+    out_links = np.squeeze(np.asarray(data.links.sum(axis=1)))
+
+    # Book-keeping for logs
+    boundIters, boundValues, likelyValues = [], [], []
+
+    # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
-    outMeans, outVarcs, inMeans, inVarcs, inDocCov, n = queryState.outMeans, queryState.outVars, queryState.inMeans, queryState.inVarcs, queryState.inDocCov, queryState.docLens
-    K, topicMean, topicCov, outDocCov, inDocCov, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.topicCov, modelState.outDocCov, modelState.vocab, modelState.A, modelState.dtype
+    outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens = queryState.outMeans, queryState.outVarcs, queryState.inMeans, queryState.inVarcs, queryState.inDocCov, queryState.docLens
+    K, topicMean, topicCov, outDocCov, vocab, A, dtype = modelState.K, modelState.topicMean, modelState.topicCov, modelState.outDocCov, modelState.vocab, modelState.A, modelState.dtype
 
-    debugFn = _debug_with_bound if debug else _debug_with_nothing
-    W = data.words
-    D = W.shape[0]
+    emit_counts = docLens + out_links
 
-    expMeansOut = np.exp(outMeans - outMeans.max(axis=1)[:, np.newaxis])
-    expMeansIn  = np.exp(inMeans - inMeans.max(axis=0)[np.newaxis, :])
-    
-    # Necessary temp variables (notably the count of topic to word assignments
-    # per topic per doc)
+    # Initialize some working variables
+    W_weight  = W.copy()
+
+    outDocPre = 1./outDocCov
+    inDocPre  = np.reciprocal(inDocCov)
     itopicCov = la.inv(topicCov)
-    
-    # Update the Variances
-    varcs = 1./((n * (K-1.)/K)[:,np.newaxis] + itopicCov.flat[::K+1])
-    
-    R = W.copy()
+
+    # Iterate over parameters
     for itr in range(iterations):
-        R = sparseScalarQuotientOfDot(W, expMeansOut, vocab, out=R)
-        V = expMeansOut * R.dot(vocab.T)
-        
-        # Update the Means
-        rhs = V.copy()
-        rhs += n[:, np.newaxis] * outMeans.dot(A) + itopicCov.dot(topicMean)
-        rhs -= n[:, np.newaxis] * rowwise_softmax(outMeans, out=outMeans)
-        if diagonalPriorCov:
-            outMeans[:] = varcs * rhs
-        else:
-            for d in range(D):
-                outMeans[d, :] = la.inv(itopicCov + n[d] * A).dot(rhs[d, :])
-        
-        debugFn (itr, outMeans, "outMeans", data, K, topicMean, topicCov, outDocCov, inDocCov, vocab, dtype, outMeans, outVarcs, inMeans, inVarcs, A, n)
-    
-    return modelState, queryState
+        # We start with the M-Step, so the parameters are consistent with our
+        # initialisation of the RVs when we do the E-Step
+
+        expMeansRow = np.exp(outMeans - outMeans.max(axis=1)[:, np.newaxis])
+        w_top_sums = W_weight.dot(vocab.T) * expMeansRow
+
+        # Update the posterior variances
+        outVarcs = np.reciprocal(emit_counts[:, np.newaxis] * (K-1)/(2*K) + (outDocPre + inDocPre[:,np.newaxis]) * np.diagonal(itopicCov)[np.newaxis,:])
+
+        # Update the out-means and in-means
+        out_rhs  = w_top_sums.copy()
+        # No link outputs to model.
+        out_rhs += itopicCov.dot(topicMean) / outDocCov
+        out_rhs += emit_counts[:, np.newaxis] * (outMeans.dot(A) - rowwise_softmax(outMeans))
+
+        for d in range(D):
+            outCov          = la.inv(outDocPre * itopicCov + emit_counts[d] * A)
+            outMeans[d, :]  = outCov.dot(out_rhs[d,:])
+
+        if logFrequency > 0 and itr % logFrequency == 0:
+            modelState = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME)
+            queryState = QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
+
+            boundValues.append(var_bound(data, modelState, queryState))
+            likelyValues.append(log_likelihood(data, modelState, queryState))
+            boundIters.append(itr)
+
+            print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
+            if len(boundValues) > 1:
+                if boundValues[-2] > boundValues[-1]:
+                    printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
+
+                # Check to see if the improvement in the bound has fallen below the threshold
+                if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
+                    break
+
+    return \
+        ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME), \
+        QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
 
 
 def log_likelihood (data, modelState, queryState):
@@ -598,15 +631,15 @@ def softmax(x):
     return r
 
 
-def min_link_probs(model, topics, links, docSubset=None):
+def min_link_probs(model, train_tops, query_tops, links, docSubset=None):
     '''
     For every document, for each of the given links, determine the
     probability of the least likely link (i.e the document-specific
     minimum of probabilities).
 
     :param model: the model object
-    :param topics: the topics that were inferred for each document
-        represented by the links matrix
+    :param train_tops: the representations of the link-target documents
+    :param query_tops: the representations of the link-origin documents
     :param links: a DxD matrix of links for each document (row)
     :param docSubset: a list of documents to consider for evaluation. If
     none all documents are considered.
@@ -614,29 +647,29 @@ def min_link_probs(model, topics, links, docSubset=None):
         document in the subset
     '''
     if docSubset is None:
-        docSubset = [d for d in range(topics.outMeans.shape[0])]
-    D = len(docSubset)
+        docSubset = [q for q in range(query_tops.outMeans.shape[0])]
+    Q = len(docSubset)
 
-    col_maxes = topics.inMeans.max(axis=0)
-    lse_at_k = np.sum(np.exp(topics.inMeans - col_maxes), axis=0)
-    mins = np.empty((D,), dtype=model.dtype)
+    col_maxes = train_tops.inMeans.max(axis=0)
+    lse_at_k = np.sum(np.exp(train_tops.inMeans - col_maxes), axis=0)
+    mins = np.empty((Q,), dtype=model.dtype)
 
     outRow = -1
     for d in docSubset:
         outRow += 1
-        topDist = softmax(topics.outMeans[d, :])
+        srcTopDist = softmax(query_tops.outMeans[d, :])
         probs = []
 
         for i in range(len(links[d,:].indices)):
-            l = links[d,:].indices[i]
-            linkDist  = np.exp(topics.inMeans[l, :] - col_maxes) / lse_at_k
-            probs.append(np.dot(topDist, linkDist))
+            dst = links[d,:].indices[i]
+            linkDist  = np.exp(train_tops.inMeans[dst, :] - col_maxes) / lse_at_k
+            probs.append(np.dot(srcTopDist, linkDist))
         mins[outRow] = min(probs) if len(probs) > 0 else -1
 
     return mins
 
 
-def link_probs(model, topics, min_link_probs, docSubset=None):
+def link_probs(model, train_tops, query_tops, min_link_probs, docSubset=None):
     '''
     Generate the probability of a link for all possible pairs of documents,
     but only store those probabilities that are bigger than or equal to the
@@ -645,8 +678,8 @@ def link_probs(model, topics, min_link_probs, docSubset=None):
     average precisions
 
     :param model: the trained model
-    :param topics: the topics for each of the documents we're generating
-        links for
+    :param train_tops: the representations of the link-target documents
+    :param query_tops: the representations of the link-origin documents
     :param min_link_probs: the minimum link probability for each document
     in the subset
     :param docSubset: a list of documents to consider for evaluation. If
@@ -659,21 +692,21 @@ def link_probs(model, topics, min_link_probs, docSubset=None):
     vals = []
 
     # Determine the size of the output
-    actualDocCount = topics.outMeans.shape[0]
+    D = train_tops.outMeans.shape[0]
     if docSubset is None:
-        docSubset = [d for d in range(actualDocCount)]
-    D = len(docSubset)
+        docSubset = [q for q in range(query_tops.outMeans.shape[0])]
+    Q = len(docSubset)
 
     # Calculate the softmax transform parameters
-    linkDist = colwise_softmax(topics.inMeans)
+    dstTopDists = colwise_softmax(train_tops.inMeans)
 
     # Infer the link probabilities
     outRow = -1
-    for d in docSubset:
+    for src in docSubset:
         outRow += 1
 
-        topDistAtD = softmax(topics.outMeans[d, :])
-        probs      = linkDist.dot(topDistAtD)
+        srcTopDist = softmax(query_tops.outMeans[src, :])
+        probs      = dstTopDists.dot(srcTopDist)
         relevant   = np.where(probs >= min_link_probs[outRow] - 1E-9)[0]
 
         rows.extend([outRow] * len(relevant))
@@ -686,7 +719,7 @@ def link_probs(model, topics, min_link_probs, docSubset=None):
     c = np.array(cols, dtype=np.int32)
     v = np.array(vals, dtype=model.dtype)
 
-    return ssp.coo_matrix((v, (r, c)), shape=(D, actualDocCount)).tocsr()
+    return ssp.coo_matrix((v, (r, c)), shape=(Q, D)).tocsr()
 
 # ==============================================================
 # PUBLIC HELPERS
