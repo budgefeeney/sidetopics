@@ -494,15 +494,12 @@ def query(data, modelState, queryState, queryPlan):
             modelState = ModelState(K, topicMean, topicCov, outDocCov, vocab, A, True, dtype, MODEL_NAME)
             queryState = QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
 
-            boundValues.append(var_bound(data, modelState, queryState))
+            boundValues.append(0)
             likelyValues.append(log_likelihood(data, modelState, queryState))
             boundIters.append(itr)
 
             print (time.strftime('%X') + " : Iteration %d: bound %f \t Perplexity: %.2f" % (itr, boundValues[-1], perplexity_from_like(likelyValues[-1], docLens.sum())))
             if len(boundValues) > 1:
-                if boundValues[-2] > boundValues[-1]:
-                    printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
-
                 # Check to see if the improvement in the bound has fallen below the threshold
                 if itr > MinItersBeforeEarlyStop and abs(perplexity_from_like(likelyValues[-1], docLens.sum()) - perplexity_from_like(likelyValues[-2], docLens.sum())) < 1.0:
                     break
