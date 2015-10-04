@@ -145,9 +145,7 @@ def newTrainPlan(iterations=100, epsilon=None, ldaIterations=None, ldaEpilson=1,
     '''
     if ldaIterations is None:
         ldaIterations = 500 # iterations
-    # ldaPlan = lda.newTrainPlan(ldaIterations, ldaEpilson, logFrequency, fastButInaccurate, debug)
-    # FIXME Return to usual value.
-    ldaPlan = lda.newTrainPlan(6, ldaEpilson, 2, fastButInaccurate, debug)
+    ldaPlan = lda.newTrainPlan(ldaIterations, ldaEpilson, logFrequency, fastButInaccurate, debug)
 
     return TrainPlan(ldaPlan, iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
