@@ -92,6 +92,28 @@ FeatsPath = [_AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,    
 CitesPath = [_AclCitePath,  None,          None,            None,                None,                  None,                      None]
 DictsPath = [_AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath, None,                  _TweetsFreqDictPath,       _NipsDictPath]
 
+PreBuildTopicsDir="/Users/bryanfeeney/Desktop/acl-out-tm/lda/"
+PreBuiltAclGibbsTopics = { \
+     10 : PreBuildTopicsDir + "lda_gibbs_k_10_p_0_fold_0_20150930_1754.pkl", \
+     25 : PreBuildTopicsDir + "lda_gibbs_k_25_p_0_fold_0_20150930_2046.pkl", \
+     50 : PreBuildTopicsDir + "lda_gibbs_k_50_p_0_fold_0_20151001_0120.pkl", \
+     75 : PreBuildTopicsDir + "lda_gibbs_k_75_p_0_fold_0_20151001_1116.pkl", \
+    100 : PreBuildTopicsDir + "lda_gibbs_k_100_p_0_fold_0_20151001_1118.pkl", \
+    150 : PreBuildTopicsDir + "lda_gibbs_k_150_p_0_fold_0_20151001_1537.pkl"
+}
+PreBuiltAclVbTopics = { \
+      10 : PreBuildTopicsDir + "lda_vbp_k_10_p_0_fold_0_20151003_1459.pkl", \
+      25 : PreBuildTopicsDir + "lda_vbp_k_25_p_0_fold_0_20151003_1517.pkl", \
+      50 : PreBuildTopicsDir + "lda_vbp_k_50_p_0_fold_0_20151003_1734.pkl", \
+      75 : PreBuildTopicsDir + "lda_vbp_k_75_p_0_fold_0_20151003_2008.pkl", \
+     100 : PreBuildTopicsDir + "lda_vbp_k_100_p_0_fold_0_20151003_2315.pkl", \
+     150 : PreBuildTopicsDir + "lda_vbp_k_150_p_0_fold_0_20151004_0339.pkl"
+}
+PreBuiltGibbsTopics = { Acl : PreBuiltAclGibbsTopics }
+PreBuiltVbTopics = { Acl : PreBuiltAclVbTopics }
+FeatsMask = { Acl : "2001:1088,2002:1085,2003:1086,2004:1083,2005:1084,2006:1081" }
+
+
 def tmpFiles():
     '''
     Returns files in the temporary directory for storing the DxT matrix of
@@ -126,7 +148,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5,5
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 1000, 500, 10
+        TrainIters, QueryIters, LogFreq = 6,4,2
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
@@ -134,7 +156,7 @@ class Test(unittest.TestCase):
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
-            for k in [20]:
+            for k in [10]:
                 for modelName in [ Lro ]:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
@@ -143,7 +165,7 @@ class Test(unittest.TestCase):
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + LroMeanPrecRecAtMFeatSplit  \
+                            + ' --eval '           + LroMeanPrecRecAtMAllDocs  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
@@ -158,7 +180,8 @@ class Test(unittest.TestCase):
                             + ' --lat-feat-var '   + str(PriorCov) \
                             + ' --vocab-prior '    + str(VocabPrior) \
                             + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
-                            + ' --feats-mask'      + '2001:1088,2002:1085,2003:1086,2004:1083,2005:1084,2006:1081'
+                            + ' --feats-mask '     + FeatsMask[DataSetName] \
+                            + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
         #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
         #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
         #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
