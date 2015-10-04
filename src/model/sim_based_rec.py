@@ -111,7 +111,7 @@ def newModelAtRandom(data, K, method=TF_IDF, topicPrior=None, vocabPrior=lda.Voc
     return ModelState(ldaModel, K, method, dtype, modelName)
 
 
-def newQueryState(_, model, ldaTopics=None):
+def newQueryState(_, model, withLdaTopics=None):
     '''
     Creates a new LRO QueryState object. This contains all
     parameters and random variables tied to individual
@@ -126,7 +126,7 @@ def newQueryState(_, model, ldaTopics=None):
     A QueryState object
     '''
 
-    return QueryState(None, ldaTopics)
+    return QueryState(None, withLdaTopics)
 
 
 def newTrainPlan(iterations=500, epsilon=None, ldaIterations=None, ldaEpilson=1, logFrequency=10, fastButInaccurate=False, debug=False):

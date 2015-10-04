@@ -736,7 +736,7 @@ def insample_lro_style_prec_rec (data, mdl, sample_model, train_plan, folds, tar
         # Train the model
         if model_uses_lda(sample_model):
             model      = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModel)
-            train_tops = mdl.newQueryState(train_data, model, ldaTopics=ldaTopics)
+            train_tops = mdl.newQueryState(train_data, model, withLdaTopics=ldaTopics)
         else:
             model = mdl.newModelFromExisting(sample_model)
             train_tops = mdl.newQueryState(train_data, model)
@@ -841,7 +841,7 @@ def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_m
         if model_uses_lda(sample_model):
             ldaModelSubset, ldaTopicsSubset = subsetLda(ldaModel, ldaTopics, train_indices)
             model      = mdl.newModelFromExisting(sample_model, withLdaModel=ldaModelSubset)
-            train_tops = mdl.newQueryState(train_data, model, ldaTopics=ldaTopicsSubset)
+            train_tops = mdl.newQueryState(train_data, model, withLdaTopics=ldaTopicsSubset)
         else:
             model = mdl.newModelFromExisting(sample_model)
             train_tops = mdl.newQueryState(train_data, model)
