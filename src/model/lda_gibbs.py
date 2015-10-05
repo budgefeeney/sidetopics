@@ -153,13 +153,13 @@ def pruneQueryState(query, indices):
     Returns a query state corresponding to the given indices only
     '''
     return QueryState( \
-        query.w_list[indices, :], \
-        query.z_list[indices, :], \
+        None, \
+        None, \
         query.docLens[indices], \
         query.topicSum[indices, :], \
         query.numSamples,
         query.processed
-        )
+        ) # TODO The Nones break this in many cases, but suffice for LDA-supported recommenders
 
 
 def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastButInaccurate=False, debug = False):
