@@ -198,8 +198,10 @@ def train (data, model, query, trainPlan, isQuery=False):
     # Step 3: Learn the scaling factor and offsets for each link's target-doc till converged
     print ("Learning Offsets")
     for itr in range(iterations):
+        print ("Iteration " + str(itr), end=": ")
+
         # Record the current scale of the offsets
-        before = offs.sum()
+        before = la.norm(offs / scale)
 
         # Update the scale
         lhs, rhs = 0, 0
@@ -222,7 +224,8 @@ def train (data, model, query, trainPlan, isQuery=False):
             offs[p,:] = la.inv(lhs).dot(rhs)
 
         # Check has the offsets changed significantly
-        after = offs.sum()
+        after = la.norm(offs / scale)
+        print ("%f --> %f. scale=%f" % (before, after, scale))
         if abs(before - after) < epsilon:
             break
 
