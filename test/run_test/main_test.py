@@ -94,20 +94,20 @@ DictsPath = [_AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath,
 
 PreBuildTopicsDir="/Users/bryanfeeney/Desktop/acl-out-tm/lda/"
 PreBuiltAclGibbsTopics = { \
-     10 : PreBuildTopicsDir + "lda_gibbs_k_10_p_0_fold_0_20150930_1754.pkl", \
-     25 : PreBuildTopicsDir + "lda_gibbs_k_25_p_0_fold_0_20150930_2046.pkl", \
-     50 : PreBuildTopicsDir + "lda_gibbs_k_50_p_0_fold_0_20151001_0120.pkl", \
-     75 : PreBuildTopicsDir + "lda_gibbs_k_75_p_0_fold_0_20151001_1116.pkl", \
-    100 : PreBuildTopicsDir + "lda_gibbs_k_100_p_0_fold_0_20151001_1118.pkl", \
-    150 : PreBuildTopicsDir + "lda_gibbs_k_150_p_0_fold_0_20151001_1537.pkl"
+     10 : PreBuildTopicsDir + "lda_gibbs_k_10_pkl", \
+     25 : PreBuildTopicsDir + "lda_gibbs_k_25.pkl", \
+     50 : PreBuildTopicsDir + "lda_gibbs_k_50.pkl", \
+     75 : PreBuildTopicsDir + "lda_gibbs_k_75.pkl", \
+    100 : PreBuildTopicsDir + "lda_gibbs_k_100.pkl", \
+    150 : PreBuildTopicsDir + "lda_gibbs_k_150.pkl"
 }
 PreBuiltAclVbTopics = { \
-      10 : PreBuildTopicsDir + "lda_vbp_k_10_p_0_fold_0_20151003_1459.pkl", \
-      25 : PreBuildTopicsDir + "lda_vbp_k_25_p_0_fold_0_20151003_1517.pkl", \
-      50 : PreBuildTopicsDir + "lda_vbp_k_50_p_0_fold_0_20151003_1734.pkl", \
-      75 : PreBuildTopicsDir + "lda_vbp_k_75_p_0_fold_0_20151003_2008.pkl", \
-     100 : PreBuildTopicsDir + "lda_vbp_k_100_p_0_fold_0_20151003_2315.pkl", \
-     150 : PreBuildTopicsDir + "lda_vbp_k_150_p_0_fold_0_20151004_0339.pkl"
+      10 : PreBuildTopicsDir + "lda_vbp_k_10.pkl", \
+      25 : PreBuildTopicsDir + "lda_vbp_k_25.pkl", \
+      50 : PreBuildTopicsDir + "lda_vbp_k_50.pkl", \
+      75 : PreBuildTopicsDir + "lda_vbp_k_75.pkl", \
+     100 : PreBuildTopicsDir + "lda_vbp_k_100.pkl", \
+     150 : PreBuildTopicsDir + "lda_vbp_k_150.pkl"
 }
 PreBuiltGibbsTopics = { Acl : PreBuiltAclGibbsTopics }
 PreBuiltVbTopics = { Acl : PreBuiltAclVbTopics }
@@ -148,16 +148,16 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5,5
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 6,4,2
+        TrainIters, QueryIters, LogFreq = 1000, 500, 10
         PriorCov = 0.001
-        VocabPrior = 1
+        VocabPrior = 0.001
         Debug = False
 
         print("long")
         modelFileses = []
         for DataSetName in [Acl]:
-            for k in [10]:
-                for modelName in [ Lro ]:
+            for k in [50]:
+                for modelName in [ Mtm2 ]:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
@@ -165,7 +165,7 @@ class Test(unittest.TestCase):
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + LroMeanPrecRecAtMAllDocs  \
+                            + ' --eval '           + LroMeanPrecRecAtMFeatSplit  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \

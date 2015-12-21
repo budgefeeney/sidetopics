@@ -31,6 +31,9 @@ from model.evals import perplexity_from_like
 
 from math import isnan
 
+import model.lda_gibbs as lda_gibbs
+import model.lda_vb_python as lda_vb
+
     
 # ==============================================================
 # CONSTANTS
@@ -55,7 +58,7 @@ MODEL_NAME="mtm2/vb"
 
 INIT_WITH_CTM=False
 
-MinItersBeforeEarlyStop=150
+MinItersBeforeEarlyStop=50
 
 IGAMMA_A = 10
 IGAMMA_B = 10
@@ -84,6 +87,7 @@ ModelState = namedtuple ( \
 # PUBLIC API
 # ==============================================================
 
+
 def wordDists(model):
     return model.vocab
 
@@ -95,7 +99,7 @@ def topicDists(queryState):
     result /= result.sum(axis=1)
     return result
 
-def newModelFromExisting(model):
+def newModelFromExisting(model, withLdaModel=None):
     '''
     Creates a _deep_ copy of the given model
     '''
@@ -104,7 +108,7 @@ def newModelFromExisting(model):
         model.topicMean.copy(),
         model.topicCov.copy(),
         model.outDocCov,
-        model.vocab.copy(),
+        model.vocab.copy() if withLdaModel is None else lda_vocab(withLdaModel),
         model.A.copy(),
         model.trained,
         model.dtype,
@@ -112,7 +116,7 @@ def newModelFromExisting(model):
     )
 
 
-def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE):
+def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE, withLdaModel=None):
     '''
     Creates a new ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -131,13 +135,16 @@ def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE):
     D,T = data.words.shape
 
     # Pick some random documents as the vocabulary
-    vocab = np.ones((K, T), dtype=dtype)
-    doc_ids = rd.randint(0, data.doc_count, size=K)
-    for k in range(K):
-        sample_doc = data.words[doc_ids[k], :]
-        vocab[k, sample_doc.indices] += sample_doc.data # use plus equals in case we
-        vocab[k, :] /= vocab[k, :].sum()                # later use multiple docs per
-                                                        # vocab component
+    if withLdaModel is not None:
+        vocab = lda_vocab(withLdaModel)
+    else:
+        vocab = np.ones((K, T), dtype=dtype)
+        doc_ids = rd.randint(0, data.doc_count, size=K)
+        for k in range(K):
+            sample_doc = data.words[doc_ids[k], :]
+            vocab[k, sample_doc.indices] += sample_doc.data # use plus equals in case we
+            vocab[k, :] /= vocab[k, :].sum()                # later use multiple docs per
+                                                            # vocab component
     topicMean = rd.random((K,)).astype(dtype)
     topicMean /= np.sum(topicMean)
 
@@ -147,8 +154,22 @@ def newModelAtRandom(data, K, outDocCov=0.001, dtype=DTYPE):
     
     return ModelState(K, topicMean, topicCov, outDocCov, vocab, A, False, dtype, MODEL_NAME)
 
+def lda_vocab(ldaModel):
+    if ldaModel.name == lda_gibbs.MODEL_NAME:
+        return lda_gibbs.wordDists(ldaModel)
+    elif ldaModel.name == lda_vb.MODEL_NAME:
+        return lda_vb.wordDists(ldaModel)
+    else:
+        raise ValueError("Unknown LDA implementation")
 
-def newQueryStateFromCtm(data, model):
+def lda_topics(ldaQuery):
+    if "numSamples" in dir(ldaQuery):
+        return lda_gibbs.topicDists(ldaQuery)
+    else:
+        return lda_vb.topicDists(ldaQuery)
+
+
+def _newQueryStateFromCtm(data, model):
     import model.ctm_bohning as ctm
 
     ctm_model = ctm.newModelAtRandom(data, model.K, VocabPrior, model.dtype)
@@ -180,7 +201,40 @@ def newQueryStateFromCtm(data, model):
     return QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
 
 
-def newQueryState(data, modelState):
+def _newQueryStateFromLda(data, model, ldaQueryState):
+    '''
+    Note this MODIFIES the model.
+
+    Create a QueryState object intitalised with the given topics from an
+    LDA run.
+    :param data: the data we'll be training on
+    :param model: the MTM model state
+    :param ldaQueryState: the lda topics, an Lda QueryState object (Gibbs or VB)
+    :return: an MTM Query State
+    '''
+    K, vocab, dtype =  model.K, model.vocab, model.dtype
+
+    D,T = data.words.shape
+    assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
+    docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
+
+    outMeans = np.log(lda_topics(ldaQueryState))
+    m = outMeans.mean()
+    outMeans -= m
+    outVarcs = np.abs(np.ones((D,K), dtype=dtype) * m/10)
+
+    inMeans = outMeans + (m/10) * rd.random((D,K)).astype(dtype)
+    inVarcs = outVarcs.copy()
+
+    inDocCov  = np.ones((D,), dtype=dtype)
+
+    model.topicMean[:]  = outMeans.mean(axis=0)
+    model.topicCov[:,:] = np.cov(outMeans.T)
+
+    return QueryState(outMeans, outVarcs, inMeans, inVarcs, inDocCov, docLens)
+
+
+def newQueryState(data, modelState, withLdaTopics=None):
     '''
     Creates a new CTM Query state object. This contains all
     parameters and random variables tied to individual
@@ -189,12 +243,16 @@ def newQueryState(data, modelState):
     Param:
     data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
+    withLdaQuery - if not null, this is used to instantiate the
+    initial topics. IT IS ALSO USED TO MUTATE THE MODEL
     
     REturn:
     A CtmQueryState object
     '''
     if INIT_WITH_CTM:
-        return newQueryStateFromCtm(data, modelState)
+        return _newQueryStateFromCtm(data, modelState)
+    elif withLdaTopics is not None:
+        return _newQueryStateFromLda(data, modelState, withLdaTopics)
 
     K, vocab, dtype =  modelState.K, modelState.vocab, modelState.dtype
     
@@ -475,6 +533,7 @@ def query(data, modelState, queryState, queryPlan):
         # initialisation of the RVs when we do the E-Step
 
         expMeansRow = np.exp(outMeans - outMeans.max(axis=1)[:, np.newaxis])
+        W_weight   = sparseScalarQuotientOfDot(W, expMeansRow, vocab, out=W_weight)
         w_top_sums = W_weight.dot(vocab.T) * expMeansRow
 
         # Update the posterior variances
