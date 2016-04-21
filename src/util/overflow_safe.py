@@ -50,11 +50,13 @@ def safe_log_det(X):
 
     If it's still zero, return the log of dtype.minValue
     '''
-    detX = la.det(X)
-    if X.dtype == np.float32 and detX < sys.float_info.min:
-        detX = la.det(X.astype(np.float64))
+    # detX = la.det(X)
+    # if X.dtype == np.float32 and detX < sys.float_info.min:
+    #     detX = la.det(X.astype(np.float64))
+
+    _, d = np.linalg.slogdet (X)
     
-    return log(max (sys.float_info.min, detX))
+    return d
 
 # TODO This works, but how and why does it work?
 def safe_log_one_plus_exp_of (x):

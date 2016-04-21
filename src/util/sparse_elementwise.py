@@ -124,10 +124,10 @@ def entropyOfDot_py (topics, vocab):
                 result -= (topics[d,k] / denom) * vocab[k,t] * log ((topics[d,k] / denom) * vocab[d,k])
     
     return result
-    
 
 
-def sparseScalarQuotientOfDot (A, B, C, out=None):
+
+def sparseScalarQuotientOfDot (A, B, C, out=None, start=None, end=None):
     '''
     Returns A / np.dot(B, C), however it does so keeping in  mind 
     the sparsity of A, calculating values only where required.
@@ -138,6 +138,8 @@ def sparseScalarQuotientOfDot (A, B, C, out=None):
     C         - a dense matrix
     out       - if specified, must be a sparse CSR matrix with identical
                 non-zero pattern to A (i.e. same indices and indptr)
+    start     - where to start indexing A
+    end       - where to stop indexing A
     
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
@@ -146,14 +148,19 @@ def sparseScalarQuotientOfDot (A, B, C, out=None):
     assert not np.isfortran(B), "B matrix is not stored in row-major form"
     assert not np.isfortran(C), "C matrix is not stored in row-major form"
 
+    if start is None:
+        start = 0
+    if end is None:
+        end = A.shape[0]
     if out is None:
-        out = A.copy()
+        out = A[start:end,:].copy()
         
     if A.dtype == np.float64:
-        compiled.sparseScalarQuotientOfDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarQuotientOfDot_f8(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     elif A.dtype == np.float32:
-        compiled.sparseScalarQuotientOfDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarQuotientOfDot_f4(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     else:
+        raise ValueError ("No native Cython implementation for dtype " + str(A.dtype))
         _sparseScalarQuotientOfDot_py(A,B,C, out)
     return out
 
@@ -240,7 +247,7 @@ def _sparseScalarProductOfDot_py(A,B,C, out=None):
     return out
 
 
-def sparseScalarProductOfSafeLnDot (A, B, C, out=None):
+def sparseScalarProductOfSafeLnDot (A, B, C, out=None, start=None, end=None):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in
     mind the sparsity of A, calculating values only where required.
@@ -253,6 +260,8 @@ def sparseScalarProductOfSafeLnDot (A, B, C, out=None):
     C         - a dense matrix
     out       - if specified, must be a sparse CSR matrix with identical
                 non-zero pattern to A (i.e. same indices and indptr)
+    start     - where to start indexing A
+    end       - where to stop indexing A
     
     Returns
     out_data, though note that this is the same parameter passed in and overwitten.
@@ -261,12 +270,26 @@ def sparseScalarProductOfSafeLnDot (A, B, C, out=None):
     assert not np.isfortran(B), "B matrix is not stored in row-major form"
     assert not np.isfortran(C), "C matrix is not stored in row-major form"
 
+    if start is None:
+        start = 0
+    if end is None:
+        end = A.shape[0]
     if out is None:
+        out = A[start:end,:].copy()
+
+    if (start, end) == (0, A.shape[0]) and A.dtype == np.float64:
         out = A.copy()
-    if A.dtype == np.float64:
-        compiled.sparseScalarProductOfSafeLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
+        oldWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8_full(
+             A.data, A.indices, A.indptr, B, C, out.data))
+        out = A.copy()
+        newWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8(
+             A.data, A.indices, A.indptr, B, C, out.data, 0, A.shape[0]))
+
+        print ("The old way was " + str(oldWay) + " and the new way was " + str(newWay))
+    elif A.dtype == np.float64:
+        compiled.sparseScalarProductOfSafeLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     elif A.dtype == np.float32:
-        compiled.sparseScalarProductOfSafeLnDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarProductOfSafeLnDot_f4(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     else:
         _sparseScalarProductOfSafeLnDot_py(A,B,C, out)
     return out

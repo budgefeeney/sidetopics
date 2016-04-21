@@ -12,7 +12,7 @@ from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
-    SimLda, SimTfIdf
+    SimLda, SimTfIdf, StmUyvBohning
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
     MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, \
     LroMeanPrecRecAtMFeatSplit
@@ -147,25 +147,26 @@ class Test(unittest.TestCase):
         print ("New Version")
 
         Folds, ExecutedFoldCount = 5,5
-        K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 1000, 500, 10
-        PriorCov = 0.001
-        VocabPrior = 0.001
+        K,P,Q = 50, 150, 20
+        TrainIters, QueryIters, LogFreq = 600, 500, 50
+
+        PriorCov = 1
+        VocabPrior = 5
         Debug = False
 
-        print("long")
         modelFileses = []
-        for DataSetName in [Acl]:
+        for DataSetName in [ TweetsFreq ]:
             for k in [50]:
-                for modelName in [ Mtm2 ]:
+                for modelName in [ StmUyvBohning ]:
                     cmdline = '' \
                             + (' --debug '         + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
                             + ' --dtype '          + 'f8:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
+                            + ' --num-lat-topics ' + str(Q) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + LroMeanPrecRecAtMFeatSplit  \
+                            + ' --eval '           + Perplexity  \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
@@ -180,8 +181,8 @@ class Test(unittest.TestCase):
                             + ' --lat-feat-var '   + str(PriorCov) \
                             + ' --vocab-prior '    + str(VocabPrior) \
                             + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
-                            + ' --feats-mask '     + FeatsMask[DataSetName] \
-                            + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
+                            # + ' --feats-mask '     + FeatsMask[DataSetName] \
+                            # + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
         #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
         #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
         #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \

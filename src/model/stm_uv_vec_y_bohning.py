@@ -31,7 +31,7 @@ from util.overflow_safe import safe_log_det
 from model.evals import perplexity_from_like
 from model.common import DataSet
 
-from math import isnan
+from math import isnan, ceil, sqrt
 
     
 # ==============================================================
@@ -55,6 +55,8 @@ DEBUG=False
 
 MODEL_NAME="stm/uv_vecy/bohning"
 
+BatchSize = 1000
+
 # ==============================================================
 # TUPLES
 # ==============================================================
@@ -65,17 +67,25 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'means expMeans docLens'\
+    'means docLens'\
 )
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K A U Y V varA tv ltv fv lfv vocab vocabPrior dtype name'
+    'K A U Y V covA tv ltv fv lfv vocab vocabPrior dtype name'
 )
 
 # ==============================================================
 # PUBLIC API
 # ==============================================================
+
+def vec(X):
+    return X.flatten(order='F')
+
+def unvec(x, row_count):
+    col_count = x.shape[0] / row_count
+
+    return x.reshape(row_count, col_count, order='F')
 
 def wordDists(model):
     return model.vocab
@@ -98,7 +108,7 @@ def newModelFromExisting(model):
         safe_copy(model.U),
         safe_copy(model.Y),
         safe_copy(model.V),
-        safe_copy(model.varA),
+        safe_copy(model.covA),
         model.tv,
         model.ltv,
         model.fv,
@@ -170,11 +180,9 @@ def newQueryState(data, modelState):
     assert T == vocab.shape[1], "The number of terms in the document-term matrix (" + str(T) + ") differs from that in the model-states vocabulary parameter " + str(vocab.shape[1])
     docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
 
-    base     = normalizerows_ip(rd.random((D,K*2)).astype(dtype))
-    means    = base[:,:K]
-    expMeans = base[:,K:]
+    means = normalizerows_ip(rd.random((D,K)).astype(dtype))
     
-    return QueryState(means, expMeans, docLens)
+    return QueryState(means, docLens)
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=DEBUG):
@@ -204,15 +212,48 @@ def train (data, modelState, queryState, trainPlan):
     updated in place, so make a defensive copy if you want itr)
     A new query object with the update query parameters
     '''
-    W, X = data.words, data.links
+    W, X = data.words, data.feats
     D, T = W.shape
     F    = X.shape[1]
+
+
+    # tmpNumDense = np.array([
+    #     4	, 8	, 2	, 0	, 0,
+    #     0	, 6	, 0	, 17, 0,
+    #     12	, 13	, 1	, 7	, 8,
+    #     0	, 5	, 0	, 0	, 0,
+    #     0	, 6	, 0	, 0	, 44,
+    #     0	, 7	, 2	, 0	, 0], dtype=np.float64).reshape((6,5))
+    # tmpNum = ssp.csr_matrix(tmpNumDense)
+    #
+    # tmpDenomleft = (rd.random((tmpNum.shape[0], 12)) * 5).astype(np.int32).astype(np.float64) / 10
+    # tmpDenomRight = (rd.random((12, tmpNum.shape[1])) * 5).astype(np.int32).astype(np.float64)
+    #
+    # tmpResult = tmpNum.copy()
+    # tmpResult = sparseScalarQuotientOfDot(tmpNum, tmpDenomleft, tmpDenomRight)
+    #
+    # print (str(tmpNum.todense()))
+    # print (str(tmpDenomleft.dot(tmpDenomRight)))
+    # print (str(tmpResult.todense()))
     
     # Unpack the the structs, for ease of access and efficiency
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
-    means, expMeans, docLens = queryState.means, queryState.expMeans, queryState.docLens
-    K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
-        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.varA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
+    means, docLens = queryState.means, queryState.docLens
+    K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
+        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.covA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
+
+    tp, fp, ltp, lfp = 1./tv, 1./fv, 1./ltv, 1./lfv # turn variances into precisions
+
+    # FIXME Use passed in hypers
+    print ("tp = %f tv=%f" % (tp, tv))
+    vocabPrior = np.ones(shape=(T,), dtype=modelState.dtype)
+
+    # FIXME undo truncation
+    F = 363
+    A = A[:F, :]
+    X = X[:, :F]
+    U = U[:F, :]
+    data = DataSet(words=W, feats=X)
 
     # Book-keeping for logs
     boundIters, boundValues, likelyValues = [], [], []
@@ -220,65 +261,107 @@ def train (data, modelState, queryState, trainPlan):
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     
     # Initialize some working variables
-    R = W.copy()
-    if varA is None:
-        varA = la.inv(fv * ssp.eye(F) + X.T.dot(X))
+    if covA is None:
+        precA = (fp * ssp.eye(F) + X.T.dot(X)).todense() # As the inverse is almost always dense
+        covA   = la.inv(precA, overwrite_a=True)              # it's faster to densify in advance
+    uniqLens = np.unique(docLens)
+
+    debugFn (-1, covA, "covA", W, X, means, docLens, K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior)
+
+    H = 0.5 * (np.eye(K) - np.ones((K,K), dtype=dtype) / K)
+
+    expMeans = means.copy()
     expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
-    
+    R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=W.copy())
+
+    lhs = H.copy()
+    rhs = expMeans.copy()
+    Y_rhs = Y.copy()
+
     # Iterate over parameters
     for itr in range(iterations):
-        
-        # We start with the M-Step, so the parameters are consistent with our
-        # initialisation of the RVs when we do the E-Step
-        
-        # Update U, Y, V given A
-        V = la.solve(Y.T.dot(U.T).dot(U).dot(Y), A.T.dot(U).dot(Y).T, sym_pos=True, overwrite_a=True, overwrite_b=True).T
-        U = la.solve(Y.dot(V.T).dot(V).dot(Y.T), A.dot(V).dot(Y.T).T, sym_pos=True, overwrite_a=True, overwrite_b=True).T
-        Y = la.solve()
-        debugFn (itr, Y, "Y", W, X, means, expMeans, docLens, K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior)
 
-        A = varA.dot(U.dot(Y).dot(V.T))
-        debugFn (itr, A, "A", W, X, means, expMeans, docLens, K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior)
-        
-        # Building Blocks - temporarily replaces means with exp(means)
+        # Update U, V given A
+        V = try_solve_sym_pos(Y.T.dot(U.T).dot(U).dot(Y), A.T.dot(U).dot(Y).T).T
+        V /= V[0,0]
+        U = try_solve_sym_pos(Y.dot(V.T).dot(V).dot(Y.T), A.dot(V).dot(Y.T).T).T
+
+        # Update Y given U, V, A
+        Y_rhs[:,:] = U.T.dot(A).dot(V)
+
+        Sv, Uv = la.eigh(V.T.dot(V), overwrite_a=True)
+        Su, Uu = la.eigh(U.T.dot(U), overwrite_a=True)
+
+        s = np.outer(Sv, Su).flatten()
+        s += ltv * lfv
+        np.reciprocal(s, out=s)
+
+        M = Uu.T.dot(Y_rhs).dot(Uv)
+        M *= unvec(s, row_count=M.shape[0])
+
+        Y = Uu.dot(M).dot(Uv.T)
+        debugFn (itr, Y, "Y", W, X, means, docLens, K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior)
+
+
+        A = covA.dot(fp * U.dot(Y).dot(V.T) + X.T.dot(means))
+        debugFn (itr, A, "A", W, X, means, docLens, K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior)
+
+
+        # And now this is the E-Step, though itr's followed by updates for the
+        # parameters also that handle the log-sum-exp approximation.
+
+        # TODO One big sort by size, plus batch it.
+
+        # Update the Means
+
+        rhs[:,:] = expMeans
+        rhs *= R.dot(vocab.T)
+        rhs += X.dot(A) * tp
+        rhs += docLens[:,np.newaxis] * means.dot(H)
+        rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
+        for l in uniqLens:
+            inds = np.where(docLens == l)[0]
+            lhs[:,:] = l * H
+            lhs[np.diag_indices_from(lhs)] += tp
+            lhs[:,:] = la.inv(lhs)
+            means[inds,:] = rhs[inds,:].dot(lhs) # left and right got switched going from vectors to matrices :-/
+
+
+        debugFn (itr, means, "means", W, X, means, docLens, K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior)
+
+        # Standard deviation
+        # DK        = means.shape[0] * means.shape[1]
+        # newTp     = np.sum(means)
+        # newTp     = (-newTp * newTp)
+        # rhs[:,:]  = means
+        # rhs      *= means
+        # newTp     = DK * np.sum(rhs) - newTp
+        # newTp    /= DK * (DK - 1)
+        # newTp     = min(max(newTp, 1E-36), 1E+36)
+        # tp        = 1 / newTp
+        # if itr % logFrequency == 0:
+        #     print ("Iter %3d stdev = %f, prec = %f, np.std^2=%f, np.mean=%f" % (itr, sqrt(newTp), tp, np.std(means.reshape((D*K,))) ** 2, np.mean(means.reshape((D*K,)))))
+
+
+        # Update the vocabulary
         expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
         R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        
-        # Update the vocabulary
+
         vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
         vocab += vocabPrior
         vocab = normalizerows_ip(vocab)
-        
-        # Reset the means to their original form, and log effect of vocab update
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        V = expMeans * R.dot(vocab.T)
 
-        debugFn (itr, vocab, "vocab", W, X, means, expMeans, docLens, K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior)
-        
-        # And now this is the E-Step, though itr's followed by updates for the
-        # parameters also that handle the log-sum-exp approximation.
-        
-        # Update the Variances: var_d = (2 N_d * A + isigT)^{-1}
-        varcs = np.reciprocal(docLens[:,np.newaxis] * (K-1.)/K + np.diagonal(sigT))
-        debugFn (itr, varcs, "varcs", W, X, means, expMeans, docLens, K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior)
-        
-        # Update the Means
-        rhs = V.copy()
-        rhs += docLens[:,np.newaxis] * means.dot(A) + isigT.dot(topicMean)
-        rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
-        if diagonalPriorCov:
-            means = varcs * rhs
-        else:
-            for d in range(D):
-                means[d, :] = la.inv(isigT + docLens[d] * A).dot(rhs[d, :])
-        
-#         means -= (means[:,0])[:,np.newaxis]
-        
-        debugFn (itr, means, "means", W, X, means, expMeans, docLens, K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior)
-        
+        debugFn (itr, vocab, "vocab", W, X, means, docLens, K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior)
+        # print ("Iter %3d Vocab.min = %f" % (itr, vocab.min()))
+
+        # Update the vocab prior
+        # vocabPrior = estimate_dirichlet_param (vocab, vocabPrior)
+        # print ("Iter %3d VocabPrior.(min, max) = (%f, %f) VocabPrior.mean=%f" % (itr, vocabPrior.min(), vocabPrior.max(), vocabPrior.mean()))
+
+
         if logFrequency > 0 and itr % logFrequency == 0:
-            modelState = ModelState(K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype, modelState.name)
-            queryState = QueryState(means, expMeans, docLens)
+            modelState = ModelState(K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype, modelState.name)
+            queryState = QueryState(means, docLens)
             
             boundValues.append(var_bound(data, modelState, queryState))
             likelyValues.append(log_likelihood(data, modelState, queryState))
@@ -295,9 +378,54 @@ def train (data, modelState, queryState, trainPlan):
                     break
 
     return \
-        ModelState(K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype, modelState.name), \
+        ModelState(K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype, modelState.name), \
         QueryState(means, expMeans, docLens), \
         (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
+
+
+def estimate_dirichlet_param(samples, param):
+    '''
+    Uses a Newton-Raphson scheme to estimating the parameter of a
+    K-dimensional Dirichlet distribution
+
+    :param samples: an NxK matrix of K-dimensional vectors drawn from
+    a Dirichlet distribution
+    :param param: the old value of the paramter. This is overwritten
+    :return: a K-dimensional vector which is the new
+    '''
+
+    N, K = samples.shape
+    p = np.sum (np.log (samples), axis=0)
+
+    for _ in range(60):
+        g  = -N * fns.digamma (param)
+        g +=  N * fns.digamma (param.sum())
+        g += p
+
+        q = -N * fns.polygamma(1, param)
+        np.reciprocal(q, out=q)
+
+        z = N * fns.polygamma(1, param.sum())
+
+        b  = np.sum (g * q)
+        b /= 1/z + q.sum()
+
+        param -= (g - b) * q
+
+        print ("%.2f" % param.mean(), end=" --> ")
+    print
+
+    return param
+
+
+
+
+def try_solve_sym_pos(A, b):
+    try:
+        return la.solve(A, b, sym_pos=True, overwrite_a=True, overwrite_b=True)
+    except la.LinAlgError:
+        solution, _, _, _ = la.lstsq(A, b, overwrite_a=True, overwrite_b=True)
+        return solution
 
 def query(data, modelState, queryState, queryPlan):
     '''
@@ -316,8 +444,8 @@ def query(data, modelState, queryState, queryPlan):
     '''
     iterations, epsilon, logFrequency, diagonalPriorCov, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
     means, expMeans, docLens = queryState.means, queryState.expMeans, queryState.docLens
-    K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
-        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.varA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
+    K, A, U, Y,  V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
+        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.covA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
 
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     W = data.words
@@ -376,70 +504,120 @@ def log_likelihood (data, modelState, queryState):
 def var_bound(data, modelState, queryState):
     '''
     Determines the variational bounds. Values are mutated in place, but are
-    reset afterwards to their initial values. So it's safe to call in a serial
-    manner.
+    reset afterwards to their initial values. So it's safe to call in repeatedly.
     '''
     
     # Unpack the the structs, for ease of access and efficiency
-    W,X = data.words, data.links
-    D,T,F = W.shape[0], W.shape[1], W.shape[2]
-    means, expMeans, docLens = queryState.means, queryState.expMeans, queryState.docLens
-    K, A, U, Y,  V, varA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
-        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.varA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
+    W,X = data.words, data.feats
+    D,T,F = W.shape[0], W.shape[1], X.shape[1]
+    means, docLens = queryState.means, queryState.docLens
+    K, A, U, Y, V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype = \
+        modelState.K, modelState.A, modelState.U, modelState.Y,  modelState.V, modelState.covA, modelState.tv, modelState.ltv, modelState.fv, modelState.lfv, modelState.vocab, modelState.vocabPrior, modelState.dtype
 
-    # Calculate some implicit  variables
-    isigT = la.inv(sigT)
-    
+    H = 0.5 * (np.eye(K) - np.ones((K,K), dtype=dtype) / K)
+    Log2Pi = log(2 * pi)
+
     bound = 0
-    
-    if USE_NIW_PRIOR:
-        pseudoObsMeans = K + NIW_PSEUDO_OBS_MEAN
-        pseudoObsVar   = K + NIW_PSEUDO_OBS_VAR
 
-        # distribution over topic covariance
-        bound -= 0.5 * K * pseudoObsVar * log(NIW_PSI)
-        bound -= 0.5 * K * pseudoObsVar * log(2)
-        bound -= fns.multigammaln(pseudoObsVar / 2., K)
-        bound -= 0.5 * (pseudoObsVar + K - 1) * safe_log_det(sigT)
-        bound += 0.5 * NIW_PSI * np.trace(isigT)
+    # U and V are parameters with no distribution
 
-        # and its entropy
-        # is a constant which we skip
-        
-        # distribution over means
-        bound -= 0.5 * K * log(1./pseudoObsMeans) * safe_log_det(sigT)
-        bound -= 0.5 / pseudoObsMeans * (topicMean).T.dot(isigT).dot(topicMean)
-        
-        # and its entropy
-        bound += 0.5 * safe_log_det(sigT) # +  a constant
-        
-    
-    # Distribution over document topics
-    bound -= (D*K)/2. * LN_OF_2_PI
-    bound -= D/2. * la.det(sigT)
-    diff   = means - topicMean[np.newaxis,:]
-    bound -= 0.5 * np.sum (diff.dot(isigT) * diff)
-    bound -= 0.5 * np.sum(varcs * np.diag(isigT)[np.newaxis,:]) # = -0.5 * sum_d tr(V_d \Sigma^{-1}) when V_d is diagonal only.
-       
-    # And its entropy
-#     bound += 0.5 * D * K * LN_OF_2_PI_E + 0.5 * np.sum(np.log(varcs)) 
-    
+    #
+    # Y has a normal distribution, it's covariance is unfortunately an expensive computation
+    #
+    P, Q  = U.shape[1], V.shape[1]
+    covY  = np.eye(P*Q) * (lfv * ltv)
+    covY += np.kron (V.T.dot(V), U.T.dot(U))
+    covY  = la.inv(covY, overwrite_a=True)
+
+    # The expected likelihood of Y
+    bound -= 0.5 * P * Q * Log2Pi
+    bound -= 0.5 * P * Q * log(ltv * lfv)
+    bound -= 0.5 / (lfv * ltv) * np.sum (Y * Y) # 5x faster than np.trace(Y.dot(Y.T))
+    bound -= 0.5 * np.trace (covY) * (lfv * ltv)
+    # the traces of the posterior+prior covariance products cancel out across likelihoods
+
+    # The entropy of Y
+    bound += 0.5 * P * Q * (Log2Pi + 1) + 0.5 * safe_log_det(covY)
+
+    #
+    # A has a normal distribution/
+    #
+    F, K = A.shape[0], A.shape[1]
+    diff = A - U.dot(Y).dot(V.T)
+    diff *= diff
+
+    # The expected likelihood of A
+    bound -= 0.5 * K * F * Log2Pi
+    bound -= 0.5 * K * F * log (tv * fv)
+    bound -= 0.5 / (fv * tv) * np.sum(diff)
+
+    # The entropy of A
+    bound += 0.5 * F * K * (Log2Pi + 1) + 0.5 * K * safe_log_det(covA)
+
+    #
+    # Theta, the matrix of means, has a normal distribution. Its row-covarince is diagonal
+    # (i.e. it's several independent multi-var normal distros). The posterior is made
+    # up of D K-dimensional normals with diagonal covariances
+    #
+    # We iterate through the topics in batches, to control memory use
+    batchSize     = min (BatchSize, D)
+    batchCount    = ceil (D / batchSize)
+    feats = np.ndarray(shape=(batchSize, F), dtype=dtype)
+    tops  = np.ndarray(shape=(batchSize, K), dtype=dtype)
+    trace = 0
+    for b in range(0, batchCount):
+        start = b * batchSize
+        end   = min (start + batchSize, D)
+        batchSize = min(batchSize, end - start)
+
+        feats[:batchSize,:] = X[start:end, :].toarray()
+        np.dot(feats[:batchSize, :], A, out=tops[:batchSize, :])
+        tops[:batchSize, :] -= means[start:end,:]
+        tops[:batchSize, :] *= tops[:batchSize, :]
+        trace += np.sum(tops[:batchSize, :])
+    feats = None
+
+    # The expected likelihood of the topic-assignments
+    bound -= 0.5 * D * K * Log2Pi
+    bound -= 0.5 * D * K * log(tv)
+    bound -= 0.5 / tv * trace
+
+    bound -= 0.5 * tv * np.sum(covA) # this trace doesn't cancel as we
+                                     # don't have a posterior on tv
+    # The entropy of the topic-assignments
+    bound += 0.5 * D * K * (Log2Pi + 1) + 0.5 * np.sum(covA)
+
+
     # Distribution over word-topic assignments and words and the formers
     # entropy. This is somewhat jumbled to avoid repeatedly taking the
     # exp and log of the means
-    expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
-    R = sparseScalarQuotientOfDot(W, expMeans, vocab)  # D x V   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
-    V = expMeans * (R.dot(vocab.T)) # D x K
-    
-    bound += np.sum(docLens * np.log(np.sum(expMeans, axis=1)))
-    bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeans, vocab).data)
-    
-    bound += np.sum(means * V)
-    bound += np.sum(2 * ssp.diags(docLens,0) * means.dot(A) * means)
-    bound -= 2. * scaledSelfSoftDot(means, docLens)
-    bound -= 0.5 * np.sum(docLens[:,np.newaxis] * V * (np.diag(A))[np.newaxis,:])
-    
-    bound -= np.sum(means * V) 
+    # Again we batch this for safety
+    batchSize  = min (BatchSize, D)
+    batchCount = ceil (D / batchSize)
+    V          = np.ndarray(shape=(batchSize, K), dtype=dtype)
+    for b in range(0, batchCount):
+        start = b * batchSize
+        end   = min (start + batchSize, D)
+        batchSize = min(batchSize, end - start)
+
+        meansBatch   = means[start:end,:]
+        docLensBatch = docLens[start:end]
+
+        np.exp(meansBatch - meansBatch.max(axis=1)[:,np.newaxis], out=tops[:batchSize,:])
+        expMeansBatch = tops[:batchSize,:]
+        R = sparseScalarQuotientOfDot(W, expMeansBatch, vocab, start=start, end=end)  # BatchSize x V:   [W / TB] is the quotient of the original over the reconstructed doc-term matrix
+        V[:batchSize,:] = expMeansBatch * (R[:batchSize,:].dot(vocab.T)) # BatchSize x K
+        VBatch = V[:batchSize,:]
+
+        bound += np.sum(docLensBatch * np.log(np.sum(expMeansBatch, axis=1)))
+        bound += np.sum(sparseScalarProductOfSafeLnDot(W, expMeansBatch, vocab, start=start, end=end).data)
+
+        bound += np.sum(meansBatch * VBatch)
+        bound += np.sum(2 * ssp.diags(docLensBatch,0) * meansBatch.dot(H) * meansBatch)
+        bound -= 2. * scaledSelfSoftDot(meansBatch, docLensBatch)
+        bound -= 0.5 * np.sum(docLensBatch[:,np.newaxis] * VBatch * (np.diag(H))[np.newaxis,:])
+
+        bound -= np.sum(meansBatch * VBatch)
     
     
     return bound
@@ -449,35 +627,33 @@ def var_bound(data, modelState, queryState):
 # PUBLIC HELPERS
 # ==============================================================
 
-
 @static_var("old_bound", 0)
-def _debug_with_bound (itr, var_value, var_name, W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n):
+def _debug_with_bound (itr, var_value, var_name, W, X, means, docLens, K, A, U, Y, V, covA, tv, ltv, fv, lfv, vocab, vocabPrior):
     if np.isnan(var_value).any():
         printStderr ("WARNING: " + var_name + " contains NaNs")
     if np.isinf(var_value).any():
         printStderr ("WARNING: " + var_name + " contains INFs")
-    if var_value.dtype != dtype:
-        printStderr ("WARNING: dtype(" + var_name + ") = " + str(var_value.dtype))
+    dtype = A.dtype
     
     old_bound = _debug_with_bound.old_bound
-    bound     = var_bound(DataSet(W), ModelState(K, topicMean, sigT, vocab, vocabPrior, A, dtype, MODEL_NAME), QueryState(means, means.copy(), varcs, n))
+    data      = DataSet(W, X)
+    model     = ModelState(K, A, U, Y, V, covA, tv, ltv, fv, lfv, vocab, vocabPrior, dtype, MODEL_NAME)
+    query     = QueryState(means, docLens)
+    bound     = var_bound(data, model, query)
     diff = "" if old_bound == 0 else "%15.4f" % (bound - old_bound)
     _debug_with_bound.old_bound = bound
     
     addendum = ""
-    if var_name == "sigT":
-        try:
-            addendum = "det(sigT) = %g" % (la.det(sigT))
-        except:
-            addendum = "det(sigT) = <undefined>"
+
+    perp = np.exp(-log_likelihood(data, model, query) / data.word_count)
     
     if isnan(bound):
         printStderr ("Bound is NaN")
     elif int(bound - old_bound) < 0:
-        printStderr ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
+        printStderr ("Iter %3d Update %-15s Bound %22f (%15s) Perplexity %5.1f     %s" % (itr, var_name, bound, diff, perp, addendum))
     else:
-        print ("Iter %3d Update %-15s Bound %22f (%15s)     %s" % (itr, var_name, bound, diff, addendum)) 
+        print ("Iter %3d Update %-15s Bound %22f (%15s) Perplexity %5.1f     %s" % (itr, var_name, bound, diff, perp, addendum))
 
-def _debug_with_nothing (itr, var_value, var_name, W, K, topicMean, sigT, vocab, vocabPrior, dtype, means, varcs, A, n):
+def _debug_with_nothing (itr, var_value, var_name, W, X, means, docLens, K, A, U, Y, V, covA, tv, ltv, fv, lfv, vocab, vocabPrior):
     pass
 
