@@ -28,6 +28,7 @@ StmYvBouchard = 'stm_yv_bouchard'
 StmYvBohning  = 'stm_yv_bohning'
 LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
+LdaSvb        = 'lda_svb'
 LdaGibbs      = 'lda_gibbs'
 Rtm           = "rtm_vb"
 Mtm           = "mtm_vb"
@@ -124,8 +125,13 @@ def run(args):
                     help='A trained LDA model, used with the LRO model')
     parser.add_argument('--feats-mask', dest='features_mask_str', default=None, metavar=' ', \
                     help='Feature mask to use with FeatSplit runs, comma-delimited list of colon-delimited pairs')
+    parser.add_argument('--gradient-batch-size', dest='sgd_batch', default=0, metavar=' ', \
+                    help='What batch size should be employed when training using gradient descent')
+    parser.add_argument('--gradient-rate-retardation', dest='sgd_retardation_rate', default=0.6, metavar=' ', \
+                    help='A non-negative number, the higher this value, the smaller the learning rate is in early iterations')
+    parser.add_argument('--gradient-forgetting-rate', dest='sgd_forget_rate', default=0.6, metavar=' ', \
+                    help='A number in the range 0.5 < f <= 1, the higher this value, the faster the learning rate collapses to almost zero.')
 
-    #
     # Initialization of the app: first parse the arguments
     #
     print("Random seed is 0xC0FFEE")
@@ -182,6 +188,9 @@ def run(args):
     elif args.model == LdaVb:
         import model.lda_vb_python as mdl
         templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
+    elif args.model == LdaSvb:
+        import model.lda_svb as mdl
+        templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaGibbs:
         import model.lda_gibbs as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
@@ -210,7 +219,10 @@ def run(args):
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
 
-    trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+    if args.sgd_batch_size == 0:
+        trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+    else:
+        trainPlan = mdl.newTrainPlan(args.iters, batchSize=args.sgd_batch_size, rate_retardation=args.sgd_retardation_rate, forgetting_rate=args.sgd_forget_rate)
     queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
     if args.eval == Perplexity:
