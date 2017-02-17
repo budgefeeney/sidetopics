@@ -12,7 +12,14 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_svb as lda
+import model.lda_vb_python as lda
+from model.common import DataSet
+from model.evals import word_perplexity
+
+NipsPath='/Users/bryanfeeney/Desktop/NIPS/'
+NipsWordsPath=NipsPath + 'W_ar.pkl'
+NipsCitePath=NipsPath + 'X_ar.pkl'
+NipsDictPath=NipsPath + 'words.pkl'
 
 class Test(unittest.TestCase):
 
@@ -21,34 +28,25 @@ class Test(unittest.TestCase):
         dtype = np.float64 # DTYPE
         
         rd.seed(0xBADB055)
-        path = "/Users/bryanfeeney/Desktop/NIPS"
-        with open(path + "/ar.pkl", 'rb') as f:
-            _, W, _, d = pkl.load(f)
-            
-        if len(d) == 1:
-            d = d[0]
-        
-        if W.dtype != dtype:
-            W = W.astype(dtype)
-        
-        docLens   = np.squeeze(np.asarray(W.sum(axis=1)))
-        good_rows = (np.where(docLens > 0.5))[0]
-        if len(good_rows) < W.shape[0]:
-            print ("Some rows in the doc-term matrix are empty. These have been removed.")
-        W = W[good_rows, :]
+        data = DataSet.from_files(words_file=NipsWordsPath, links_file=NipsCitePath)
+        with open(NipsDictPath, "rb") as f:
+            d = pkl.load(f)
+
+        data.convert_to_dtype(dtype)
+        data.prune_and_shuffle(min_doc_len=50, min_link_count=0)
         
         # IDF frequency for when we print out the vocab later
-        freq = np.squeeze(np.asarray(W.sum(axis=0)))
+        freq = np.squeeze(np.asarray(data.words.sum(axis=0)))
         scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
         K = 10
-        model      = lda.newModelAtRandom(W, K, dtype=dtype)
-        queryState = lda.newQueryState(W, model)
-        trainPlan  = lda.newTrainPlan(iterations=40, logFrequency=10, debug=True, batchSize=100)
+        model      = lda.newModelAtRandom(data, K, dtype=dtype)
+        queryState = lda.newQueryState(data, model)
+        trainPlan  = lda.newTrainPlan(iterations=10, logFrequency=2, debug=False, batchSize=1, rate_retardation=0.001, forgetting_rate=0.51)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals, bndLikes) = lda.train (W, None, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)
 #        with open(newModelFileFromModel(model), "wb") as f:
 #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
         
@@ -65,32 +63,31 @@ class Test(unittest.TestCase):
         fig.show()
         plt.show()
         
-        vocab = lda.vocab(model)
+        vocab = lda.wordDists(model)
         plt.imshow(vocab, interpolation="nearest", cmap=cm.Greys_r)
         plt.show()
             
         # Print out the most likely topic words
         topWordCount = 100
-        kTopWordInds = [self.topWordInds(d, vocab[k,:] * scale, topWordCount) \
+        kTopWordInds = [self.topWordInds(vocab[k,:] * scale, topWordCount) \
                         for k in range(K)]
         
         print ("Prior %s" % (str(model.topicPrior)))
-        print ("Perplexity: %f\n\n" % lda.perplexity(W, model, query))
+        print ("Perplexity: %f\n\n" % word_perplexity(lda.log_likelihood, model, query, data))
         print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
         print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
         
-    def topWords (self, wordDict, vocab, count=10):
-        return [wordDict[w] for w in self.topWordInds(wordDict, vocab, count)]
+def topWords (wordDict, vocab, count=10):
+    return [wordDict[w] for w in topWordInds(vocab, count)]
 
-    
-    def topWordInds (self, wordDict, vocab, count=10):
-        return vocab.argsort()[-count:][::-1]
-    
-    def printTopics(self, wordDict, vocab, count=10):
-        words = vocab.argsort()[-count:][::-1]
-        for wordIdx in words:
-            print("%s" % wordDict[wordIdx])
-        print("")
+def topWordInds (vocab, count=10):
+    return vocab.argsort()[-count:][::-1]
+
+def printTopics(wordDict, vocab, count=10):
+    words = vocab.argsort()[-count:][::-1]
+    for wordIdx in words:
+        print("%s" % wordDict[wordIdx])
+    print("")
 
 
 if __name__ == "__main__":
