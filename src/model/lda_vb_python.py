@@ -29,7 +29,7 @@ HyperUpdateEnabled = False
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate debug')
+    'iterations epsilon logFrequency fastButInaccurate debug batchSize rate_retardation forgetting_rate')
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -134,7 +134,8 @@ def pruneQueryState (query, indices):
     return QueryState(query.docLens[indices], query.topicDists[indices,:], query.processed)
 
 
-def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False):
+def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False, batchSize=0,
+                 rate_retardation=0.6, forgetting_rate=0.6):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -144,7 +145,8 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     the last value of the bound and the current, and if it's less than the given angle,
     then stop.
     '''
-    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
+    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_retardation,
+                     forgetting_rate)
 
 
 def wordDists (modelState):
@@ -219,7 +221,7 @@ def _convertMeansToDirichletParam(docLens, topicMeans, topicPrior):
     topicMeans += topicPrior[np.newaxis, :]
     return topicMeans
 
-#@nb.autojit
+#@nb.jit
 def _inplace_softmax_colwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -242,7 +244,7 @@ def _inplace_softmax_colwise(z):
     z_sum = z.sum(axis=0)
     z /= z_sum[np.newaxis, :]
 
-#@nb.autojit
+#@nb.jit
 def _inplace_softmax_rowwise(z):
     '''
     Softmax transform of the given vector of scores into a vector of
@@ -264,7 +266,7 @@ def _inplace_softmax_rowwise(z):
 
 
 
-#@nb.autojit
+#@nb.jit
 def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -284,12 +286,11 @@ def _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, d
     :return: the indices of the non-zero words in document d, and the KxV matrix of
             topic assignments for each of the V non-zero words.
     '''
-    K = diWordDists.shape[0]
     wordIdx, z = _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
     topicMeans[d, :] = np.dot(z, data.words[d, :].data) / docLens[d]
     return wordIdx, z
 
-#@nb.autojit
+#@nb.jit
 def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums):
     '''
     Infers the topic assignments for all present words in the given document at
@@ -324,7 +325,7 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-#@nb.autojit
+##@nb.jit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -343,8 +344,9 @@ def train(data, model, query, plan, updateVocab=True):
     defensive copy if you want it)
     The query object with the update query parameters
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate, debug = \
-        plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
+    iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_retardation, forgetting_rate = \
+        plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug, \
+        plan.batchSize, plan.rate_retardation, plan.forgetting_rate
     docLens, topicMeans = \
         query.docLens, query.topicDists
     K, topicPrior, vocabPrior, wordDists, dtype = \
@@ -360,7 +362,6 @@ def train(data, model, query, plan, updateVocab=True):
 
     W   = data.words
     D,T = W.shape
-    X   = data.links
 
     iters, bnds, likes = [], [], []
 
@@ -369,6 +370,13 @@ def train(data, model, query, plan, updateVocab=True):
     # we only store a 1xNxT = NxT part.
     diWordDistSums = np.empty((K,), dtype=dtype)
     diWordDists    = np.empty(wordDists.shape, dtype=dtype)
+    wordUpdates    = wordDists.copy() if batchSize > 0 else None
+    batchProcessCount = 0
+
+    # Amend the name if batchSize == 0 implying we're using SGD
+    modelName = "lda/svbp/%04d-%05.2f-%05.2f" % (batchSize, rate_retardation, forgetting_rate) \
+                if batchSize > 0 else model.name
+    print (modelName)
 
     for itr in range(iterations):
         diWordDistSums[:] = wordDists.sum(axis=1)
@@ -377,11 +385,37 @@ def train(data, model, query, plan, updateVocab=True):
 
         if updateVocab:
             # Perform inference, updating the vocab
-            wordDists[:, :] = vocabPrior
+            if batchSize == 0:
+                wordDists[:, :] = vocabPrior
+            else:
+                wordUpdates[:,:] = 0
+
             for d in range(D):
+                batchProcessCount += 1
                 #if debug and d % 100 == 0: printAndFlushNoNewLine(".")
                 wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
+
+                if 0 < batchSize == batchProcessCount:
+                    cycles_elapsed = itr * D + d + 1
+                    stepSize = (rate_retardation + cycles_elapsed)**(-forgetting_rate)
+                    wordDists *= (1 - stepSize)
+                    wordUpdates *= stepSize
+                    wordDists   += wordUpdates
+
+                    diWordDistSums[:] = wordDists.sum(axis=1)
+                    fns.digamma(diWordDistSums, out=diWordDistSums)
+                    fns.digamma(wordDists, out=diWordDists)
+
+                    wordUpdates[:,:] = 0
+                    batchProcessCount = 0
+
+                    if debug:
+                        bnds.append(_var_bound_internal(data, model, query))
+                        likes.append(_log_likelihood_internal(data, model, query))
+
+                        perp = perplexity_from_like(likes[-1], W.sum())
+                        print("Iteration %d, after %d docs: Train Perp = %4.0f  Bound = %.3f" % (itr, batchSize, perp, bnds[-1]))
 
 
             # Log bound and the determine if we can stop early
@@ -410,11 +444,9 @@ def train(data, model, query, plan, updateVocab=True):
 
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
 
-    return ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, model.name), \
+    return ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName), \
            QueryState(docLens, topicMeans, True), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
-
-
 
 
 def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
@@ -491,7 +523,7 @@ def printAndFlushNoNewLine(text):
 
 
 
-#@nb.autojit
+#@nb.jit
 def query(data, model, query, plan):
     '''
     Infers the topic distributions in general, and specifically for
@@ -514,7 +546,7 @@ def query(data, model, query, plan):
     _, topics, (_,_,_) = train(data, model, query, plan, updateVocab=False)
     return model, topics
 
-#@nb.autojit
+#@nb.jit
 def _var_bound_internal(data, model, query, z_dnk = None):
     _convertMeansToDirichletParam(query.docLens, query.topicDists, model.topicPrior)
     result = var_bound(data, model, query, z_dnk)
@@ -523,7 +555,7 @@ def _var_bound_internal(data, model, query, z_dnk = None):
     return result
 
 
-#@nb.autojit
+#@nb.jit
 def var_bound(data, model, query, z_dnk = None):
     '''
     Determines the variational bounds.
