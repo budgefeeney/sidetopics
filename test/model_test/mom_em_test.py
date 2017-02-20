@@ -21,6 +21,10 @@ NipsWordsPath=NipsPath + 'W_ar.pkl'
 NipsCitePath=NipsPath + 'X_ar.pkl'
 NipsDictPath=NipsPath + 'dict.pkl'
 
+TNewsPath='/Users/bryanfeeney/Desktop/20news4/'
+TNewsWordsPath=TNewsPath + 'W.pkl'
+TNewsDictPath=TNewsPath + 'dict.pkl'
+
 class Test(unittest.TestCase):
 
 
@@ -28,15 +32,15 @@ class Test(unittest.TestCase):
         dtype = np.float64 # DTYPE
         
         rd.seed(0xBADB055)
-        data = DataSet.from_files(words_file=NipsWordsPath, links_file=NipsCitePath)
-        with open(NipsDictPath, "rb") as f:
+        data = DataSet.from_files(words_file=TNewsWordsPath)
+        with open(TNewsDictPath, "rb") as f:
             d = pkl.load(f)
 
         data.convert_to_dtype(dtype)
         data.prune_and_shuffle(min_doc_len=50, min_link_count=0)
        
         # Initialise the model  
-        K = 20
+        K = 4
         model      = mom.newModelAtRandom(data, K, dtype=dtype)
         queryState = mom.newQueryState(data, model)
         trainPlan  = mom.newTrainPlan(iterations=50, logFrequency=5, debug=False)
