@@ -421,7 +421,7 @@ def train(data, model, query, plan, updateVocab=True):
                 perp = perplexity_from_like(likes[-1], W.sum())
                 print ("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (itr, perp, bnds[-1]))
 
-                if len(iters) > 2 and iters[-1] > 50:
+                if len(iters) > 2 and (iters[-1] > 50 or (iters[-1] > 2 and batchSize > 0)):
                     lastPerp = perplexity_from_like(likes[-2], W.sum())
                     if lastPerp - perp < 1:
                         print ("Converged, existing early")

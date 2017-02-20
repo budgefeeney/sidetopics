@@ -28,6 +28,9 @@ _NipsWordPath = NipsPath + "W_ar.pkl"
 _NipsFeatPath = NipsPath + "X_ar.pkl"
 _NipsDictPath = None
 
+ReutersPath = "/Users/bryanfeeney/Desktop/reuters/"
+_ReutersWordPath = ReutersPath + "W.pkl"
+_ReutersDictPath = ReutersPath + "dict.pkl"
 
 Tweets1100Path = "/Users/bryanfeeney/iCloud/Datasets/Tweets/Tweets-1.1m/"
 _Tweets1100WordPath = Tweets1100Path + "words.pkl"
@@ -86,11 +89,13 @@ _TweetsFreqWordPath       = _Tweets500FreqWordPath
 _TweetsFreqDictPath       = _Tweets500FreqDictPath
 
 
-Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6
-WordsPath = [_AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
-FeatsPath = [_AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                  None,                      _NipsFeatPath]
-CitesPath = [_AclCitePath,  None,          None,            None,                None,                  None,                      None]
-DictsPath = [_AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath, None,                  _TweetsFreqDictPath,       _NipsDictPath]
+
+
+Reuters, Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6, 7
+WordsPath = [_ReutersWordPath, _AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
+FeatsPath = [None,             _AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                  None,                      _NipsFeatPath]
+CitesPath = [None,             _AclCitePath,  None,          None,            None,                None,                  None,                      None]
+DictsPath = [_ReutersDictPath, _AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath, None,                  _TweetsFreqDictPath,       _NipsDictPath]
 
 PreBuildTopicsDir="/Users/bryanfeeney/Desktop/acl-out-tm/lda/"
 PreBuiltAclGibbsTopics = { \
@@ -154,7 +159,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5,1
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 100,20,6
+        TrainIters, QueryIters, LogFreq = 300,20,30
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
@@ -163,8 +168,8 @@ class Test(unittest.TestCase):
 
         print("long")
         modelFileses = []
-        for DataSetName in [Nips]:
-            for k in [100]:
+        for DataSetName in [Reuters]:
+            for k in [20]:
                 for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
                 #for modelName in [ LdaSvb ]:
                     modelName = LdaSvb
@@ -203,7 +208,7 @@ class Test(unittest.TestCase):
         #                    + ' --feats '          + featsFile
         #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
 
-                modelFileses.extend (run(cmdline.strip().split(' ')))
+                    modelFileses.extend (run(cmdline.strip().split(' ')))
 
                 modelFileses.insert(0, wordsFile)
                 modelFileses.insert(1, featsFile)
