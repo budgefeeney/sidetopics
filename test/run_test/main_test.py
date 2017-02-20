@@ -12,7 +12,7 @@ from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
-    SimLda, SimTfIdf
+    SimLda, SimTfIdf, LdaSvb, MomEm
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
     MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, \
     LroMeanPrecRecAtMFeatSplit
@@ -146,26 +146,39 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        Folds, ExecutedFoldCount = 5,5
+        RetardationRate = 0.6
+        ForgettingRate  = 0.6
+        BatchSize       = 10
+
+        sgd_setups = [(b,r,f) for b in [1, 5, 10, 100] for r in [1, 10, 30] for f in [0.6, 0.75, 0.9]]
+
+        Folds, ExecutedFoldCount = 5,1
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 6,4,2
+        TrainIters, QueryIters, LogFreq = 100,20,6
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
 
+
+
         print("long")
         modelFileses = []
-        for DataSetName in [Acl]:
-            for k in [10]:
-                for modelName in [ Lro ]:
+        for DataSetName in [Nips]:
+            for k in [100]:
+                for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
+                #for modelName in [ LdaSvb ]:
+                    modelName = LdaSvb
                     cmdline = '' \
-                            + (' --debug '         + str(Debug) if Debug else "") \
+                            +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
                             + ' --dtype '          + 'f8:f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + LroMeanPrecRecAtMAllDocs  \
+                            + ' --eval '           + Perplexity  \
+                            + ' --gradient-batch-size '       + str(BatchSize) \
+                            + ' --gradient-rate-retardation ' + str(RetardationRate) \
+                            + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \
                             + ' --folds '          + str(Folds)      \
@@ -180,12 +193,12 @@ class Test(unittest.TestCase):
                             + ' --lat-feat-var '   + str(PriorCov) \
                             + ' --vocab-prior '    + str(VocabPrior) \
                             + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
-                            + ' --feats-mask '     + FeatsMask[DataSetName] \
-                            + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
-        #                     + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-        #                     + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
-        #                      + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
-        #                      + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
+        #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
+        #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
+        #                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
+        #                    + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
         #                    + ' --words '          + wordsFile \
         #                    + ' --feats '          + featsFile
         #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
