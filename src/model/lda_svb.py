@@ -101,6 +101,10 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
+    elif type(topicPrior) is float:
+        _topicPrior = np.ndarray((K,), dtype=dtype)
+        _topicPrior.fill (topicPrior)
+        topicPrior = _topicPrior
     if vocabPrior is None:
         vocabPrior = 1.1 # Also from G&S
     
