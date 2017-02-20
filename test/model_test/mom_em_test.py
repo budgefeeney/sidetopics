@@ -12,14 +12,14 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_vb_python as lda
+import model.mom_em as mom
 from model.common import DataSet
 from model.evals import word_perplexity
 
 NipsPath='/Users/bryanfeeney/Desktop/NIPS/'
 NipsWordsPath=NipsPath + 'W_ar.pkl'
 NipsCitePath=NipsPath + 'X_ar.pkl'
-NipsDictPath=NipsPath + 'words.pkl'
+NipsDictPath=NipsPath + 'dict.pkl'
 
 class Test(unittest.TestCase):
 
@@ -34,19 +34,15 @@ class Test(unittest.TestCase):
 
         data.convert_to_dtype(dtype)
         data.prune_and_shuffle(min_doc_len=50, min_link_count=0)
-        
-        # IDF frequency for when we print out the vocab later
-        freq = np.squeeze(np.asarray(data.words.sum(axis=0)))
-        scale = np.reciprocal(1 + freq)
        
         # Initialise the model  
-        K = 10
-        model      = lda.newModelAtRandom(data, K, dtype=dtype)
-        queryState = lda.newQueryState(data, model)
-        trainPlan  = lda.newTrainPlan(iterations=10, logFrequency=2, debug=False, batchSize=1, rate_retardation=0.001, forgetting_rate=0.51)
+        K = 20
+        model      = mom.newModelAtRandom(data, K, dtype=dtype)
+        queryState = mom.newQueryState(data, model)
+        trainPlan  = mom.newTrainPlan(iterations=50, logFrequency=5, debug=False)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
-        model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)
+        model, query, (bndItrs, bndVals, bndLikes) = mom.train (data, model, queryState, trainPlan)
 #        with open(newModelFileFromModel(model), "wb") as f:
 #            pkl.dump ((model, query, (bndItrs, bndVals, bndLikes)), f)
         
@@ -62,32 +58,32 @@ class Test(unittest.TestCase):
         
         fig.show()
         plt.show()
-        
-        vocab = lda.wordDists(model)
-        plt.imshow(vocab, interpolation="nearest", cmap=cm.Greys_r)
-        plt.show()
             
         # Print out the most likely topic words
-        topWordCount = 100
-        kTopWordInds = [topWordIndices(vocab[k, :] * scale, topWordCount) \
-                        for k in range(K)]
-        
         print ("Prior %s" % (str(model.topicPrior)))
-        print ("Perplexity: %f\n\n" % word_perplexity(lda.log_likelihood, model, query, data))
-        print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
-        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
-        
-def topWords (wordDict, vocab, count=10):
-    return [wordDict[w] for w in topWordIndices(vocab, count)]
+        print ("Perplexity: %f\n\n" % word_perplexity(mom.log_likelihood, model, query, data))
+        print ("")
+        printWordDists(K, mom.wordDists(model), d)
 
-def topWordIndices (vocab, count=10):
+def topWordIndices(vocab, count=10):
     return vocab.argsort()[-count:][::-1]
 
-def printTopics(wordDict, vocab, count=10):
-    words = vocab.argsort()[-count:][::-1]
-    for wordIdx in words:
-        print("%s" % wordDict[wordIdx])
-    print("")
+
+def topWords(wordDict, vocab, count=10):
+    return [wordDict[w] for w in topWordIndices(vocab, count)]
+
+
+def printModelWordDists(model, dic):
+    printWordDists(model.K, model.wordDists, dic)
+
+
+def printWordDists(K, wordDists, dic):
+    for k in range(K):
+        tw = topWords(dic, wordDists[k])
+        print("Cluster %2d" % (k,))
+        print("==========")
+        print("\n".join(tw))
+        print("\n")
 
 
 if __name__ == "__main__":
