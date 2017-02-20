@@ -159,12 +159,6 @@ def wordDists (modelState):
 
     return result
 
-def topicDists (queryState):
-    '''
-    The D x T matrix of distributions over K topics for each of the
-    D documents
-    '''
-    return queryState.topicDists
 
 
 def topicDists (queryState):
@@ -430,6 +424,7 @@ def train(data, model, query, plan, updateVocab=True):
                 if len(iters) > 2 and iters[-1] > 50:
                     lastPerp = perplexity_from_like(likes[-2], W.sum())
                     if lastPerp - perp < 1:
+                        print ("Converged, existing early")
                         break;
 
             # Update hyperparameters (do this after bound, to make sure bound
