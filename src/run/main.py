@@ -37,10 +37,11 @@ Lro           = "lro_vb"
 Dmr           = "dmr"
 SimLda        = "sim_lda_vb"
 SimTfIdf      = "sim_tfidf"
+MomEm         = "mom_em"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaGibbs, Rtm, Mtm, Lro, Dmr])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaSvb, LdaGibbs, Rtm, Mtm, Lro, Dmr, MomEm])
 
 from model.lda_vb_python import pruneQueryState as pruneLdaVbQueryState
 from model.lda_vb_python import MODEL_NAME as LDA_VB_MODEL_NAME
@@ -58,6 +59,8 @@ FastButInaccurate=False
 MinLinkCountPrune=0 # 2
 MinLinkCountEval=5
 
+def model_supports_sgd(model_name):
+    return model_name == LdaSvb
 
 
 def run(args):
@@ -125,11 +128,11 @@ def run(args):
                     help='A trained LDA model, used with the LRO model')
     parser.add_argument('--feats-mask', dest='features_mask_str', default=None, metavar=' ', \
                     help='Feature mask to use with FeatSplit runs, comma-delimited list of colon-delimited pairs')
-    parser.add_argument('--gradient-batch-size', dest='sgd_batch', default=0, metavar=' ', \
+    parser.add_argument('--gradient-batch-size', dest='sgd_batch_size', type=int, default=0, metavar=' ', \
                     help='What batch size should be employed when training using gradient descent')
-    parser.add_argument('--gradient-rate-retardation', dest='sgd_retardation_rate', default=0.6, metavar=' ', \
+    parser.add_argument('--gradient-rate-retardation', dest='sgd_retardation_rate', type=float, default=0.6, metavar=' ', \
                     help='A non-negative number, the higher this value, the smaller the learning rate is in early iterations')
-    parser.add_argument('--gradient-forgetting-rate', dest='sgd_forget_rate', default=0.6, metavar=' ', \
+    parser.add_argument('--gradient-forgetting-rate', dest='sgd_forget_rate', type=float, default=0.6, metavar=' ', \
                     help='A number in the range 0.5 < f <= 1, the higher this value, the faster the learning rate collapses to almost zero.')
 
     # Initialization of the app: first parse the arguments
@@ -182,6 +185,9 @@ def run(args):
     elif args.model == StmYvBohningFakeOnline:
         import model.stm_yv_bohning_fake_online as mdl
         templateModel = mdl.newModelAtRandom(data, P, K, fv, lfv, args.vocabPrior, dtype=output_dtype)
+    elif args.model == MomEm:
+        import model.mom_em as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaCvbZero:
         import model.lda_cvb as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
@@ -189,7 +195,7 @@ def run(args):
         import model.lda_vb_python as mdl
         templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaSvb:
-        import model.lda_svb as mdl
+        import model.lda_vb_python as mdl
         templateModel = mdl.newModelAtRandom(data, K, args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaGibbs:
         import model.lda_gibbs as mdl
@@ -219,10 +225,17 @@ def run(args):
         raise ValueError ("Unknown model identifier " + args.model)
     print("Done")
 
-    if args.sgd_batch_size == 0:
-        trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+    if args.sgd_batch_size > 0 and model_supports_sgd(args.model):
+        trainPlan = mdl.newTrainPlan(
+                        args.iters,
+                        batchSize=args.sgd_batch_size,
+                        rate_retardation=args.sgd_retardation_rate,
+                        forgetting_rate=args.sgd_forget_rate,
+                        debug=args.debug)
     else:
-        trainPlan = mdl.newTrainPlan(args.iters, batchSize=args.sgd_batch_size, rate_retardation=args.sgd_retardation_rate, forgetting_rate=args.sgd_forget_rate)
+        trainPlan = mdl.newTrainPlan(args.iters, debug=args.debug)
+
+
     queryPlan = mdl.newTrainPlan(args.query_iters, debug=args.debug)
 
     if args.eval == Perplexity:
