@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
+# import model.mom_gibbs as mom
 import model.mom_em as mom
 from model.common import DataSet
 from model.evals import word_perplexity
@@ -40,11 +41,12 @@ class Test(unittest.TestCase):
         data.prune_and_shuffle(min_doc_len=50, min_link_count=0)
        
         # Initialise the model  
-        K = 4
+        K = 6
         model      = mom.newModelAtRandom(data, K, dtype=dtype)
         queryState = mom.newQueryState(data, model)
-        trainPlan  = mom.newTrainPlan(iterations=50, logFrequency=5, debug=False)
-        
+        # trainPlan  = mom.newTrainPlan(iterations=1000, logFrequency=10, debug=False, burnIn=1000, thinning=10)
+        trainPlan = mom.newTrainPlan(iterations=200, logFrequency=10, debug=False)
+
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = mom.train (data, model, queryState, trainPlan)
 #        with open(newModelFileFromModel(model), "wb") as f:
