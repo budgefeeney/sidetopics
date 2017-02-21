@@ -92,7 +92,6 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
             sample_doc = data.words[randomDoc, :]
             wordDists[k, sample_doc.indices] += sample_doc.data
             docLenSum += sample_doc.sum()
-        wordDists[k, :] += wordDists[k, :].mean() # Soften to avoid overfitting
         wordDists[k, :] /= wordDists[k, :].sum()
 
     corpusTopicDist = np.array([1./K] * K, dtype=dtype)
