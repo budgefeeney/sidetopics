@@ -43,7 +43,7 @@ class Test(unittest.TestCase):
         K = 10
         model      = lda.newModelAtRandom(data, K, dtype=dtype)
         queryState = lda.newQueryState(data, model)
-        trainPlan  = lda.newTrainPlan(iterations=10, logFrequency=2, debug=False, batchSize=1, rate_retardation=0.001, forgetting_rate=0.51)
+        trainPlan  = lda.newTrainPlan(iterations=10, logFrequency=2, debug=True, batchSize=5, rate_retardation=1, forgetting_rate=0.75)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)

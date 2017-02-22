@@ -392,10 +392,14 @@ def train(data, model, query, plan, updateVocab=True):
 
                 if 0 < batchSize == batchProcessCount:
                     cycles_elapsed = itr * D + d + 1
-                    stepSize = (rate_retardation + cycles_elapsed)**(-forgetting_rate)
-                    wordDists *= (1 - stepSize)
-                    wordUpdates *= stepSize
-                    wordDists   += wordUpdates
+                    stepSize       = (rate_retardation + cycles_elapsed)**(-forgetting_rate)
+                    wordDists     *= (1 - stepSize)
+                    wordDists     += stepSize * vocabPrior
+
+                    stepSize      *= float(D) / batchSize
+                    wordUpdates   *= stepSize
+                    wordDists     += wordUpdates
+
 
                     diWordDistSums[:] = wordDists.sum(axis=1)
                     fns.digamma(diWordDistSums, out=diWordDistSums)
