@@ -159,7 +159,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5,1
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 300,20,30
+        TrainIters, QueryIters, LogFreq = 100,20,30
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False

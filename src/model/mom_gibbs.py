@@ -321,11 +321,12 @@ def query(data, model, queryState, queryPlan):
     W = data.words
 
     sample_count = 0
-    sample_accum = topicDists.copy()
-    for itr in (queryPlan.iterations):
+    sample_accum = np.zeros(topicDists.shape, dtype=topicDists.dtype)
+    for itr in range(queryPlan.iterations):
         topicDists = sample_memberships(W, topicPrior, wordDists, topicDists)
         if is_sampling_iteration(itr, queryPlan):
             sample_accum += topicDists
+            sample_count += 1
 
     sample_accum /= sample_count
     return model, QueryState(queryState.docLens, sample_accum, True)
