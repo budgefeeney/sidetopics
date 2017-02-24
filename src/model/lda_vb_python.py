@@ -414,6 +414,7 @@ def train(data, model, query, plan, updateVocab=True):
 
                         perp = perplexity_from_like(likes[-1], W.sum())
                         print("Iteration %d, after %d docs: Train Perp = %4.0f  Bound = %.3f" % (itr, batchSize, perp, bnds[-1]))
+                        sys.stdout.flush()
 
 
             # Log bound and the determine if we can stop early
