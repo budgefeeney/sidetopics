@@ -283,7 +283,7 @@ def query(data, model, queryState, _):
     norms = fns.logsumexp(topicDists, axis=1)
     topicDists -= norms[:, np.newaxis]
 
-    return model, QueryState(queryState.docLens, topicDists, True)
+    return model, QueryState(queryState.docLens, np.exp(topicDists), True)
 
 
 def var_bound(data, model, query):

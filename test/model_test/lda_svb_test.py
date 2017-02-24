@@ -43,7 +43,7 @@ class Test(unittest.TestCase):
         K = 10
         model      = lda.newModelAtRandom(data, K, dtype=dtype)
         queryState = lda.newQueryState(data, model)
-        trainPlan  = lda.newTrainPlan(iterations=10, logFrequency=2, debug=True, batchSize=5, rate_retardation=1, forgetting_rate=0.75)
+        trainPlan  = lda.newTrainPlan(iterations=30, logFrequency=2, debug=False, batchSize=50, rate_retardation=1, forgetting_rate=0.75)
         
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)
@@ -71,23 +71,29 @@ class Test(unittest.TestCase):
         topWordCount = 100
         kTopWordInds = [topWordIndices(vocab[k, :] * scale, topWordCount) \
                         for k in range(K)]
-        
-        print ("Prior %s" % (str(model.topicPrior)))
-        print ("Perplexity: %f\n\n" % word_perplexity(lda.log_likelihood, model, query, data))
-        print ("\t\t".join (["Topic " + str(k) for k in range(K)]))
-        print ("\n".join ("\t".join (d[kTopWordInds[k][c]] + "\t%0.4f" % vocab[k][kTopWordInds[k][c]] for k in range(K)) for c in range(topWordCount)))
-        
-def topWords (wordDict, vocab, count=10):
-    return [wordDict[w] for w in topWordIndices(vocab, count)]
 
-def topWordIndices (vocab, count=10):
+        # Print out the most likely topic words
+        print("Prior %s" % (str(model.topicPrior)))
+        print("Perplexity: %f\n\n" % word_perplexity(lda.log_likelihood, model, query, data))
+        print("")
+        printWordDists(K, lda.wordDists(model), d)
+
+def topWordIndices(vocab, count=10):
     return vocab.argsort()[-count:][::-1]
 
-def printTopics(wordDict, vocab, count=10):
-    words = vocab.argsort()[-count:][::-1]
-    for wordIdx in words:
-        print("%s" % wordDict[wordIdx])
-    print("")
+def topWords(wordDict, vocab, count=10):
+    return [wordDict[w] for w in topWordIndices(vocab, count)]
+
+def printModelWordDists(model, dic):
+    printWordDists(model.K, model.wordDists, dic)
+
+def printWordDists(K, wordDists, dic):
+    for k in range(K):
+        tw = topWords(dic, wordDists[k])
+        print("Cluster %2d" % (k,))
+        print("==========")
+        print("\n".join(tw))
+        print("\n")
 
 
 if __name__ == "__main__":
