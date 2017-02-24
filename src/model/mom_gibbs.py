@@ -314,8 +314,8 @@ def query(data, model, queryState, queryPlan):
     defensive copy if you want it)
     The query object with the update query parameters
     '''
-    K, wordDists, corpusTopicDist, topicPrior, vocabPrior = \
-        model.K, model.wordDists, model.corpusTopicDist, model.topicPrior, model.vocabPrior
+    K, wordDists, topicPrior, vocabPrior = \
+        model.K, model.wordDists, model.topicPrior, model.vocabPrior
     topicDists = queryState.topicDists
 
     W = data.words

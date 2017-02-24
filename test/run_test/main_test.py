@@ -171,7 +171,7 @@ class Test(unittest.TestCase):
         for DataSetName in [Nips]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ MomEm ]:
+                for modelName in [ MomGibbs ]:
                     BatchSize = 0
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
