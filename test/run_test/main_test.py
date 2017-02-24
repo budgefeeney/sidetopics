@@ -12,7 +12,7 @@ from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
-    SimLda, SimTfIdf, LdaSvb, MomEm
+    SimLda, SimTfIdf, LdaSvb, MomEm, MomGibbs
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
     MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, \
     LroMeanPrecRecAtMFeatSplit
@@ -168,11 +168,11 @@ class Test(unittest.TestCase):
 
         print("long")
         modelFileses = []
-        for DataSetName in [Reuters]:
+        for DataSetName in [Nips]:
             for k in [20]:
-                for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                #for modelName in [ LdaSvb ]:
-                    modelName = LdaSvb
+                #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
+                for modelName in [ MomEm ]:
+                    BatchSize = 0
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
