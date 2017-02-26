@@ -24,7 +24,7 @@ import scipy.special as fns
 import numpy.random as rd
 import sys
 
-import model.lda_cvb_fast as compiled
+import model.lda_cvb0_fast as compiled
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.misc import constantArray, converged, clamp
@@ -52,12 +52,12 @@ TrainPlan = namedtuple ( \
 
 QueryState = namedtuple ( \
     'QueryState', \
-    'W_list docLens n_dk n_kt n_k v_dk, v_kt, v_k z_dnk'\
+    'W_list docLens n_dk n_kt n_k z_dnk'\
 )
 
 ModelState = namedtuple ( \
     'ModelState', \
-    'K topicPrior vocabPrior n_dk n_kt n_k v_dk, v_kt, v_k dtype name'
+    'K topicPrior vocabPrior n_dk n_kt n_k dtype name'
 )
 
 # ==============================================================
@@ -75,9 +75,6 @@ def newModelFromExisting(model):
         None if model.n_dk is None else model.n_dk.copy(), \
         None if model.n_kt is None else model.n_kt.copy(), \
         None if model.n_k  is None else model.n_k.copy(),  \
-        None if model.v_dk is None else model.n_dk.copy(), \
-        None if model.v_kt is None else model.n_kt.copy(), \
-        None if model.v_k  is None else model.n_k.copy(),  \
         model.dtype,       \
         model.name)
 
@@ -112,12 +109,8 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     n_dk = None # These start out at none until we actually
     n_kv = None # go ahead and train this model.
     n_k  = None
-
-    v_dk = None
-    v_kv = None
-    v_k  = None
     
-    return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, v_dk, v_kv, v_k, dtype, MODEL_NAME)
+    return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, dtype, MODEL_NAME)
 
 
 def newQueryState(data, modelState, debug=False):
@@ -154,26 +147,15 @@ def newQueryState(data, modelState, debug=False):
     if debug: print ("Done")
     sys.stdout.flush()
     
-    n_dk, n_kt, n_k, v_dk, v_kt, v_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
+    n_dk, n_kt, n_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
     
     # Lastly, convert the memory-views returned from Cython into numpy arrays
     W_list, docLens = np.asarray(W_list), np.asarray(docLens)
     n_dk = np.asarray(n_dk)
     n_kt = np.asarray(n_kt)
     n_k  = np.asarray(n_k)
-    v_dk = np.asarray(v_dk)
-    v_kt = np.asarray(v_kt)
-    v_k  = np.asarray(v_k)
     
-    return QueryState(W_list, docLens, n_dk, n_kt, n_k, v_dk, v_kt, v_k, z_dnk)
-
-
-def topicDists(query):
-    return query.n_dk / query.n_dk.sum(axis=1)[:,np.newaxis]
-
-def wordDists(model):
-    return model.n_kt / model.n_kt.sum(axis=1)[:,np.newaxis]
-
+    return QueryState(W_list, docLens, n_dk, n_kt, n_k, z_dnk)
 
 def toWordList (w_csr):
     docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
@@ -194,6 +176,14 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     the variational bound, etc.
     '''
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
+
+
+def topicDists(query):
+    return query.n_dk / query.n_dk.sum(axis=1)[:,np.newaxis]
+
+def wordDists(model):
+    return model.n_kt / model.n_kt.sum(axis=1)[:,np.newaxis]
+
 
 def train (data, modelState, queryState, trainPlan, query=False):
     '''
@@ -218,16 +208,12 @@ def train (data, modelState, queryState, trainPlan, query=False):
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug           
-    W_list, docLens, q_n_dk, q_n_kt, q_n_k, q_v_dk, q_v_kt, q_v_k, z_dnk = \
-        queryState.W_list, queryState.docLens, \
-        queryState.n_dk, queryState.n_kt, queryState.n_k, \
-        queryState.v_dk, queryState.v_kt, queryState.v_k, queryState.z_dnk
-    K, topicPrior_, vocabPrior, m_n_dk, m_n_kt, m_n_k, m_v_dk, m_v_kt, m_v_k = \
-        modelState.K, modelState.topicPrior, modelState.vocabPrior, \
-        modelState.n_dk, modelState.n_kt, modelState.n_k, \
-        modelState.v_dk, modelState.v_kt, modelState.v_k
+    W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk = \
+        queryState.W_list, queryState.docLens, queryState.n_dk, queryState.n_kt, queryState.n_k, queryState.z_dnk
+    K, topicPrior_, vocabPrior, m_n_dk, m_n_kt, m_n_k = \
+        modelState.K, modelState.topicPrior, modelState.vocabPrior, modelState.n_dk, modelState.n_kt, modelState.n_k
     topicPrior = topicPrior_.mean()
-    
+
     D_train = 0 if m_n_dk is None else m_n_dk.shape[0]
     D_query = q_n_dk.shape[0]
     W = data.words
@@ -250,9 +236,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
     # the query, assuming the model has been trained previously
     if m_n_dk is not None:
         np.add (q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt += m_n_kt
-        np.add (q_v_kt, m_v_kt, out=q_v_kt)
         np.add (q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  += m_n_k
-        np.add (q_v_k,  m_v_k,  out=q_v_k)
     
 #     print ("Topic prior : " + str(topicPrior))
     
@@ -268,9 +252,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
     for segment in range(logPoints - 1):
         do_iterations (segIters, D_query, D_train, K, T, \
                        W_list, docLens, \
-                       q_n_dk, q_n_kt, q_n_k, \
-                       q_v_dk, q_v_kt, q_v_k, \
-                       z_dnk,\
+                       q_n_dk, q_n_kt, q_n_k, z_dnk,\
                        topicPrior, vocabPrior)
 
         
@@ -291,9 +273,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
     if not finishedTraining:
         do_iterations (remainder, D_query, D_train, K, T, \
                    W_list, docLens, \
-                   q_n_dk, q_n_kt, q_n_k, \
-                   q_v_dk, q_v_kt, q_v_k, \
-                   z_dnk,\
+                   q_n_dk, q_n_kt, q_n_k, z_dnk,\
                    topicPrior, vocabPrior)
     
         boundIters.append   (iterations - 1)
@@ -304,30 +284,20 @@ def train (data, modelState, queryState, trainPlan, query=False):
     if query: # Model is unchanged, query is changed
         if m_n_dk is not None:
             np.subtract(q_n_kt, m_n_kt, out=q_n_kt) # q_n_kt -= m_n_kt
-            np.subtract(q_v_kt, m_v_kt, out=q_v_kt)
             np.subtract(q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  -= m_n_k
-            np.subtract(q_v_k,  m_v_k,  out=q_v_k)  # q_n_k  -= m_n_k
-    else: # train # Model is changed. Query is changed
+    else: # train # Model is changed (or flat-out created). Query is changed
         if m_n_dk is not None: # Amend existing
             m_n_dk = np.vstack((m_n_dk, q_n_dk))
-            m_n_kt[:,:] = q_n_kt # Recall we _added_ the m_n_kt counts to the query
-            m_n_k[:]    = q_n_k  # before training, so now the query-counts contain the
-                                 # sum of old and new, and can just be copied across
-            m_v_dk = np.vstack((m_v_dk, q_v_dk))
-            m_v_kt[:,:] = q_v_kt
-            m_n_k[:]    = q_v_k
+            m_n_kt[:,:] = q_n_kt
+            m_n_k[:]    = q_n_k
         else:                  # Create from scratch
             m_n_dk = q_n_dk.copy()
             m_n_kt = q_n_kt.copy()
             m_n_k  = q_n_k.copy()
-
-            m_v_dk = q_v_dk.copy()
-            m_v_kt = q_v_kt.copy()
-            m_v_k  = q_v_k.copy()
             
-    return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, m_v_dk, m_v_kt, m_v_k, modelState.dtype, modelState.name), \
-           QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, q_v_dk, q_v_kt, q_v_k, z_dnk), \
-           (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
+    return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, modelState.dtype, modelState.name), \
+           QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, z_dnk), \
+           (boundIters, boundValues, likelyValues)
   
   
 def var_bound_intermediate (data, model, query, n_kt, n_k):
@@ -338,9 +308,6 @@ def var_bound_intermediate (data, model, query, n_kt, n_k):
         model.n_dk, \
         n_kt, \
         n_k, \
-        model.v_dk, \
-        model.v_kt, \
-        model.v_k, \
         model.dtype, \
         model.name)
     
@@ -354,9 +321,6 @@ def log_likely_intermediate (data, model, query, n_kt, n_k):
         model.n_dk, \
         n_kt, \
         n_k, \
-        model.v_dk, \
-        model.v_kt, \
-        model.v_k, \
         model.dtype, \
         model.name)
     
@@ -391,11 +355,13 @@ def log_likelihood (data, modelState, queryState):
     '''
     n_dk, n_kt = queryState.n_dk, modelState.n_kt
     a, b       = modelState.topicPrior, modelState.vocabPrior
-   
-    if np.isscalar(a) or type(a) is float:
-        a = constantArray((modelState.K,), a, n_dk.dtype)
 
-    n_dk += a[np.newaxis, :]
+    if type(a) is float or np.isscalar(a):
+        a = constantArray((modelState.K,), a, modelState.dtype)
+    W = data.words if data.words.dtype is modelState.dtype \
+        else data.words.astype(modelState.dtype)
+   
+    n_dk += a[np.newaxis,:]
     n_kt += b
 
     # Scale to create distributions over doc-topics and topic-vocabs
@@ -407,7 +373,7 @@ def log_likelihood (data, modelState, queryState):
     
     # Use distributions to create log-likelihood. This could be made
     # faster still by not materializing the (admittedly sparse) matrix
-    ln_likely = sparseScalarProductOfSafeLnDot(data.words.astype(n_dk.dtype), n_dk, n_kt).sum()
+    ln_likely = sparseScalarProductOfSafeLnDot(W, n_dk, n_kt).sum()
     
     # Rescale back to word-counts
     n_dk *= doc_norm[:,np.newaxis]
@@ -435,13 +401,13 @@ def var_bound(data, modelState, queryState):
     z_dnk = queryState.z_dnk
     a     = modelState.topicPrior
     b     = modelState.vocabPrior
-    
+
+    if type(a) is float or np.isscalar(a):
+        a = constantArray((modelState.K), a, modelState.dtype)
+
     docLens = queryState.docLens
     
     bound = 0
-
-    if type(a) is float or np.isscalar(a):
-        a = constantArray((modelState.K,), a, modelState.dtype)
     
     # Expected value of the p(W,Z). Note everything else marginalized out, and
     # we're using a 0-th order Taylor expansion.

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_gibbs as lda
+import model.lda_cvb as lda
 from model.common import DataSet
 from model.evals import perplexity_from_like
 
@@ -21,21 +21,26 @@ AclWordPath = AclPath + "words-freq.pkl"
 AclCitePath = AclPath + "ref.pkl"
 AclDictPath = AclPath + "words-freq-dict.pkl"
 
+ReutersPath = "/Users/bryanfeeney/Desktop/reuters/"
+ReutersWordPath = ReutersPath + "W.pkl"
+ReutersDictPath = ReutersPath + "dict.pkl"
+ReutersCitePath = None
+
 class Test(unittest.TestCase):
 
 
     def testPerplexityOnRealData(self):
-        dtype = np.float64 # DTYPE
+        dtype = np.float32 # DTYPE
 
         rd.seed(0xBADB055)
-        data = DataSet.from_files(words_file=AclWordPath, links_file=AclCitePath)
-        with open(AclDictPath, "rb") as f:
+        data = DataSet.from_files(words_file=ReutersWordPath, links_file=ReutersCitePath)
+        with open(ReutersDictPath, "rb") as f:
             d = pkl.load(f)
 
         data.convert_to_dtype(np.int32)
         data.prune_and_shuffle(min_doc_len=50, min_link_count=2)
-        data.convert_to_undirected_graph()
-        data.convert_to_binary_link_matrix()
+        # data.convert_to_undirected_graph()
+        # data.convert_to_binary_link_matrix()
 
         # IDF frequency for when we print out the vocab later
         freq = np.squeeze(np.asarray(data.words.sum(axis=0)))
@@ -44,8 +49,8 @@ class Test(unittest.TestCase):
         # Initialise the model
         K = 10
         model      = lda.newModelAtRandom(data, K, dtype=dtype)
-        queryState = lda.newQueryState(data, model)
-        trainPlan  = lda.newTrainPlan(iterations=300, logFrequency=50, fastButInaccurate=False, debug=True)
+        queryState = lda.newQueryState(data, model, debug=True)
+        trainPlan  = lda.newTrainPlan(iterations=50, logFrequency=10, fastButInaccurate=False, debug=True)
 
         # Train the model, and the immediately save the result to a file for subsequent inspection
         model, query, (bndItrs, bndVals, bndLikes) = lda.train (data, model, queryState, trainPlan)

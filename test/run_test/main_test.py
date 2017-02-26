@@ -12,7 +12,7 @@ from model_test.stm_yv_test import sampleFromModel
 from run.main import run, ModelNames, \
     Rtm, LdaGibbs, LdaVb, Mtm, Mtm2, StmYvBohning, StmYvBouchard, \
     CtmBohning, CtmBouchard, Dmr, StmYvBohningFakeOnline, Lro, \
-    SimLda, SimTfIdf, LdaSvb, MomEm, MomGibbs
+    SimLda, SimTfIdf, LdaSvb, MomEm, MomGibbs, LdaCvb, LdaCvbZero
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
     MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, \
     LroMeanPrecRecAtMFeatSplit
@@ -157,9 +157,9 @@ class Test(unittest.TestCase):
 
         sgd_setups = [(b,r,f) for b in [1, 5, 10, 100] for r in [1, 10, 30] for f in [0.6, 0.75, 0.9]]
 
-        Folds, ExecutedFoldCount = 5,1
+        Folds, ExecutedFoldCount = 5,5
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 100,20,30
+        TrainIters, QueryIters, LogFreq = 50,5,5
         PriorCov = 0.001
         VocabPrior = 1
         Debug = False
@@ -168,10 +168,10 @@ class Test(unittest.TestCase):
 
         print("long")
         modelFileses = []
-        for DataSetName in [Nips]:
+        for DataSetName in [Reuters]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ MomGibbs ]:
+                for modelName in [ LdaCvbZero ]:
                     BatchSize = 0
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
@@ -196,8 +196,8 @@ class Test(unittest.TestCase):
                             + ' --feat-var '       + str(PriorCov) \
                             + ' --lat-topic-var '  + str(PriorCov) \
                             + ' --lat-feat-var '   + str(PriorCov) \
-                            + ' --vocab-prior '    + str(VocabPrior) \
-                            + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
+                            + ' --vocab-prior '    + str(VocabPrior)
+                            # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
         #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
         #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
         #                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \

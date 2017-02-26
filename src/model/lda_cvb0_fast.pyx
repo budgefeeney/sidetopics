@@ -33,7 +33,7 @@ import numpy as np
 cimport numpy as np
 
 from libc.stdlib cimport rand, srand, malloc, free
-from libc.math cimport log, exp
+from libc.math cimport log
 from libc.float cimport DBL_MAX, DBL_MIN, FLT_MAX, FLT_MIN
 import scipy.linalg as la
 import scipy.special as fns
@@ -267,6 +267,7 @@ def calculateCounts (W_list, docLens, z_dnk, T):
 
 
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
@@ -282,15 +283,11 @@ def calculateCounts_f32 (int[:,:] W_list, int[:] docLens, float[:,:,:] z_dnk, in
         float[:,:] n_dk
         float[:,:] n_kt
         float[:]   n_k
-        float[:,:] v_dk
-        float[:,:] v_kt
-        float[:]   v_k
         int D
         int K
         int maxN
         int d,n,k
         int t
-        float val
 
     D, maxN = W_list.shape[0], W_list.shape[1]
     K = z_dnk.shape[2]
@@ -298,10 +295,6 @@ def calculateCounts_f32 (int[:,:] W_list, int[:] docLens, float[:,:,:] z_dnk, in
     n_dk = np.zeros((D,K), dtype=np.float32)
     n_kt = np.zeros((K,T), dtype=np.float32)
     n_k  = np.zeros((K,),  dtype=np.float32)
-
-    v_dk = np.zeros((D,K), dtype=np.float32)
-    v_kt = np.zeros((K,T), dtype=np.float32)
-    v_k  = np.zeros((K,),  dtype=np.float32)
 
     # Completely zero out the bits of Z that don't refer to any actual term
     # Recall Z is meant to be a jagged 2-dim array, but we store it in a matrix
@@ -311,25 +304,21 @@ def calculateCounts_f32 (int[:,:] W_list, int[:] docLens, float[:,:,:] z_dnk, in
             for n in range(docLens[d], maxN):
                 z_dnk[d,n,:] = 0 # Would be interesting to look into memset
 
+    # Now sum up all the elements of Z in the appropriate manner to get
+    # the first two counts.
+    n_dk = np.sum(z_dnk, axis=1)
+    n_k  = np.sum(n_dk, axis=0)
 
     # Lastly manually loop through to get the counts of individual word
     # occurrences per assigned topi
     with nogil:
-        for k in range(K):
+        for k in range(K): # very slight advantage to this.
             for d in range(D):
                 for n in range(docLens[d]):
                     t = W_list[d,n]
-                    val        = z_dnk[d,n,k]
-                    n_dk[d,k] += val
-                    n_kt[k,t] += val
-                    n_k[k]    += val
+                    n_kt[k,t] += z_dnk[d,n,k]
 
-                    val       *= (1 - val)
-                    v_dk[d,k] += val
-                    v_kt[k,t] += val
-                    v_k[k]    += val
-
-    return n_dk, n_kt, n_k, v_dk, v_kt, v_k
+    return n_dk, n_kt, n_k
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -346,15 +335,11 @@ def calculateCounts_f64 (int[:,:] W_list, int[:] docLens, double[:,:,:] z_dnk, i
         double[:,:] n_dk
         double[:,:] n_kt
         double[:]   n_k
-        double[:,:] v_dk
-        double[:,:] v_kt
-        double[:]   v_k
         int D
         int K
         int maxN
         int d,n,k
         int t
-        double val
 
     D, maxN = W_list.shape[0], W_list.shape[1]
     K = z_dnk.shape[2]
@@ -363,53 +348,33 @@ def calculateCounts_f64 (int[:,:] W_list, int[:] docLens, double[:,:,:] z_dnk, i
     n_kt = np.zeros((K,T), dtype=np.float64)
     n_k  = np.zeros((K,),  dtype=np.float64)
 
-    v_dk = np.zeros((D,K), dtype=np.float64)
-    v_kt = np.zeros((K,T), dtype=np.float64)
-    v_k  = np.zeros((K,),  dtype=np.float64)
-
-    # Completely zero out the bits of Z that don't refer to any actual term
-    # Recall Z is meant to be a jagged 2-dim array, but we store it in a matrix
-    # for ease of access.
     with nogil:
         for d in range(D):
             for n in range(docLens[d], maxN):
                 z_dnk[d,n,:] = 0 # Would be interesting to look into memset
 
+    n_dk = np.sum(z_dnk, axis=1)
+    n_k  = np.sum(n_dk, axis=0)
 
-    # Lastly manually loop through to get the counts of individual word
-    # occurrences per assigned topi
+    # Next use the random topic assignments to update the
+    # word counts
     with nogil:
-        for k in range(K):
+        for k in range(K): # very slight advantage to this.
             for d in range(D):
                 for n in range(docLens[d]):
                     t = W_list[d,n]
-                    val        = z_dnk[d,n,k]
-                    n_dk[d,k] += val
-                    n_kt[k,t] += val
-                    n_k[k]    += val
+                    n_kt[k,t] += z_dnk[d,n,k]
 
-                    val *= (1 - val)
-                    v_dk[d,k] += val
-                    v_kt[k,t] += val
-                    v_k[k]    += val
+    return n_dk, n_kt, n_k
 
-    return n_dk, n_kt, n_k, v_dk, v_kt, v_k
-
-cdef float two_sq_f32(float val) nogil:
-    """
-    Returns 2 * val * val
-    """
-    return 2 * val * val
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
 def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                  int[:,:] W_list, int[:] docLens, \
-                 float[:,:] q_n_dk, float[:,:] q_n_kt, float[:] q_n_k, \
-                 float[:,:] q_v_dk, float[:,:] q_v_kt, float[:] q_v_k, \
-                 float[:,:,:] z_dnk,\
-                 float topicPriorDbl, float vocabPriorDbl):
+                 float[:,:] q_n_dk, float[:,:] q_n_kt, float[:] q_n_k, float[:,:,:] z_dnk,\
+                 double topicPriorDbl, double vocabPriorDbl):
     '''
     Performs the given number of iterations as part of the training
     procedure. There are two corpora, the model corpus of files, whose
@@ -438,12 +403,6 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
     q_n_k      - The K-dimensional vector containing for each topic k the 
                  total number of tokens (not distinct words) generate by k
                  across the entire corpus, query and model
-    q_v_dk     - DxK matrix with variances of tokens generated by topic k
-                 for document d = \sum_n z_dnk * (1 - z_dnk)
-    q_v_kt     - DxT matrix with variances of tokens generated as word t
-                 for topic k = \sum_n z_dnk * w_dnt * (1 - z_dnk)
-    q_v_k      - The K-dimensional vector containing for each topic k the
-                 total variance = \sum_d \sum_n z_dnk * (1 - z_dnk)
     topicPrior - a scalar providing the scale of the symmetric prior over 
                  topics in the model
     vocabPrior - a scalar providing the scale of the symmetric prior over
@@ -454,7 +413,6 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
         int itr, d, n, t, k
         float *mems = new_array_f32(K)
         float denom, diff
-        float sot
         float topicPrior = <float> topicPriorDbl
         float vocabPrior = <float> vocabPriorDbl
         
@@ -467,17 +425,10 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                         denom = 0.0
                         for k in range(K):
                             mems[k] = \
-                                  (topicPrior     + q_n_dk[d,k] - z_dnk[d,n,k]) \
-                                * (vocabPrior     + q_n_kt[k,t] - z_dnk[d,n,k]) \
-                                / (vocabPrior * T + q_n_k[k]    - z_dnk[d,n,k])
-
-                            sot  = 0
-                            sot -= q_v_dk[d,k] / two_sq_f32(topicPrior     + q_n_dk[d,k] - z_dnk[d,n,k])
-                            sot -= q_v_kt[k,t] / two_sq_f32(vocabPrior     + q_n_kt[k,t] - z_dnk[d,n,k])
-                            sot += q_v_k[k]    / two_sq_f32(vocabPrior * T + q_n_k[k]    - z_dnk[d,n,k])
-
-                            mems[k] *= exp(sot)
-
+                                  (topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]) \
+                                * (vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]) \
+                                / (T * vocabPrior + q_n_k[k] - z_dnk[d,n,k])
+                        
                             denom += mems[k]
                             
                         for k in range(K):
@@ -491,16 +442,12 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                                     return
                             
                             diff         = mems[k] - z_dnk[d,n,k]
+                            z_dnk[d,n,k] = mems[k]
+                        
                             q_n_dk[d,k] += diff
                             q_n_kt[k,t] += diff
                             q_n_k[k]    += diff
-
-                            diff         = mems[k] - (z_dnk[d,n,k] * (1 - z_dnk[d,n,k]))
-                            q_v_dk[d,k] += diff
-                            q_v_kt[k,t] += diff
-                            q_v_k[k]    += diff
-
-                            z_dnk[d,n,k] = mems[k]
+                        
     finally:
         free(mems)
 
@@ -509,10 +456,8 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
 @cython.cdivision(True)
 def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                  int[:,:] W_list, int[:] docLens, \
-                 double[:,:] q_n_dk, double[:,:] q_n_kt, double[:] q_n_k, \
-                 double[:,:] q_v_dk, double[:,:] q_v_kt, double[:] q_v_k, \
-                 double[:,:,:] z_dnk,\
-                 double topicPriorDbl, double vocabPriorDbl):
+                 double[:,:] q_n_dk, double[:,:] q_n_kt, double[:] q_n_k, double[:,:,:] z_dnk,\
+                 double topicPrior, double vocabPrior):
     '''
     Performs the given number of iterations as part of the training
     procedure. There are two corpora, the model corpus of files, whose
@@ -523,7 +468,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
     wide matrices (though still prefixed by "q_") of word-counts per topic
     (the vocabularly distributions) and topic counts over all (the topic
     prior)
-
+    
     Params:
     iterations - the number of iterations to perform
     D_query    - the number of query documents
@@ -532,81 +477,82 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
     T          - the number of possible words
     W_list     - a jagged DxN_d array of word-observations for each document
     docLens    - the length of each document d
-    q_n_dk     - DxK matrix with counts of tokens generated by topic k in
+    q_n_dk     - DxK matrix with counts of tokens generated by topic k in 
                  document d. This is for query documents only (model document
                  topic assignments are considered fixed: they're the "prior")
     q_n_kt     - DxT matrix with the number of times a distinct word t was
-                 generated by topic  across the entire corpus (including
+                 generated by topic  across the entire corpus (including 
                  immutable model documents)
-    q_n_k      - The K-dimensional vector containing for each topic k the
+    q_n_k      - The K-dimensional vector containing for each topic k the 
                  total number of tokens (not distinct words) generate by k
                  across the entire corpus, query and model
-    q_v_dk     - DxK matrix with variances of tokens generated by topic k
-                 for document d = \sum_n z_dnk * (1 - z_dnk)
-    q_v_kt     - DxT matrix with variances of tokens generated as word t
-                 for topic k = \sum_n z_dnk * w_dnt * (1 - z_dnk)
-    q_v_k      - The K-dimensional vector containing for each topic k the
-                 total variance = \sum_d \sum_n z_dnk * (1 - z_dnk)
-    topicPrior - a scalar providing the scale of the symmetric prior over
+    topicPrior - a scalar providing the scale of the symmetric prior over 
                  topics in the model
     vocabPrior - a scalar providing the scale of the symmetric prior over
                  vocabularies in the model
     '''
-
+    
     cdef:
         int itr, d, n, t, k
         double *mems = new_array_f64(K)
         double denom, diff
-        double sot
-        double topicPrior = <double> topicPriorDbl
-        double vocabPrior = <double> vocabPriorDbl
 
+        double[:]   num
+        double      dnm
+        
     try:
-        with nogil:
-            for itr in range(iterations):
+        for itr in range(iterations):
+            with nogil:
                 for d in range(D_query):
                     for n in range(docLens[d]):
                         t = W_list[d,n]
                         denom = 0.0
                         for k in range(K):
                             mems[k] = \
-                                  (topicPrior     + q_n_dk[d,k] - z_dnk[d,n,k]) \
-                                * (vocabPrior     + q_n_kt[k,t] - z_dnk[d,n,k]) \
-                                / (vocabPrior * T + q_n_k[k]    - z_dnk[d,n,k])
-
-                            sot  = 0
-                            sot -= q_v_dk[d,k] / two_sq_f32(topicPrior     + q_n_dk[d,k] - z_dnk[d,n,k])
-                            sot -= q_v_kt[k,t] / two_sq_f32(vocabPrior     + q_n_kt[k,t] - z_dnk[d,n,k])
-                            sot += q_v_k[k]    / two_sq_f32(vocabPrior * T + q_n_k[k]    - z_dnk[d,n,k])
-
-                            mems[k] *= exp(sot)
-
+                                  (topicPrior     + q_n_dk[d,k]  -  z_dnk[d,n,k]) \
+                                * (vocabPrior     + q_n_kt[k,t]  -  z_dnk[d,n,k]) \
+                                / (T * vocabPrior + q_n_k[k]     -  z_dnk[d,n,k])
+                        
                             denom += mems[k]
-
+                            
                         for k in range(K):
                             mems[k] /= denom
-                            if is_invalid_prob_f32(mems[k]):
+                            if is_invalid_prob_f64(mems[k]):
                                 with gil:
-                                    print ("Iteration %d: mems[%d] = %f" % (itr, k, mems[k]))
+                                    print ("Iteration %d: mems[%d] = %f" % (d, k, mems[k]))
                                     print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior, q_n_dk[d,k], z_dnk[d,n,k], topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]))
                                     print ("vocabPrior + q_n_kt[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (k, t, d, n, k, vocabPrior, q_n_kt[k,t], z_dnk[d,n,k], vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]))
                                     print ("T * vocabPrior + q_n_k[%d] - z_dnk[%d,%d,%d] = %f * %f + %f - %f = %f" % (k, d, n, k, T, vocabPrior, q_n_k[k], z_dnk[d,n,k], T * vocabPrior + q_n_k[k] - z_dnk[d,n,k]))
                                     return
-
+                            
                             diff         = mems[k] - z_dnk[d,n,k]
+                            z_dnk[d,n,k] = mems[k]
+                        
                             q_n_dk[d,k] += diff
                             q_n_kt[k,t] += diff
                             q_n_k[k]    += diff
-
-                            diff         = mems[k] - (z_dnk[d,n,k] * (1 - z_dnk[d,n,k]))
-                            q_v_dk[d,k] += diff
-                            q_v_kt[k,t] += diff
-                            q_v_k[k]    += diff
-
-                            z_dnk[d,n,k] = mems[k]
+        
+            # Infer Hyperparameters
+            #
+            # if D_train == 0: # nothing's been trained yet, so this must be a training run
+            #     D   = q_n_dk.shape[0]
+            #     n_d = np.sum(q_n_dk, axis=1)
+            #     for k in range(K):
+            #         topicPrior[k] = 1.0
+            #     for _ in range(100):
+            #         oldTopicPrior = np.copy(topicPrior)
+            #
+            #         num = np.sum(fns.psi(np.add(q_n_dk, topicPrior[None, :])), axis=0) - D * fns.psi(topicPrior)
+            #         dnm = np.sum(fns.psi(n_d + np.sum(topicPrior)), axis=0) - D * fns.psi(np.sum(topicPrior))
+            #
+            #         tmp = np.divide(num, dnm)
+            #         for k in range(K):
+            #             topicPrior[k] *= tmp[k]
+            #
+            #         if la.norm(np.subtract(oldTopicPrior, topicPrior), 1) < (0.001 * K):
+            #             break
     finally:
         free(mems)
-
 
 cdef double *new_array_f64(int size) nogil:
     '''

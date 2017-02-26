@@ -26,6 +26,7 @@ CtmBouchard   = 'ctm_bouchard'
 CtmBohning    = 'ctm_bohning'
 StmYvBouchard = 'stm_yv_bouchard'
 StmYvBohning  = 'stm_yv_bohning'
+LdaCvb        = 'lda_cvb'
 LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
 LdaSvb        = 'lda_svb'
@@ -43,7 +44,7 @@ MomGibbs      = "mom_gibbs"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvbZero, LdaVb, LdaSvb, LdaGibbs, Rtm, Mtm, Lro, Dmr, MomEm, MomGibbs])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvb, LdaCvbZero, LdaVb, LdaSvb, LdaGibbs, Rtm, Mtm, Lro, Dmr, MomEm, MomGibbs])
 
 from model.lda_vb_python import pruneQueryState as pruneLdaVbQueryState
 from model.lda_vb_python import MODEL_NAME as LDA_VB_MODEL_NAME
@@ -193,8 +194,11 @@ def run(args):
     elif args.model == MomGibbs:
         import model.mom_gibbs as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
-    elif args.model == LdaCvbZero:
+    elif args.model == LdaCvb:
         import model.lda_cvb as mdl
+        templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == LdaCvbZero:
+        import model.lda_cvb0 as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
     elif args.model == LdaVb:
         import model.lda_vb_python as mdl

@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import pickle as pkl
 
-import model.lda_cvb as lda
-from model.lda_cvb import DTYPE
+import model.lda_cvb0 as lda
+from model.lda_cvb0 import DTYPE
 
 class Test(unittest.TestCase):
 
