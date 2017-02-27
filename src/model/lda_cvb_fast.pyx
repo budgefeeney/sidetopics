@@ -451,7 +451,7 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
         int itr, d, n, t, k
         float *mems = new_array_f32(K)
         float denom, diff
-        float sot
+        float sot, esot
         float topicPrior = <float> topicPriorDbl
         float vocabPrior = <float> vocabPriorDbl
         float term1, term2, term3
@@ -475,24 +475,26 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
                             sot -= q_v_kt[k,t] / (2 * term2 * term2)
                             sot += q_v_k[k]    / (2 * term3 * term3)
 
-                            mems[k] *= exp_approx(sot)
+                            esot     = exp_approx(sot) if sot > -75.5 else 1E-33
+                            mems[k] *= esot # exp_approx(sot)
                             mems[k] /= term3
 
                             denom += mems[k]
                             
                         for k in range(K):
                             mems[k] /= denom
-                            if is_invalid_prob_f32(mems[k]) or (denom < 1E-14) \
-                                or (d == 8132 and n==18 and k == (K-1)):
-                                with gil:
-                                    for j in range(K):
-                                        print ("DEBUG: mems[%d]@d=%d,n=%d = %f z[%d,%d,%d] = %f" % (k, d, n, mems[j], d, n, k, z_dnk[d,n,k]))
-                                    print ("Iteration %d: mems[%d] = %f" % (itr, k, mems[k]))
-                                    print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior, q_n_dk[d,k], z_dnk[d,n,k], topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]))
-                                    print ("vocabPrior + q_n_kt[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (k, t, d, n, k, vocabPrior, q_n_kt[k,t], z_dnk[d,n,k], vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]))
-                                    print ("T * vocabPrior + q_n_k[%d] - z_dnk[%d,%d,%d] = %f * %f + %f - %f = %f" % (k, d, n, k, T, vocabPrior, q_n_k[k], z_dnk[d,n,k], T * vocabPrior + q_n_k[k] - z_dnk[d,n,k]))
-
-                                    return
+                            # if is_invalid_prob_f32(mems[k]):# \
+                            #     #or (d == 8095 and n==10 and k == (K-1)):
+                            #     with gil:
+                            #         for j in range(K):
+                            #             print ("DEBUG: mems[%d]@d=%d,n=%d = %f z[%d,%d,%d] = %f" % (k, d, n, mems[j], d, n, k, z_dnk[d,n,j]))
+                            #         print ("Iteration %d: mems[%d] = %f" % (itr, k, mems[k]))
+                            #         print ("topicPrior + q_n_dk[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (d, k, d, n, k, topicPrior, q_n_dk[d,k], z_dnk[d,n,k], topicPrior + q_n_dk[d,k] - z_dnk[d,n,k]))
+                            #         print ("vocabPrior + q_n_kt[%d,%d] - z_dnk[%d,%d,%d] = %f + %f - %f = %f" % (k, t, d, n, k, vocabPrior, q_n_kt[k,t], z_dnk[d,n,k], vocabPrior + q_n_kt[k,t] - z_dnk[d,n,k]))
+                            #         print ("T * vocabPrior + q_n_k[%d] - z_dnk[%d,%d,%d] = %f * %f + %f - %f = %f" % (k, d, n, k, T, vocabPrior, q_n_k[k], z_dnk[d,n,k], T * vocabPrior + q_n_k[k] - z_dnk[d,n,k]))
+                            #         print ("q_v_dk[%d,%d] = %f, q_v_kt[%d,%d]=  %f, q_v_k[%d] = %f" % (d,k, q_v_dk[d,k], k, t, q_v_kt[k,t], k, q_v_k[k]))
+                            #         if is_invalid_prob_f32(mems[k]):
+                            #             return
                             
                             diff         = mems[k] - z_dnk[d,n,k]
                             q_n_dk[d,k] += diff
