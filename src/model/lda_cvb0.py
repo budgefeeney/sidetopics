@@ -263,7 +263,6 @@ def train (data, modelState, queryState, trainPlan, query=False):
         
         # Check to see if the improvement in the bound has fallen below the threshold
         if converged (boundIters, boundValues, len(boundValues), epsilon, minIters=20):
-            boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             finishedTraining = True
             break
         
