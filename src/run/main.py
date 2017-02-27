@@ -405,7 +405,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             print ("Starting query.")
             query_estim, query_eval = query_data.doc_completion_split()
             query_tops              = mdl.newQueryState(query_estim, model)
-            model, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
+            _, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
 
             query_like       = mdl.log_likelihood(query_eval, model, query_tops)
             query_word_count = query_eval.word_count
