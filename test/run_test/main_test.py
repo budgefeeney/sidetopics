@@ -171,12 +171,12 @@ class Test(unittest.TestCase):
         for DataSetName in [Reuters]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ LdaCvbZero ]:
+                for modelName in [ LdaCvb ]:
                     BatchSize = 0
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'f8:f8'      \
+                            + ' --dtype '          + 'f4:f4'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
