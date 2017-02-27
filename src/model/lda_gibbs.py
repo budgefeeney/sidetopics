@@ -138,6 +138,7 @@ def newQueryState(data, modelState, debug=False):
     D,T = data.words.shape
     if debug: print("Converting {:,}x{:,} document-term matrix to list of lists... ".format(D,T), end="")
     w_list, docLens = compiled.flatten(data.words)
+    docLens = docLens.astype(np.int32)
     if debug: print("Done")
     
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -175,7 +176,7 @@ def newTrainPlan (iterations, burnIn = -1, thin = -1, logFrequency = 100, fastBu
     return TrainPlan(iterations, burnIn, thin, logFrequency, debug)
 
 
-def train (data, model, query, plan):
+def train (_, model, query, plan):
     iterations, burnIn, thin, _, debug = \
         plan.iterations, plan.burnIn, plan.thin, plan.logFrequency, plan.debug
     w_list, z_list, docLens, _, _ = \
