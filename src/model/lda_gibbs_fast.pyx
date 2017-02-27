@@ -5,6 +5,8 @@ cimport numpy as np
 from libc.stdint cimport uint16_t, uint8_t
 from libc.stdlib cimport srand, rand, RAND_MAX
 
+UpdateHyperParameters=False
+
 # Import the random number generation functions from
 # the GNU Scientific Library
 # cdef extern from "gsl/gsl_rng.h":
@@ -203,6 +205,9 @@ def sample ( \
         double[:] dist
         double    distNorm, draw
         double    aSum, bSum
+        bint updateHyperParameters
+
+    updateHyperParameters = UpdateHyperParameters
     
     aSum = np.sum(a)
     bSum = np.sum(b)
@@ -252,6 +257,7 @@ def sample ( \
                     nk[k]    += queryDelta
 
                 start += docLens[d]
+
             # Check if this is one of the samples to take
             if (s + 1) % thin == 0:
                 if debug:
@@ -270,7 +276,7 @@ def sample ( \
                 
                 trueSampleCount += 1
                     
-                if trueSampleCount % 10 == 0:
+                if updateHyperParameters and trueSampleCount % 10 == 0:
                     with gil:
                         if debug: print ("Updating hyperparameters...")
                         a[:] = inferPolyaHyper(ndk, docLens)
