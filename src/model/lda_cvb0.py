@@ -25,6 +25,7 @@ import numpy.random as rd
 import sys
 
 import model.lda_cvb0_fast as compiled
+from model.evals import perplexity_from_like
 
 from util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from util.misc import constantArray, converged, clamp
@@ -260,13 +261,17 @@ def train (data, modelState, queryState, trainPlan, query=False):
         boundIters.append   (segment * segIters)
         boundValues.append  (var_bound_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
         likelyValues.append (log_likely_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
-        
+
         # Check to see if the improvement in the bound has fallen below the threshold
-        if converged (boundIters, boundValues, len(boundValues), epsilon, minIters=20):
-            finishedTraining = True
-            break
-        
-        if debug: print ("Segment %d/%d Total Iterations %d Duration %d" % (segment, logPoints, -1, -1))
+        perp = perplexity_from_like(likelyValues[-1], W.sum())
+        print("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (segment * segIters, perp, boundValues[-1]))
+
+        if len(boundIters) > 2 and (boundIters[-1] > 50):
+            lastPerp = perplexity_from_like(likelyValues[-2], W.sum())
+            if lastPerp - perp < 1:
+                finishedTraining = True
+                print("Converged, existing early")
+                break
     
     # Final scheduled batch of iterations if we haven't already converged.
     if not finishedTraining:
