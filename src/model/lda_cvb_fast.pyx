@@ -470,13 +470,13 @@ def iterate_f32(int iterations, int D_query, int D_train, int K, int T, \
 
                             mems[k] = (term1 * term2)
 
-                            sot  = 0
+                            sot  = 0 # second-order term of the Taylor approx
                             sot -= q_v_dk[d,k] / (2 * term1 * term1)
                             sot -= q_v_kt[k,t] / (2 * term2 * term2)
                             sot += q_v_k[k]    / (2 * term3 * term3)
 
                             esot     = exp_approx(sot) if sot > -75.5 else 1E-33
-                            mems[k] *= esot # exp_approx(sot)
+                            mems[k] *= esot
                             mems[k] /= term3
 
                             denom += mems[k]
@@ -564,7 +564,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
         int itr, d, n, t, k
         double *mems = new_array_f64(K)
         double denom, diff
-        double sot
+        double sot, esot
         double topicPrior = <double> topicPriorDbl
         double vocabPrior = <double> vocabPriorDbl
         float term1, term2, term3
@@ -581,14 +581,16 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                             term2 = vocabPrior     + q_n_kt[k,t] - z_dnk[d,n,k]
                             term3 = vocabPrior * T + q_n_k[k]    - z_dnk[d,n,k]
 
-                            mems[k] = (term1 * term2) / term3
+                            mems[k] = (term1 * term2)
 
-                            sot  = 0
+                            sot  = 0 # second-order term of the Taylor approx
                             sot -= q_v_dk[d,k] / (2 * term1 * term1)
                             sot -= q_v_kt[k,t] / (2 * term2 * term2)
                             sot += q_v_k[k]    / (2 * term3 * term3)
 
-                            mems[k] *= exp_approx(sot)
+                            esot     = exp_approx(sot) if sot > -75.5 else 1E-33
+                            mems[k] *= esot
+                            mems[k] /= term3
 
                             denom += mems[k]
 
