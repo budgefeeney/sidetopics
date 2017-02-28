@@ -405,9 +405,6 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             # Query the model - if there are no features we need to split the text
             print ("Starting query.")
             query_estim, query_eval = query_data.doc_completion_split()
-            query_estim.prune_and_shuffle(min_doc_len=MinDocLen)
-            query_eval.prune_and_shuffle(min_doc_len=MinDocLen)
-
             query_tops    = mdl.newQueryState(query_estim, model)
             _, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
 

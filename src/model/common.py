@@ -324,7 +324,7 @@ class DataSet:
         return train, query
 
 
-    def doc_completion_split(self, seed=0xBADB055):
+    def doc_completion_split(self, min_doc_len=0, seed=0xBADB055):
         '''
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
@@ -353,6 +353,18 @@ class DataSet:
 
         words_train = ssp.csr_matrix((est, self._words.indices, self._words.indptr), shape=self._words.shape)
         words_query = ssp.csr_matrix((evl, self._words.indices, self._words.indptr), shape=self._words.shape)
+
+        if min_doc_len > 0:
+            t_lens = np.squeeze(np.asarray(words_train.sum(axis=1)))
+            q_lens = np.squeeze(np.asarray(words_query.sum(axis=1)))
+            t_empties = np.where(t_lens < min_doc_len)[0]
+            q_empties = np.qhere(q_lens < min_doc_len)[0]
+
+            empties = np.unique ([t_empties, q_empties])
+            if len (empties) > 0:
+                words_train = words_train[empties,:]
+                words_query = words_query[empties,:]
+                print ("Removed %d documents with fewer than %d words. %d documents remain" % (len(empties), min_doc_len, words_train.shape[0] - len(empties)))
 
         return \
             DataSet(words_train, self._feats, self._links), \
