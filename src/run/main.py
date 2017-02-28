@@ -61,6 +61,7 @@ FastButInaccurate=False
 
 MinLinkCountPrune=0 # 2
 MinLinkCountEval=5
+MinDocLen=3
 
 def model_supports_sgd(model_name):
     return model_name == LdaSvb
@@ -157,7 +158,7 @@ def run(args):
     #
     data = DataSet.from_files(args.words, args.feats, args.links, limit=args.limit)
     data.convert_to_dtype(input_dtype)
-    data.prune_and_shuffle(min_doc_len=3, min_link_count=MinLinkCountPrune)
+    data.prune_and_shuffle(min_doc_len=MinDocLen, min_link_count=MinLinkCountPrune)
 
     print ("The combined word-count of the %d documents is %.0f, drawn from a vocabulary of %d distinct terms" % (data.doc_count, data.word_count, data.words.shape[1]))
     if data.add_intercept_to_feats_if_required():
@@ -404,7 +405,10 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
             # Query the model - if there are no features we need to split the text
             print ("Starting query.")
             query_estim, query_eval = query_data.doc_completion_split()
-            query_tops              = mdl.newQueryState(query_estim, model)
+            query_estim.prune_and_shuffle(min_doc_len=MinDocLen)
+            query_eval.prune_and_shuffle(min_doc_len=MinDocLen)
+
+            query_tops    = mdl.newQueryState(query_estim, model)
             _, query_tops = mdl.query(query_estim, model, query_tops, query_plan)
 
             query_like       = mdl.log_likelihood(query_eval, model, query_tops)
