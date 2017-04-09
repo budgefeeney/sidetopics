@@ -27,6 +27,7 @@ CtmBohning    = 'ctm_bohning'
 StmYvBouchard = 'stm_yv_bouchard'
 StmYvBohning  = 'stm_yv_bohning'
 LdaCvb        = 'lda_cvb'
+StmUyvBohning = 'stm_uyv_bohning'
 LdaCvbZero    = 'lda_cvb0'
 LdaVb         = 'lda_vb'
 LdaSvb        = 'lda_svb'
@@ -44,13 +45,14 @@ MomGibbs      = "mom_gibbs"
 
 StmYvBohningFakeOnline = "stm_yv_bohning_fake_online"
 
-ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, LdaCvb, LdaCvbZero, LdaVb, LdaSvb, LdaGibbs, Rtm, Mtm, Lro, Dmr, MomEm, MomGibbs])
+ModelNames = ', '.join([CtmBouchard, CtmBohning, StmYvBouchard, StmYvBohning, StmYvBohningFakeOnline, StmUyvBohning, LdaCvb, LdaCvbZero, LdaVb, LdaSvb, LdaGibbs, Rtm, Mtm, Lro, Dmr, MomEm, MomGibbs])
 
 from model.lda_vb_python import pruneQueryState as pruneLdaVbQueryState
 from model.lda_vb_python import MODEL_NAME as LDA_VB_MODEL_NAME
 from model.lda_gibbs import pruneQueryState as pruneLdaGibbsQueryState
 from model.lda_gibbs import MODEL_NAME as LDA_GIBBS_MODEL_NAME
 
+from model.mtm3 import MODEL_NAME as MTM_2_MODEL_NAME
 from model.lro_vb import MODEL_NAME as LRO_MODEL_NAME
 from model.sim_based_rec import MODEL_NAME_PREFIX as SIM_MODEL_NAME_PREFIX
 from model.sim_based_rec import LDA as SIM_MODEL_NAME_SUFFIX
@@ -168,7 +170,7 @@ def run(args):
     #
     # Instantiate and configure the model
     #
-    if (args.ldaModel is not None) and (args.model == Lro or args.model == SimLda):
+    if args.ldaModel is not None:
         ldaModel, ldaTopics = load_and_adapt_lda_model(args.ldaModel, data.order)
     else:
         ldaModel, ldaTopics = None, None
@@ -195,6 +197,9 @@ def run(args):
     elif args.model == MomGibbs:
         import model.mom_gibbs as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
+    elif args.model == StmUyvBohning:
+        import model.stm_uv_vec_y_bohning as mdl
+        templateModel = mdl.newModelAtRandom(data, K=K, Q=Q, P=P,  tv=tv, ltv=ltv, fv=fv, lfv=lfv, vocabPrior=args.vocabPrior, dtype=output_dtype)
     elif args.model == LdaCvb:
         import model.lda_cvb as mdl
         templateModel = mdl.newModelAtRandom(data, K, dtype=output_dtype)
@@ -931,7 +936,10 @@ def outsample_lro_style_prec_rec (data, mdl, sample_model, train_plan, feature_m
 
 
 def model_uses_lda(model):
-    return model.name == LRO_MODEL_NAME or model.name == LDA_SIM_MODEL_NAME
+    return model.name == LRO_MODEL_NAME \
+           or model.name == LDA_SIM_MODEL_NAME \
+           or model.name == MTM_2_MODEL_NAME
+
 
 
 def subsetLda(ldaModel, ldaTopics, doc_indices):

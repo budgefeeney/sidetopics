@@ -221,10 +221,10 @@ def train(modelState, X, W, plan):
         #
         # Temporarily this requires that we re-order sigY until I've implemented a fortran order
         # vec transpose in Cython
-        sigY = sigY.T
+        sigY = sigY.T.copy()
         V = A.T.dot(U).dot(Y).dot (la.inv ( \
             Y.T.dot(U.T).dot(U).dot(Y) \
-            + vec_transpose (sigy, Q).T.dot(np.kron(I_QP, UTU).dot(vec_transpose(I_QP, Q))) \
+            + vec_transpose (sigY, Q).T.dot(np.kron(I_QP, UTU).dot(vec_transpose(I_QP, Q))) \
         ))
         _quickPrintElbo ("M-Step: V", iteration, X, W, K, Q, F, P, T, A, omA, Y, omY, sigY, sigT, U, V, vocab, tau, sigma, expLmda, nu, lxi, s, docLen)
 

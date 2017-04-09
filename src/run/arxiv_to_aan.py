@@ -66,7 +66,7 @@ def bibtex_to_acl_author (bib_author):
         if parts[-1].lower() in ["i", "ii", "iii", "jr", "jr.", "sr", "sr.", "phd", "phd."]:
             parts[-2] = parts[-2] + " " + parts[-1]
             parts.pop()
-        if len(parts) >= 3 and parts[-2].lower() in ["mc", "mac", "o", "d'", "de", "di", "van", "von"]:
+        if len(parts) >= 3 and parts[-2].lower() in ["mc", "mac", "o", "d'", "de", "del", "della", "di", "van", "von"]:
             return parts[-2] + " " + parts[-1] + ", " + " ".join(parts[0:-2])
         else:
             return parts[-1] + ", " + " ".join(parts[0:-1])
@@ -136,6 +136,29 @@ def read_next_key_value(lines):
     return key, value
 
 
+def eliminateParentheses(value):
+    '''
+    Eliminate anything in parentheses, include the parentheses themselves
+    :param value:
+    :return:
+    '''
+    out = ""
+    inside = 0 # how far nested into parentheses are we
+    for i in range(len(value)):
+        if inside > 0:
+            if value[i] == ")":
+                inside -= 1
+            elif value[i] == "(":
+                inside += 1
+        else: # outside
+            if value[i] == "(":
+                inside = 1
+            else:
+                out += value[i]
+
+    return out
+
+
 def read_paper_metadata(path):
     '''
     Reads the metadata from the file at the given path and returns a
@@ -165,10 +188,9 @@ def read_paper_metadata(path):
         if key is None:
             break
 
-        if key == "authors":
-            data.authors = [a.strip() for a in BibTextNameDelimiter.split(value)]
-        elif key == "author":
-            data.authors = [a.strip() for a in BibTextNameDelimiter.split(value)] # should just be a single author, but to be safe...
+        if key == "author" or key == "authors":
+            value = eliminateParentheses(value)
+            data.authors = [a.strip() for a in BibTextNameDelimiter.split(value) if len(a.strip()) > 0]
         elif key == "title":
             data.title = value
         elif key == "journal-ref":

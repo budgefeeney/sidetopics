@@ -247,70 +247,94 @@ def entropyOfDot_f4 (float[:,:] topics, float[:,:] vocab):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarQuotientOfDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
+def sparseScalarQuotientOfDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data, int start, int end):
     '''
     Returns A / np.dot(B, C), however it does so keeping in  mind 
     the sparsity of A, calculating values only where required.
+
+    The start and end index into A only. It is assumed that B has (end-start)
+    rows.
      
     Params
     A_data    - the values buffer of the sparse CSR matrix A
     A_indices - the indices buffer of the sparse CSR matrix A
     A_ptr     - the index pointer buffer of the sparse CSR matrix A
-    B         - a dense matrix
+    B         - a dense matrix with (end-start) rows
     C         - a dense matrix
+    start     - where to start processing in A
+    end       - where to stop processing in A
     out_data  - the values buffer into which the result will be placed.
     
     Returns
     out_data, though note that this is the same parameter passed in and overwritten.
     '''
-    cdef int rowCount = len(A_ptr) - 1 
-    cdef int elemCount = 0, e = 0
-    cdef int row = 0, col = 0, i = 0
+    cdef:
+        int A_row = 0
+        int B_row = 0
+        int col = 0
+        int elemCount =0
+        int e = 0
+        int i = 0
+
     with nogil:
-        while row < rowCount:
-            elemCount = A_ptr[row+1] - A_ptr[row]
+        while A_row < end:
+            elemCount = A_ptr[A_row+1] - A_ptr[A_row]
             e = 0
-            while e < elemCount:
-                col = A_indices[i]
-                out_data[i] = A_data[i] / dotProduct_f8(row,col,B,C)
-                i += 1
-                e += 1
-            row += 1
+            if A_row >= start:
+                while e < elemCount:
+                    col = A_indices[i]
+                    out_data[i] = A_data[i] / dotProduct_f8(B_row,col,B,C)
+                    i += 1
+                    e += 1
+                B_row += 1
+            A_row += 1
     
     return out_data
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarQuotientOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data):
+def sparseScalarQuotientOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data, int start, int end):
     '''
-    Returns A / np.dot(B, C), however it does so keeping in mind 
+    Returns A / np.dot(B, C), however it does so keeping in  mind
     the sparsity of A, calculating values only where required.
-     
+
+    The start and end index into A only. It is assumed that B has (end-start)
+    rows.
+
     Params
     A_data    - the values buffer of the sparse CSR matrix A
     A_indices - the indices buffer of the sparse CSR matrix A
     A_ptr     - the index pointer buffer of the sparse CSR matrix A
-    B         - a dense matrix
+    B         - a dense matrix with (end-start) rows
     C         - a dense matrix
+    start     - where to start processing in A
+    end       - where to stop processing in A
     out_data  - the values buffer into which the result will be placed.
-    
+
     Returns
     out_data, though note that this is the same parameter passed in and overwritten.
     '''
-    cdef int rowCount = len(A_ptr) - 1 
-    cdef int elemCount = 0, e = 0
-    cdef int row = 0, col = 0, i = 0
+    cdef:
+        int A_row = 0
+        int B_row = 0
+        int col = 0
+        int elemCount =0
+        int e = 0
+        int i = 0
+
     with nogil:
-        while row < rowCount:
-            elemCount = A_ptr[row+1] - A_ptr[row]
+        while A_row < end:
+            elemCount = A_ptr[A_row+1] - A_ptr[A_row]
             e = 0
-            while e < elemCount:
-                col = A_indices[i]
-                out_data[i] = A_data[i] / dotProduct_f4(row,col,B,C)
-                i += 1
-                e += 1
-            row += 1
+            if A_row >= start:
+                while e < elemCount:
+                    col = A_indices[i]
+                    out_data[i] = A_data[i] / dotProduct_f4(B_row,col,B,C)
+                    i += 1
+                    e += 1
+                B_row += 1
+            A_row += 1
     
     return out_data
 
@@ -459,7 +483,7 @@ def sparseScalarProductOfDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
+def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data, int start, int end):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in 
     mind the sparsity of A, calculating values only when required.
@@ -473,16 +497,48 @@ def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:]
     B         - a dense matrix
     C         - a dense matrix
     out_data  - the values buffer into which the result will be placed.
+    start     - which row (inclusive) of A to start with
+    end       - which row (exclusive) of A to end with
     
     Returns
-    out_data, though note that this is the same parameter passed in and overwitten.
+    out_data, though note that this is the same parameter passed in and overwritten.
     '''
-    cdef int rowCount = len(A_ptr) - 1 
+    cdef:
+        int A_row = 0
+        int B_row = 0
+        int col = 0
+        int elemCount =0
+        int e = 0
+        int i = 0
+        double dotProd = 0.0
+        double logOfMin = log (DBL_MIN)
+    
+    with nogil:
+        while A_row < end:
+            elemCount = A_ptr[A_row+1] - A_ptr[A_row]
+            e = 0
+            if A_row >= start:
+                while e < elemCount:
+                    col         = A_indices[i]
+                    dotProd     = dotProduct_f8(B_row,col,B,C)
+                    out_data[i] = A_data[i] * (log(dotProd) if dotProd > DBL_MIN else logOfMin)
+                    i += 1
+                    e += 1
+                B_row += 1
+            A_row += 1
+    
+    return out_data
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def sparseScalarProductOfSafeLnDot_f8_full(double[:] A_data, int[:] A_indices, int[:] A_ptr, double[:,:] B, double[:,:] C, double[:] out_data):
+    cdef int rowCount = len(A_ptr) - 1
     cdef int elemCount = 0, e = 0
     cdef int row = 0, col = 0, i = 0
     cdef double dotProd = 0.0
     cdef double logOfMin = log (DBL_MIN)
-    
+
     with nogil:
         while row < rowCount:
             elemCount = A_ptr[row+1] - A_ptr[row]
@@ -494,13 +550,15 @@ def sparseScalarProductOfSafeLnDot_f8(double[:] A_data, int[:] A_indices, int[:]
                 i += 1
                 e += 1
             row += 1
-    
+
     return out_data
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def sparseScalarProductOfSafeLnDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data):
+def sparseScalarProductOfSafeLnDot_f4(float[:] A_data, int[:] A_indices, int[:] A_ptr, float[:,:] B, float[:,:] C, float[:] out_data, int start, int end):
     '''
     Returns A * np.log(np.dot(B, C)), however it does so keeping in 
     mind the sparsity of A, calculate values only when required.
@@ -514,27 +572,35 @@ def sparseScalarProductOfSafeLnDot_f4(float[:] A_data, int[:] A_indices, int[:] 
     B         - a dense matrix
     C         - a dense matrix
     out_data  - the values buffer into which the result will be placed.
+    start     - which row (inclusive) of A to start with
+    end       - which row (exclusive) of A to end with
     
     Returns
-    out_data, though note that this is the same parameter passed in and overwitten.
+    out_data, though note that this is the same parameter passed in and overwritten.
     '''
-    cdef int rowCount = len(A_ptr) - 1 
-    cdef int elemCount = 0, e = 0
-    cdef int row = 0, col = 0, i = 0
-    cdef float dotProd = 0.0
-    cdef float logOfMin = log (FLT_MIN)
-    
+    cdef:
+        int A_row = 0
+        int B_row = 0
+        int col = 0
+        int elemCount =0
+        int e = 0
+        int i = 0
+        float dotProd = 0.0
+        float logOfMin = log (FLT_MIN)
+
     with nogil:
-        while row < rowCount:
-            elemCount = A_ptr[row+1] - A_ptr[row]
+        while A_row < end:
+            elemCount = A_ptr[A_row+1] - A_ptr[A_row]
             e = 0
-            while e < elemCount:
-                col         = A_indices[i]
-                dotProd     = dotProduct_f4(row,col,B,C)
-                out_data[i] = A_data[i] * (log(dotProd) if dotProd > FLT_MIN else logOfMin)
-                i += 1
-                e += 1
-            row += 1
+            if A_row >= start:
+                while e < elemCount:
+                    col         = A_indices[i]
+                    dotProd     = dotProduct_f4(B_row,col,B,C)
+                    out_data[i] = A_data[i] * (log(dotProd) if dotProd > FLT_MIN else logOfMin)
+                    i += 1
+                    e += 1
+                B_row += 1
+            A_row += 1
     
     return out_data
 

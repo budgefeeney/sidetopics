@@ -118,6 +118,8 @@ def vec_transpose(A, p):
         return np.array (compiled.vec_transpose_f8r (A, p))
     elif A.dtype == np.float32:
         return np.array(compiled.vec_transpose_f4r (A, p))
+    elif A.order == 'F':
+        raise ValueError ("Not implemented for Fortran order matrices")
     
     # Fall back to pure Python 
     (oldRows, oldCols) = A.shape
