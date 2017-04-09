@@ -16,12 +16,15 @@ TableTitles=[ DocCount ] + Ms
 PerplexityPrefix="Training perplexity is "
 PrecisionTitle="Precision"
 RecallTitle="Recall"
-MrrPrefix="Mean reciprocal-rank : "
-MapPrefix="Mean Average Precision : "
+MrrPrefix="Mean reciprocal-rank: "
+MapPrefix="Mean average-precision: "
 
-DefaultInPath="/Users/bryanfeeney/iCloud/Results/ACL/Results Compendium.txt"
-DefaultOutPath="/Users/bryanfeeney/iCloud/Results/ACL/ResultsCompendium.csv"
-
+# DefaultInPath="/Users/bryanfeeney/iCloud/Results/ACL/Results Compendium.txt"
+# DefaultOutPath="/Users/bryanfeeney/iCloud/Results/ACL/ResultsCompendium.csv"
+DefaultInPath="/Users/bryanfeeney/Desktop/ACL-LRO/ACL/LroInsample.txt"
+DefaultOutPath="/Users/bryanfeeney/Desktop/ACL-LRO/ACL/LroInSample.csv"
+# DefaultInPath="/Users/bryanfeeney/Desktop/ACL-LRO/ACL/LroOutSample.txt"
+# DefaultOutPath="/Users/bryanfeeney/Desktop/ACL-LRO/ACL/LroOutSample.csv"
 
 
 
@@ -201,6 +204,9 @@ def read_all_results(path):
         line = "\n"
         while line != "":
             line, file = skip_to_non_empty_line(file.readline(), file)
+            if line == "":
+                break
+
             algorDesc = Algorithm.from_file_entry(line)
             line, file = skip_to_non_empty_line(file.readline(), file)
             if line == "":
