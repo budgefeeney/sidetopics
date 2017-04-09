@@ -24,16 +24,17 @@ import numpy as np
 import scipy.linalg as la
 import scipy.sparse as ssp
 import numpy.random as rd
+import sys
 
 from util.overflow_safe import safe_log, safe_log_one_plus_exp_of
 from util.array_utils import normalizerows_ip
-from model.sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
+from .sidetopic_uyv import DTYPE, LOG_2PI, LOG_2PI_E, _quickPrintElbo, \
     VbSideTopicModelState,  VbSideTopicQueryState, \
     log_likelihood, plot_bound, query, negJakkola, deriveXi, \
     sparseScalarProductOfDot, sparseScalarQuotientOfDot
 
-from model.sidetopic_uyv import varBound as varBoundUyv
-from model.sidetopic_uyv import newVbModelState as newVbModelStateUyv
+from .sidetopic_uyv import varBound as varBoundUyv
+from .sidetopic_uyv import newVbModelState as newVbModelStateUyv
 from util.vectrans import vec, vec_transpose, vec_transpose_csr, sp_vec_trans_matrix
 
 from numba import autojit
@@ -131,8 +132,8 @@ def train(modelState, X, W, plan):
     lxi  = negJakkola (np.ones((D,K), DTYPE))
     
     # If we don't bother optimising either tau or sigma we can just do all this here once only 
-    tsq     = tau * tau;
-    ssq     = sigma * sigma;
+    tsq     = tauSq
+    ssq     = sigmaSq
     overTsq = 1. / tsq
     overSsq = 1. / ssq
     overTsqSsq = 1./(tsq * ssq)
