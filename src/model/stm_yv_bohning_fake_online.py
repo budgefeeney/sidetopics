@@ -165,7 +165,7 @@ def is_undirected_link_predictor():
     '''
     return False
 
-BatchSize=5000
+BatchSize=100000
 #@nb.autojit
 def train (data, modelState, queryState, trainPlan):
     '''
@@ -262,10 +262,10 @@ def train (data, modelState, queryState, trainPlan):
         debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
         
         # Update the vocabulary
-        # vocab *= vocabScale
-        # vocab += vocabPrior
-        # vocab = normalizerows_ip(vocab)
-        # debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
+        vocab *= vocabScale
+        vocab += vocabPrior
+        vocab = normalizerows_ip(vocab)
+        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
         
         # Finally update the parameter V
         V = la.inv(sigScale * R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
@@ -326,13 +326,13 @@ def train (data, modelState, queryState, trainPlan):
                 batchIter += 1
 
                 # Do a gradient update of the vocab
-                vocabScale = (R.T.dot(expMeans[:span,:])).T
-                vocabScale *= vocab
-                normalizerows_ip(vocabScale)
-                # vocabScale += vocabPrior
-                vocabScale *= stepSize
-                vocab *= (1 - stepSize)
-                vocab += vocabScale
+                vocabScale += (R.T.dot(expMeans[:span,:])).T
+                # vocabScale *= vocab
+                # normalizerows_ip(vocabScale)
+                # # vocabScale += vocabPrior
+                # vocabScale *= stepSize
+                # vocab *= (1 - stepSize)
+                # vocab += vocabScale
 
                 diff = (means[d:end_d,:] - mu)
                 means_cov_with_x_a += diff.T.dot(diff)
