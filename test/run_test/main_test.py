@@ -151,18 +151,18 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        RetardationRate = 0.6
-        ForgettingRate  = 0.6
-        BatchSize       = 10
+        RetardationRate = 10
+        ForgettingRate  = 0.55
+        BatchSize       = 100
 
         sgd_setups = [(b,r,f) for b in [1, 5, 10, 100] for r in [1, 10, 30] for f in [0.6, 0.75, 0.9]]
 
         Folds, ExecutedFoldCount = 5,5
         K,P = 50, 50
-        TrainIters, QueryIters, LogFreq = 50,5,5
+        TrainIters, QueryIters, LogFreq = 500,50,1
         PriorCov = 0.001
         VocabPrior = 1
-        Debug = False
+        Debug = True
 
 
 
@@ -171,12 +171,11 @@ class Test(unittest.TestCase):
         for DataSetName in [Reuters]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ LdaCvb ]:
-                    BatchSize = 0
+                for modelName in [ MomGibbs ]:
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
-                            + ' --dtype '          + 'f4:f4'      \
+                            + ' --dtype '          + 'f8'      \
                             + ' --num-topics '     + str(k)    \
                             + ' --num-lat-feats '  + str(P) \
                             + ' --log-freq '       + str(LogFreq)       \
