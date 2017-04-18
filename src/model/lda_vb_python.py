@@ -8,6 +8,8 @@ import numpy as np
 import numpy.random as rd
 import scipy.linalg as la
 import scipy.special as fns
+
+from math import exp
 #import numba as nb
 
 
@@ -27,9 +29,15 @@ VocabPrior = 1.1
 HyperParamUpdateInterval = 5
 HyperUpdateEnabled = False
 
+RateAlgorBatch="batch"
+RateAlgorTimeKappa="kappa"
+RateAlgorAmaria="amari"
+RateAlgorVariance="variance"
+RateAlgors=[RateAlgorTimeKappa, RateAlgorAmaria, RateAlgorVariance]
+
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate debug batchSize rate_retardation forgetting_rate')
+    'iterations epsilon logFrequency fastButInaccurate debug batchSize rate_delay forgetting_rate rate_a rate_b rate_algor')
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -135,7 +143,7 @@ def pruneQueryState (query, indices):
 
 
 def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=False, debug=False, batchSize=0,
-                 rate_retardation=0.6, forgetting_rate=0.6):
+                 rate_delay=0.6, forgetting_rate=0.6, rate_a=2, rate_b=0.5, rate_algor="batch"):
     '''
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
@@ -145,8 +153,8 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     the last value of the bound and the current, and if it's less than the given angle,
     then stop.
     '''
-    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_retardation,
-                     forgetting_rate)
+    return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_delay,
+                     forgetting_rate, rate_a, rate_b, rate_algor)
 
 
 def wordDists (modelState):
@@ -319,7 +327,6 @@ def _infer_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, di
     return wordIdx, z
 
 
-##@nb.jit
 def train(data, model, query, plan, updateVocab=True):
     '''
     Infers the topic distributions in general, and specifically for
@@ -338,9 +345,8 @@ def train(data, model, query, plan, updateVocab=True):
     defensive copy if you want it)
     The query object with the update query parameters
     '''
-    iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_retardation, forgetting_rate = \
-        plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug, \
-        plan.batchSize, plan.rate_retardation, plan.forgetting_rate
+    iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rateAlgor = \
+        plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug, plan.batchSize, plan.rate_algor
     docLens, topicMeans = \
         query.docLens, query.topicDists
     K, topicPrior, vocabPrior, wordDists, dtype = \
@@ -348,8 +354,135 @@ def train(data, model, query, plan, updateVocab=True):
 
     # Quick sanity check
     if np.any(docLens < 1):
+        raise ValueError("Input document-term matrix contains at least one document with no words")
+    assert model.dtype == np.float64, "Only implemented for 64-bit floats"
+
+    # Prepare the data for inference
+    topicMeans = _convertDirichletParamToMeans(docLens, topicMeans, topicPrior)
+
+    W = data.words
+    D, T = W.shape
+
+    iters, bnds, likes = [], [], []
+
+    # A few parameters for handling adaptive step-sizes in SGD
+    if plan.rate_algor == RateAlgorBatch:
+        batchSize  = D
+        batchCount = 1
+    else:
+        batchSize  = plan.batchSize
+        batchCount = D // batchSize + 1
+
+    gradStep = 1
+    grad     = np.zeros((D,T), dtype=dtype)
+    gtg      = constantArray((K,), 1, dtype=dtype)
+    eg_t_eg  = constantArray((K,), 1, dtype=dtype)
+    exp_gtg  = 1
+    stepSize = eg_t_eg.copy()
+
+    # The digamma terms for the vocabularly
+    diWordDistSums = np.empty((K,), dtype=dtype)
+    diWordDists = np.empty(wordDists.shape, dtype=dtype)
+
+
+    # Amend the name to incorporate training information
+    modelName = "lda/svbp/%s" % _sgd_desc(plan)
+    print(modelName)
+
+    # Start traininng
+    d = 0
+    for b in range(batchCount * iterations):
+        for rateAlgor in [RateAlgorBatch, RateAlgorVariance, RateAlgorTimeKappa, RateAlgorAmaria]:
+            # -------------------------------------------------------------
+            grad.fill(vocabPrior)
+            # firstD = d
+            for s in range(batchSize):
+                d = d + 1 if (d + 1) < D else 0
+
+                wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+                grad[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
+
+            if rateAlgor == RateAlgorBatch:
+                wordDists = grad
+            else:
+                if rateAlgor == RateAlgorTimeKappa:
+                    stepSize = (b + plan.rate_delay)**(-plan.forgetting_rate)
+                elif rateAlgor == RateAlgorVariance:
+                    np.dot(grad, grad, out=gtg)
+                    update_inplace_s(gradStep, old=eg_t_eg,   change=gtg)
+                    update_inplace_s(gradStep, old=exp_gtg, change=gtg)
+                    exp_gtg[:, np.newaxis] /= exp_gtg
+                    stepSize = exp_gtg
+                    gradStep = gradStep * (1 - stepSize) + 1
+                elif rateAlgor == RateAlgorAmaria:
+                    topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
+                    # doc_indices = np.linspace(firstD, firstD + batchSize -1, batchSize) % D
+                    log_likely = var_bound(
+                        data, # data._reorder(doc_indices),
+                        ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName),
+                        QueryState(docLens, topicMeans, True)
+                    )
+                    p     = stepSize[0]
+                    a, b  = plan.rate_a, plan.rate_b
+                    p    *= exp(a * (b * log_likely - p))
+                    stepSize[:] = p
+                else:
+                    raise ValueError ("No code to support the '" + str(plan.rate_algor) + "' learning rate adaptation algorithm")
+
+                update_inplace_v (stepSize, old=wordDists, change=grad)
+
+            fns.digamma(wordDists, out=diWordDists)
+            np.sum(wordDists, axis=0, out=diWordDistSums)
+            fns.digamma(diWordDistSums, out=diWordDistSums)
+            # -------------------------------------------------------------
+
+
+    topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
+
+    return ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName), \
+           QueryState(docLens, topicMeans, True), \
+           (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
+
+def update_inplace_s(stepSizeScalar, old, change):
+    old    *= (1 - stepSizeScalar)
+    change *= stepSizeScalar
+    old    += change
+
+def update_inplace_v(stepSizeVector, old, change):
+    old[:, np.newaxis]    *= (np.ones((stepSizeVector.shape[0],)) - stepSizeVector)
+    change[:, np.newaxis] *= stepSizeVector
+    old += change
+
+##@nb.jit
+def _old_train(data, model, query, plan, updateVocab=True):
+    '''
+    Infers the topic distributions in general, and specifically for
+    each individual datapoint,
+
+    Params:
+    data - the training data, we just use the DxT document-term matrix
+    model - the initial model configuration. This is MUTATED IN-PLACE
+    qyery - the query results - essentially all the "local" variables
+            matched to the given observations. Also MUTATED IN-PLACE
+    plan  - how to execute the training process (e.g. iterations,
+            log-interval etc.)
+
+    Return:
+    The updated model object (note parameters are updated in place, so make a
+    defensive copy if you want it)
+    The query object with the update query parameters
+    '''
+    iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize = \
+        plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug, plan.batchSize
+    docLens, topicMeans = \
+        query.docLens, query.topicDists
+    K, topicPrior, vocabPrior, wordDists = \
+        model.K, model.topicPrior, model.vocabPrior, model.wordDists
+
+    # Quick sanity check
+    if np.any(docLens < 1):
         raise ValueError ("Input document-term matrix contains at least one document with no words")
-    assert dtype == np.float64, "Only implemented for 64-bit floats"
+    assert model.dtype == np.float64, "Only implemented for 64-bit floats"
 
     # Prepare the data for inference
     topicMeans = _convertDirichletParamToMeans(docLens, topicMeans, topicPrior)
@@ -358,6 +491,13 @@ def train(data, model, query, plan, updateVocab=True):
     D,T = W.shape
 
     iters, bnds, likes = [], [], []
+    
+    # A few parameters for handling adaptive step-sizes in SGD
+    grad = 0
+    grad_inner = 0
+    grad_rate = 1
+    log_likely = 0 # complete dataset likelihood for gradient adjustments
+    stepSize = np.array([1.] * K, dtype=model.dtype)
 
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
@@ -368,7 +508,7 @@ def train(data, model, query, plan, updateVocab=True):
     batchProcessCount = 0
 
     # Amend the name if batchSize == 0 implying we're using SGD
-    modelName = "lda/svbp/%04d-%05.2f-%05.2f" % (batchSize, rate_retardation, forgetting_rate) \
+    modelName = "lda/svbp/%s" % _sgd_desc(plan) \
                 if batchSize > 0 else model.name
     print (modelName)
 
@@ -390,9 +530,20 @@ def train(data, model, query, plan, updateVocab=True):
                 wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
                 wordDists[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-                if 0 < batchSize == batchProcessCount:
-                    cycles_elapsed = itr * D + d + 1
-                    stepSize       = (rate_retardation + cycles_elapsed)**(-forgetting_rate)
+                if plan.rate_algor == RateAlgorAmaria:
+                    log_likely += 0
+                elif plan.rate_algor == RateAlgorVariance:
+                    g = wordDists.mean(axis=0) + vocabPrior
+                    grad *= (1 - grad_rate)
+                    grad += grad_rate * wordDists
+                    grad += grad_rate * vocabPrior
+                    gg += 0
+                elif plan.rate_algor != RateAlgorTimeKappa:
+                    raise ValueError("Unknown rate algorithm " + str(plan.rate_algor))
+
+                if batchSize > 0 and batchProcessCount == batchSize:
+                    batch_index    = (itr * D + d) / batchSize #TODO  Will not be right if batchSize is not a multiple of D
+                    stepSize       = _step_sizes(stepSize, batch_index, g, gg, log_likely, plan)
                     wordDists     *= (1 - stepSize)
                     wordDists     += stepSize * vocabPrior
 
@@ -400,13 +551,13 @@ def train(data, model, query, plan, updateVocab=True):
                     wordUpdates   *= stepSize
                     wordDists     += wordUpdates
 
-
                     diWordDistSums[:] = wordDists.sum(axis=1)
                     fns.digamma(diWordDistSums, out=diWordDistSums)
                     fns.digamma(wordDists, out=diWordDists)
 
                     wordUpdates[:,:] = 0
                     batchProcessCount = 0
+                    log_likely = 0
 
                     if debug:
                         bnds.append(_var_bound_internal(data, model, query))
@@ -447,6 +598,53 @@ def train(data, model, query, plan, updateVocab=True):
     return ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName), \
            QueryState(docLens, topicMeans, True), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
+
+
+def _step_sizes(last_step, t, g, gg, log_likely, train_plan):
+    """
+    Evaluates the step size according to the metric specified by rate_algor. Do a separate
+    stepSize for each parameter.
+    :param last_step: The last values of step sizes
+    :param t: the batch indicator
+    :param g: the estimate of the expected gradient
+    :param gg: the estimate of the expected inner product of the gradients
+    :param log_likely: the log-likelihood of the dataset
+    :param train_plan: the training plan, specifies the training dataset.
+    """
+    K, dtype = len(last_step), last_step.dtype
+
+    if train_plan.rate_algor == RateAlgorTimeKappa:
+        return constantArray(K, (t + train_plan.rate_delay) ** (-train_plan.forgetting_rate), dtype)
+    elif train_plan.rate_algor == RateAlgorAmaria:
+        s = last_step[0] * exp(train_plan.rate_a * (train_plan.rate_b * -log_likely - last_step[0]))
+        return constantArray(K, s, dtype)
+    elif train_plan.rate_algor == RateAlgorVariance:
+        s = g.dot(g)
+        s[:, np.newaxis] /= gg
+        return s
+    else:
+        raise ValueError ("Unknown rate algorithm " + str(train_plan.rate_algor))
+
+def _sgd_desc (train_plan):
+    """
+    Return a / delimited string describing the current SGD training schedule
+    :param train_plan:
+    :return:
+    """
+    if train_plan.rate_algor == RateAlgorBatch:
+        return RateAlgorBatch
+
+    result = train_plan.rate_algor + "/" + train_plan.batchSize
+    if train_plan.rate_algor == RateAlgorTimeKappa:
+        return result + "/%.2f/.2f" % (train_plan.rate_delay, train_plan.forgetting_rate)
+    elif train_plan.rate_algor == RateAlgorAmaria:
+        return result + "/%.2f/.2f" % (train_plan.rate_a, train_plan.rate_b)
+    elif train_plan.rate_algor == RateAlgorVariance:
+        return result
+    else:
+        raise ValueError ("Unknown rate algorithm " + str(train_plan.rate_algor))
+
+
 
 
 def _updateTopicHyperParamsFromMeans(model, query, max_iters=100):
