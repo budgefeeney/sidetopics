@@ -640,7 +640,7 @@ def _sgd_desc (train_plan):
     if train_plan.rate_algor == RateAlgorBatch:
         return RateAlgorBatch
 
-    result = train_plan.rate_algor + "/" + train_plan.batchSize
+    result = train_plan.rate_algor + "/" + str(train_plan.batchSize)
     if train_plan.rate_algor == RateAlgorTimeKappa:
         return result + "/%.2f/.2f" % (train_plan.rate_delay, train_plan.forgetting_rate)
     elif train_plan.rate_algor == RateAlgorAmaria:
