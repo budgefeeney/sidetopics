@@ -34,6 +34,7 @@ RateAlgorTimeKappa="kappa"
 RateAlgorAmaria="amari"
 RateAlgorVariance="variance"
 RateAlgors=[RateAlgorTimeKappa, RateAlgorAmaria, RateAlgorVariance]
+DefaultNonBatchRateAlgor=RateAlgorTimeKappa
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
@@ -153,6 +154,9 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     the last value of the bound and the current, and if it's less than the given angle,
     then stop.
     '''
+    if batchSize > 0:
+        rate_algor = DefaultNonBatchRateAlgor
+
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug, batchSize, rate_delay,
                      forgetting_rate, rate_a, rate_b, rate_algor)
 
@@ -374,8 +378,8 @@ def train(data, model, query, plan, updateVocab=True):
         batchCount = D // batchSize + 1
 
     gradStep = 1
-    grad     = np.zeros((D,T), dtype=dtype)
-    gtg      = constantArray((K,), 1, dtype=dtype)
+    grad     = np.zeros((K,T), dtype=dtype)
+    ex_grad  = grad.copy()
     eg_t_eg  = constantArray((K,), 1, dtype=dtype)
     exp_gtg  = 1
     stepSize = eg_t_eg.copy()
@@ -390,7 +394,7 @@ def train(data, model, query, plan, updateVocab=True):
     print(modelName)
 
     # Start traininng
-    d = 0
+    d = -1
     for b in range(batchCount * iterations):
         for rateAlgor in [RateAlgorBatch, RateAlgorVariance, RateAlgorTimeKappa, RateAlgorAmaria]:
             # -------------------------------------------------------------
@@ -408,12 +412,14 @@ def train(data, model, query, plan, updateVocab=True):
                 if rateAlgor == RateAlgorTimeKappa:
                     stepSize = (b + plan.rate_delay)**(-plan.forgetting_rate)
                 elif rateAlgor == RateAlgorVariance:
-                    np.dot(grad, grad, out=gtg)
-                    update_inplace_s(gradStep, old=eg_t_eg,   change=gtg)
+                    update_inplace_s(gradStep, ex_grad, change=grad)
+                    gtg = stepSize.copy()
+                    for k in range(K):
+                        stepSize[k] = np.dot(ex_grad[k,:], ex_grad[k,:])
+                        gtg = np.dot(grad[k,:], grad[k,:])
                     update_inplace_s(gradStep, old=exp_gtg, change=gtg)
-                    exp_gtg[:, np.newaxis] /= exp_gtg
-                    stepSize = exp_gtg
-                    gradStep = gradStep * (1 - stepSize) + 1
+                    stepSize /= exp_gtg
+                    gradStep  = gradStep * (1 - stepSize) + 1
                 elif rateAlgor == RateAlgorAmaria:
                     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
                     # doc_indices = np.linspace(firstD, firstD + batchSize -1, batchSize) % D
@@ -432,7 +438,7 @@ def train(data, model, query, plan, updateVocab=True):
                 update_inplace_v (stepSize, old=wordDists, change=grad)
 
             fns.digamma(wordDists, out=diWordDists)
-            np.sum(wordDists, axis=0, out=diWordDistSums)
+            np.sum(wordDists, axis=1, out=diWordDistSums)
             fns.digamma(diWordDistSums, out=diWordDistSums)
             # -------------------------------------------------------------
 
@@ -476,8 +482,8 @@ def _old_train(data, model, query, plan, updateVocab=True):
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug, plan.batchSize
     docLens, topicMeans = \
         query.docLens, query.topicDists
-    K, topicPrior, vocabPrior, wordDists = \
-        model.K, model.topicPrior, model.vocabPrior, model.wordDists
+    K, topicPrior, vocabPrior, wordDists ,dtype = \
+        model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.dtype
 
     # Quick sanity check
     if np.any(docLens < 1):

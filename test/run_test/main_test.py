@@ -140,7 +140,7 @@ class Test(unittest.TestCase):
         pass
 
 
-    def testAlgorithms(self):
+    def testMainScript(self):
         D, T, K, Q, F, P, avgWordsPerDoc = 200, 100, 10, 6, 12, 8, 500
         tpcs, vocab, docLens, X, W = sampleFromModel(D, T, K, F, P, avgWordsPerDoc)
         
@@ -170,7 +170,7 @@ class Test(unittest.TestCase):
         for DataSetName in [Reuters]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ MomGibbs ]:
+                for modelName in [ LdaVb ]:
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
