@@ -430,9 +430,9 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
 
             # Save the model
             model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl)
-        # except Exception as e:
-        #     traceback.print_exc()
-        #     print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
+        except Exception as e:
+            traceback.print_exc()
+            print("Abandoning fold %d due to the error : %s" % (fold, str(e)))
         finally:
             fold += 1
 
