@@ -152,7 +152,7 @@ class Test(unittest.TestCase):
         
         print ("New Version")
 
-        RetardationRate = 10
+        RateDelay       = 10
         ForgettingRate  = 0.55
         BatchSize       = 100
 
@@ -170,7 +170,7 @@ class Test(unittest.TestCase):
         for DataSetName in [Reuters]:
             for k in [20]:
                 #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ LdaVb ]:
+                for modelName in [ LdaSvb ]:
                     cmdline = '' \
                             +(' --debug '          + str(Debug) if Debug else "") \
                             + ' --model '          + modelName \
@@ -181,7 +181,7 @@ class Test(unittest.TestCase):
                             + ' --log-freq '       + str(LogFreq)       \
                             + ' --eval '           + Perplexity  \
                             + ' --gradient-batch-size '       + str(BatchSize) \
-                            + ' --gradient-rate-retardation ' + str(RetardationRate) \
+                            + ' --gradient-rate-delay '       + str(RateDelay) \
                             + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
                             + ' --iters '          + str(TrainIters)      \
                             + ' --query-iters '    + str(QueryIters)      \

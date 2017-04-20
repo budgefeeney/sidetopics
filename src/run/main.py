@@ -136,7 +136,7 @@ def run(args):
                     help='Feature mask to use with FeatSplit runs, comma-delimited list of colon-delimited pairs')
     parser.add_argument('--gradient-batch-size', dest='sgd_batch_size', type=int, default=0, metavar=' ', \
                     help='What batch size should be employed when training using gradient descent')
-    parser.add_argument('--gradient-rate-retardation', dest='sgd_retardation_rate', type=float, default=0.6, metavar=' ', \
+    parser.add_argument('--gradient-rate-delay', dest='sgd_rate_delay', type=float, default=0.6, metavar=' ', \
                     help='A non-negative number, the higher this value, the smaller the learning rate is in early iterations')
     parser.add_argument('--gradient-forgetting-rate', dest='sgd_forget_rate', type=float, default=0.6, metavar=' ', \
                     help='A number in the range 0.5 < f <= 1, the higher this value, the faster the learning rate collapses to almost zero.')
@@ -244,7 +244,7 @@ def run(args):
         trainPlan = mdl.newTrainPlan(
                         args.iters,
                         batchSize=args.sgd_batch_size,
-                        rate_retardation=args.sgd_retardation_rate,
+                        rate_delay=args.sgd_rate_delay,
                         forgetting_rate=args.sgd_forget_rate,
                         debug=args.debug)
     else:
