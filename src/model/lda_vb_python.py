@@ -377,12 +377,11 @@ def train(data, model, query, plan, updateVocab=True):
         batchSize  = plan.batchSize
         batchCount = D // batchSize + 1
 
-    gradStep = 1
+    gradStep = constantArray((K,), 1./float(batchSize), dtype=dtype)
     grad     = np.zeros((K,T), dtype=dtype)
     ex_grad  = grad.copy()
-    eg_t_eg  = constantArray((K,), 1, dtype=dtype)
-    exp_gtg  = 1
-    stepSize = eg_t_eg.copy()
+    exp_gtg  = np.zeros((K,), dtype=dtype)
+    stepSize = np.ones((K,), dtype=dtype)
 
     # The digamma terms for the vocabularly
     diWordDistSums = np.empty((K,), dtype=dtype)
@@ -393,54 +392,56 @@ def train(data, model, query, plan, updateVocab=True):
     modelName = "lda/svbp/%s" % _sgd_desc(plan)
     print(modelName)
 
+    rateAlgor = RateAlgorVariance
+
     # Start traininng
     d = -1
     for b in range(batchCount * iterations):
-        for rateAlgor in [RateAlgorBatch, RateAlgorVariance, RateAlgorTimeKappa, RateAlgorAmaria]:
-            # -------------------------------------------------------------
-            grad.fill(vocabPrior)
-            # firstD = d
-            for s in range(batchSize):
-                d = d + 1 if (d + 1) < D else 0
+        grad.fill(vocabPrior)
+        # firstD = d
+        for s in range(batchSize):
+            d = d + 1 if (d + 1) < D else 0
 
-                wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
-                grad[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
+            wordIdx, z = _update_topics_at_d(d, data, docLens, topicMeans, topicPrior, diWordDists, diWordDistSums)
+            grad[:, wordIdx] += W[d, :].data[np.newaxis, :] * z
 
-            if rateAlgor == RateAlgorBatch:
-                wordDists = grad
+        if rateAlgor == RateAlgorBatch:
+            wordDists = grad
+        else:
+            if rateAlgor == RateAlgorTimeKappa:
+                stepSize[:] = (b + plan.rate_delay)**(-plan.forgetting_rate)
+            elif rateAlgor == RateAlgorVariance:
+                update_inplace_v(gradStep, ex_grad, change=grad)
+                gtg = stepSize.copy()
+                for k in range(K):
+                    stepSize[k] = np.dot(ex_grad[k,:], ex_grad[k,:])
+                    gtg[k] = np.dot(grad[k,:], grad[k,:])
+                update_inplace_s(gradStep, old=exp_gtg, change=gtg)
+                stepSize /= exp_gtg
+                gradStep  = gradStep * (1 - stepSize) + 1
+            elif rateAlgor == RateAlgorAmaria:
+                topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
+                # doc_indices = np.linspace(firstD, firstD + batchSize -1, batchSize) % D
+                log_likely = var_bound(
+                    data, # data._reorder(doc_indices),
+                    ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName),
+                    QueryState(docLens, topicMeans, True)
+                )
+                p     = stepSize[0]
+                a, b  = plan.rate_a, plan.rate_b
+                p    *= exp(a * (b * -log_likely - p))
+                stepSize[:] = p
+                topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
             else:
-                if rateAlgor == RateAlgorTimeKappa:
-                    stepSize = (b + plan.rate_delay)**(-plan.forgetting_rate)
-                elif rateAlgor == RateAlgorVariance:
-                    update_inplace_s(gradStep, ex_grad, change=grad)
-                    gtg = stepSize.copy()
-                    for k in range(K):
-                        stepSize[k] = np.dot(ex_grad[k,:], ex_grad[k,:])
-                        gtg = np.dot(grad[k,:], grad[k,:])
-                    update_inplace_s(gradStep, old=exp_gtg, change=gtg)
-                    stepSize /= exp_gtg
-                    gradStep  = gradStep * (1 - stepSize) + 1
-                elif rateAlgor == RateAlgorAmaria:
-                    topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
-                    # doc_indices = np.linspace(firstD, firstD + batchSize -1, batchSize) % D
-                    log_likely = var_bound(
-                        data, # data._reorder(doc_indices),
-                        ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, modelName),
-                        QueryState(docLens, topicMeans, True)
-                    )
-                    p     = stepSize[0]
-                    a, b  = plan.rate_a, plan.rate_b
-                    p    *= exp(a * (b * log_likely - p))
-                    stepSize[:] = p
-                else:
-                    raise ValueError ("No code to support the '" + str(plan.rate_algor) + "' learning rate adaptation algorithm")
+                raise ValueError ("No code to support the '" + str(plan.rate_algor) + "' learning rate adaptation algorithm")
 
-                update_inplace_v (stepSize, old=wordDists, change=grad)
+            update_inplace_v (stepSize, old=wordDists, change=grad)
 
-            fns.digamma(wordDists, out=diWordDists)
-            np.sum(wordDists, axis=1, out=diWordDistSums)
-            fns.digamma(diWordDistSums, out=diWordDistSums)
-            # -------------------------------------------------------------
+        print ("%s : t=%d : step=%s" % (rateAlgor, b, str(stepSize)))
+        fns.digamma(wordDists, out=diWordDists)
+        np.sum(wordDists, axis=1, out=diWordDistSums)
+        fns.digamma(diWordDistSums, out=diWordDistSums)
+
 
 
     topicMeans = _convertMeansToDirichletParam(docLens, topicMeans, topicPrior)
@@ -455,9 +456,9 @@ def update_inplace_s(stepSizeScalar, old, change):
     old    += change
 
 def update_inplace_v(stepSizeVector, old, change):
-    old[:, np.newaxis]    *= (np.ones((stepSizeVector.shape[0],)) - stepSizeVector)
-    change[:, np.newaxis] *= stepSizeVector
-    old += change
+    old    *= (np.ones((stepSizeVector.shape[0],)) - stepSizeVector)[:, np.newaxis]
+    change *= stepSizeVector[:, np.newaxis]
+    old    += change
 
 ##@nb.jit
 def _old_train(data, model, query, plan, updateVocab=True):
