@@ -14,9 +14,10 @@ MeanPrecRecAtMAllDocs="meanprecrec_all"
 LroMeanPrecRecAtMAllDocs="lro_meanprecrec_all"
 LroMeanPrecRecAtMFeatSplit="lro_meanprecrec_featsplit"
 HashtagPrecAtM="hashtag_prec_at_m"
+TagPrecAtM="tag_prec_at_m"
 
 EvalNames = [Perplexity, MeanAveragePrecAllDocs, MeanPrecRecAtMAllDocs, \
-             HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, LroMeanPrecRecAtMFeatSplit]
+             HashtagPrecAtM, TagPrecAtM, LroMeanPrecRecAtMAllDocs, LroMeanPrecRecAtMFeatSplit]
 
 AllGroups = (-1, -1)
 

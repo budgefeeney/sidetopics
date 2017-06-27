@@ -17,7 +17,7 @@ from model.evals import perplexity_from_like, mean_average_prec, \
     mean_reciprocal_rank, mean_prec_rec_at, \
     EvalNames, Perplexity, MeanAveragePrecAllDocs,  \
     MeanPrecRecAtMAllDocs, LroMeanPrecRecAtMAllDocs, \
-    LroMeanPrecRecAtMFeatSplit, HashtagPrecAtM
+    LroMeanPrecRecAtMFeatSplit, HashtagPrecAtM, TagPrecAtM
 from util.sigmoid_utils import rowwise_softmax
 
 DTYPE=np.float32
@@ -140,6 +140,10 @@ def run(args):
                     help='A non-negative number, the higher this value, the smaller the learning rate is in early iterations')
     parser.add_argument('--gradient-forgetting-rate', dest='sgd_forget_rate', type=float, default=0.6, metavar=' ', \
                     help='A number in the range 0.5 < f <= 1, the higher this value, the faster the learning rate collapses to almost zero.')
+    parser.add_argument('--tag-recall-opts', dest='tag_recall_opt', type=str, default='0:-1,0.333', metavar=' ', \
+                    help="A comma-delimited value, with a range and a proportion, e.g. 0:1000,0.3 identifying where tags exist " + \
+                         "in the dictionary, and what proportion of them should be (randomly), moved out of the query set and into " + \
+                         "the validation set, when performing a tag-based precision-at-m evaluation")
 
     # Initialization of the app: first parse the arguments
     #
@@ -256,7 +260,21 @@ def run(args):
     if args.eval == Perplexity:
         return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == HashtagPrecAtM:
-        return cross_val_and_eval_hashtag_prec_at_m(data, mdl, templateModel, trainPlan, load_dict(args.word_dict), args.folds, args.eval_fold_count, args.out_model)
+        word_dict = load_dict(args.word_dict)
+        hashtag_indices = popular_hashtag_indices (data, word_dict, 50)
+        return cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, 0, mdl, templateModel, trainPlan, load_dict(args.word_dict), args.folds, args.eval_fold_count, args.out_model)
+    elif args.eval == TagPrecAtM:
+        word_dict   = load_dict(args.word_dict)
+        params      = [s.strip() for s in ",".split(args.tag_recall_opt)]
+        range_parts = [int(s.strip()) for s in ":".split(params[0])]
+        if range_parts[1] == -1:
+            range_parts[1] = len(word_dict)
+        selected_words = [i for i in range(range_parts[0], range_parts[1])]
+        proportion_to_move_out = float(params[1])
+
+        return cross_val_and_eval_hashtag_prec_at_m(data, selected_words, proportion_to_move_out, mdl, templateModel, trainPlan,
+                                                    load_dict(args.word_dict), args.folds, args.eval_fold_count,
+                                                    args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
         return link_split_map (data, mdl, templateModel, trainPlan, args.folds, args.out_model)
     elif args.eval == MeanPrecRecAtMAllDocs:
@@ -442,7 +460,7 @@ def cross_val_and_eval_perplexity(data, mdl, sample_model, train_plan, query_pla
     return model_files
 
 
-def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, word_dict, num_folds, fold_run_count=-1, model_dir= None):
+def cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, hashtag_train_prop, mdl, sample_model, train_plan, word_dict, num_folds, fold_run_count=-1, model_dir= None):
     '''
     Evaluate the precision at M for the top 50 hash-tags. In the held-out set, the hashtags
     are deleted. We train on all, both training and held-out, then evaluate the precision
@@ -473,21 +491,15 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
     if num_folds <= 1:
         raise ValueError ("Number of folds must be greater than 1")
 
-    hashtag_indices = popular_hashtag_indices (data, word_dict, 50)
-
     folds_finished = 0 # count of folds that finished successfully
     fold = 0
     while fold < num_folds and folds_finished < fold_run_count:
         try:
-            train_range, query_range = data.cross_valid_split_indices(fold, num_folds)
+            train_data, query_data = data.cross_valid_split(fold, num_folds)
 
-            segment_with_htags             = data.words[train_range, :]
-            held_out_segment_with_htags    = data.words[query_range, :]
-            held_out_segment_without_htags = data.words[query_range, :]
-            held_out_segment_without_htags[:, hashtag_indices] = 0
-
-            train_words = ssp.vstack((segment_with_htags, held_out_segment_without_htags))
-            train_data  = data.copy_with_changes(words=train_words)
+            query_data_train_words, query_data_check_words = \
+                soft_split_on_indices(query_data.words, hashtag_indices, rd.RandomState(0xC0FFEE), hashtag_train_prop)
+            query_data = query_data.copy_with_changes(words=query_data_train_words)
 
             # Train the model
             print ("Duplicating model template... ", end="")
@@ -498,24 +510,29 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
             model, train_tops, (train_itrs, train_vbs, train_likes) \
                 = mdl.train(train_data, model, train_tops, train_plan)
 
+            print ("Querying the model")
+            init_query_tops = mdl.newQueryState(query_data, model)
+            _, query_tops = mdl.query(query_data, model, init_query_tops, train_plan)
+
             # Predict hashtags
-            dist = rowwise_softmax(train_tops.means)
+            query_tops_dist = rowwise_softmax(query_tops.means)
 
             # For each hash-tag, for each value of M, evaluate the precision
+            # Specifically how many of the top M documents actually contained that hashtag
             results = {Recall : dict(), Precision : dict()}
             for hi in hashtag_indices:
-                h_probs = dist[query_range,:].dot(model.vocab[:,hi])
-                h_count = held_out_segment_with_htags[:, hi].sum()
+                h_probs = query_tops_dist.dot(model.vocab[:,hi])
+                h_count = query_data_check_words[:, hi].sum()
 
                 results[Recall][word_dict[hi]]    = { -1 : h_count }
                 results[Precision][word_dict[hi]] = { -1 : h_count }
                 for m in MS:
                     top_m = h_probs.argsort()[-m:][::-1]
 
-                    true_pos = held_out_segment_with_htags[top_m, hi].sum()
+                    matched_doc_count = query_data_check_words[top_m, hi].sum()
                     rec_denom = min(m, h_count)
-                    results[Precision][word_dict[hi]][m] = true_pos / m
-                    results[Recall][word_dict[hi]][m]    = true_pos / rec_denom
+                    results[Precision][word_dict[hi]][m] = matched_doc_count / m
+                    results[Recall][word_dict[hi]][m]    = matched_doc_count / rec_denom
 
             print ("%10s\t%20s\t%6s\t" % ("Metric", "Hashtag", "Count") + "\t".join("%5d" % m for m in MS))
             for htag, prec_results in results[Precision].items():
@@ -534,6 +551,63 @@ def cross_val_and_eval_hashtag_prec_at_m(data, mdl, sample_model, train_plan, wo
 
 
     return model_files
+
+
+def soft_split_on_indices(csr_mat, columns_set):
+    """
+    Takes a single matrix and splits it into two, a left and right, the left being a copy, the
+    right being all zeros. Values in the left belonging to columns in the columns_set are transferred
+    over to the right-hand matrix, in part by zeroing them in the left matrix.
+    :param csr_mat: the matrix to split
+    :param columns_set: the set of columns whose values are to be moved over
+    :return: the left and right matrices
+    """
+    return soft_split_on_indices(csr_mat, columns_set, rng=None, removal_prob=1.0)
+
+
+def soft_split_on_indices(csr_mat, columns_set, rng, removal_prob=0.5):
+    """
+    Takes a single matrix and splits it into two. Non-zero values, in columns in the columns_set
+    have their values transferred over to a separate matrix, probabilistically, according
+    to the removal_prob
+    :param csr_mat: the matrix to split into to
+    :param columns_set: the set of columns whose values will be probabilistically transferred over
+    :param rng: a random number generator. If removal_prob == 1 then this can be set to None
+    :param removal_prob: the probability of moving a value out into a separate matrix
+    :return: two CSR matrices, the first having all its values, minus those in the indices set which
+     have been transferred, and a second having the values which have been transferred out.
+    """
+
+    if type(columns_set) is not set:
+        columns_set = set(columns_set)
+
+    if removal_prob >= 0.99999999: # basically removal_prob == 1
+        di = [((0, i), (d, i)) \
+                  if i in columns_set \
+                  else ((d, i), (0, i)) \
+              for d, i in zip(csr_mat.data, csr_mat.indices)]
+    else:
+        di = [((0, i), (d, i)) \
+                  if i in columns_set and rng.rand() < removal_prob \
+                  else ((d, i), (0, i)) \
+              for d, i in zip(csr_mat.data, csr_mat.indices)]
+
+    left_dat = np.array([d for ((d, _), _) in di], dtype=csr_mat.data.dtype)
+    left_ind = np.array([i for ((_, i), _) in di], dtype=csr_mat.indices.dtype)
+
+    left_mat = ssp.csr_matrix((left_dat, left_ind, csr_mat.indptr.copy()), shape=csr_mat.shape)
+    left_mat.eliminate_zeros()
+
+    rght_dat = np.array([d for (_, (d, _)) in di], dtype=csr_mat.data.dtype)
+    rght_ind = np.array([i for (_, (_, i)) in di], dtype=csr_mat.indices.dtype)
+
+    rght_mat = ssp.csr_matrix((rght_dat, rght_ind, csr_mat.indptr.copy()), shape=csr_mat.shape)
+    rght_mat.eliminate_zeros()
+
+    return left_mat, rght_mat
+
+
+
 
 
 def save_if_necessary (model_files, model_dir, model, data, fold, train_itrs, train_vbs, train_likes, train_tops, query_tops, mdl):
