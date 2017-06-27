@@ -18,6 +18,7 @@ import scipy.sparse as ssp
 import numpy.random as rd
 #import numba as nb
 
+from util.misc import to_dense_array
 from util.array_utils import normalizerows_ip
 from util.sigmoid_utils import rowwise_softmax, scaledSelfSoftDot
 from util.sparse_elementwise import sparseScalarQuotientOfDot, \
@@ -38,7 +39,7 @@ DTYPE=np.float32 # A default, generally we should specify this in the model setu
 
 DEBUG=False
 
-VocabPrior=0.1
+VocabPrior=0.0001
 
 MODEL_NAME="stm-yv/bohning"
 
@@ -191,10 +192,7 @@ def train (data, modelState, queryState, trainPlan):
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.vocabPrior, modelState.Ab, modelState.dtype
     
     # Book-keeping for logs
-    boundIters  = np.zeros(shape=(iterations // logFrequency,))
-    boundValues = np.zeros(shape=(iterations // logFrequency,))
-    boundLikes = np.zeros(shape=(iterations // logFrequency,))
-    bvIdx = 0
+    boundIters, boundValues, boundLikes  = [], [], []
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     _debug_with_bound.old_bound = 0
     
@@ -208,7 +206,6 @@ def train (data, modelState, queryState, trainPlan):
     means, varcs = means[sortIdx,:], varcs[sortIdx,:]
 
     docLens = originalDocLens[sortIdx]
-    data = DataSet(W, feats=X)
     
     lens, inds = np.unique(docLens, return_index=True)
     inds = np.append(inds, [W.shape[0]])
@@ -221,8 +218,9 @@ def train (data, modelState, queryState, trainPlan):
     print("Creating posterior covariance of A, this will take some time...")
     XTX = X.T.dot(X)
     R_A = XTX
-    R_A = R_A.todense()      # dense inverse typically as fast or faster than sparse inverse
-    R_A.flat[::F+1] += 1./fv # and the result is usually dense in any case
+    if ssp.issparse(R_A):         # dense inverse typically as fast or faster than sparse
+        R_A = to_dense_array(R_A) # inverse and the result is usually dense in any case
+    R_A.flat[::F+1] += 1./fv
     R_A = la.inv(R_A)
     print("Covariance matrix calculated, launching inference")
 
@@ -232,119 +230,107 @@ def train (data, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for itr in range(iterations):
-        
-        # We start with the M-Step, so the parameters are consistent with our
-        # initialisation of the RVs when we do the E-Step
-        
-        # Update the covariance of the prior
-        diff_a_yv = (A-Y.dot(V))
-        diff_m_xa = (means-X.dot(A.T))
-        
-        sigT  = 1./lfv * (Y.dot(Y.T))
-        sigT += 1./fv * diff_a_yv.dot(diff_a_yv.T)
-        sigT += diff_m_xa.T.dot(diff_m_xa)
-        sigT.flat[::K+1] += varcs.sum(axis=0)
 
-        # As small numbers lead to instable inverse estimates, we use the
-        # fact that for a scalar a, (a .* X)^-1 = 1/a * X^-1 and use these
-        # scales whenever we use the inverse of the unscaled covariance
-        sigScale  = 1. / (P+D+F)
-        isigScale = 1. / sigScale
-        
-        isigT = la.inv(sigT)
-        debugFn (itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        
-        # Building Blocks - termporarily replaces means with exp(means)
-        expMeans = np.exp(means - means.max(axis=1)[:,np.newaxis], out=expMeans)
-        if np.isnan(expMeans).any() or np.isinf(expMeans).any():
-            print ("Yoinks, Scoob..!")
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        # S = expMeans * R.dot(vocab.T)
-        
-        # Update the vocabulary
-        vocab *= (R.T.dot(expMeans)).T # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
-        vocab += vocabPrior
-        vocab = normalizerows_ip(vocab)
-        
-        # Reset the means to their original form, and log effect of vocab update
-        R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
-        S = expMeans * R.dot(vocab.T)
-        debugFn (itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        # Finally update the parameter V
-        V = la.inv(sigScale * R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
-        debugFn (itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        
+        for _ in range(100): #(50 if itr == 0 else 1):
+            # Update the covariance of the prior
+            diff_a_yv = (A - Y.dot(V))
+            diff_m_xa = (means - X.dot(A.T))
+
+            sigT = 1. / lfv * (Y.dot(Y.T))
+            sigT += 1. / fv * diff_a_yv.dot(diff_a_yv.T)
+            sigT += diff_m_xa.T.dot(diff_m_xa)
+            sigT.flat[::K + 1] += varcs.sum(axis=0)
+
+            # As small numbers lead to instable inverse estimates, we use the
+            # fact that for a scalar a, (a .* X)^-1 = 1/a * X^-1 and use these
+            # scales whenever we use the inverse of the unscaled covariance
+            sigScale = 1. / (P + D + F)
+            isigScale = 1. / sigScale
+
+            isigT = la.inv(sigT)
+            debugFn(itr, sigT, "sigT", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype,
+                    means, varcs, Ab, docLens)
+
+            # Update the vocabulary
+            vocab *= (R.T.dot(expMeans)).T  # Awkward order to maintain sparsity (R is sparse, expMeans is dense)
+            vocab += vocabPrior
+            vocab = normalizerows_ip(vocab)
+
+            # Reset the means to their original form, and log effect of vocab update
+            R = sparseScalarQuotientOfDot(W, expMeans, vocab, out=R)
+            S = expMeans * R.dot(vocab.T)
+            debugFn(itr, vocab, "vocab", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype,
+                    means, varcs, Ab, docLens)
+
+            # Update the Variances
+            varcs = 1./((docLens * (K-1.)/K)[:,np.newaxis] + isigScale * isigT.flat[::K+1])
+            debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
+
+            # Update the Means
+            rhs = X.dot(A.T).dot(isigT) * isigScale
+            rhs += S
+            rhs += docLens[:,np.newaxis] * means.dot(Ab)
+            rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
+
+            # Faster version?
+            for lenIdx in range(len(lens)):
+                nd         = lens[lenIdx]
+                start, end = inds[lenIdx], inds[lenIdx + 1]
+                lhs        = la.inv(isigT + sigScale * nd * Ab) * sigScale
+
+                means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
+
+
+    #       print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
+            debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
+
+            expMeans = np.exp(means - means.max(axis=1)[:, np.newaxis], out=expMeans)
+
+
+
+
+        # for _ in range(150):
+        #     # Finally update the parameter V
+        #     V = la.inv(sigScale * R_Y + Y.T.dot(isigT).dot(Y)).dot(Y.T.dot(isigT).dot(A))
+        #     debugFn(itr, V, "V", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means,
+        #             varcs, Ab, docLens)
         #
-        # And now this is the E-Step
-        # 
-        
-        # Update the distribution on the latent space
-        R_Y_base = aI_P + 1/fv * V.dot(V.T)
-        R_Y = la.inv(R_Y_base)
-        debugFn (itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        Y = 1./fv * A.dot(V.T).dot(R_Y)
-        debugFn (itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        # Update the mapping from the features to topics
-        A = (1./fv * Y.dot(V) + (X.T.dot(means)).T).dot(R_A)
-        debugFn (itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        # Update the Variances
-        varcs = 1./((docLens * (K-1.)/K)[:,np.newaxis] + isigScale * isigT.flat[::K+1])
-        debugFn (itr, varcs, "varcs", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
-        # Update the Means
-        rhs = X.dot(A.T).dot(isigT) * isigScale
-        rhs += S
-        rhs += docLens[:,np.newaxis] * means.dot(Ab)
-        rhs -= docLens[:,np.newaxis] * rowwise_softmax(means, out=means)
-        
-        # Long version
-#        inverses = dict()
-#        sca_means = means.copy()
-#        for d in range(D):
-#            if not n[d] in inverses:
-#                inverses[n[d]] = la.inv(isigT + n[d] * Ab)
-#            lhs = inverses[n[d]]
-#            sca_means[d,:] = lhs.dot(rhs[d,:])
-#        print("Sca-Means: %f, %f, %f, %f" % (sca_means.min(), sca_means.mean(), sca_means.std(), sca_means.max()))
-        
-            
-        # Faster version?
-        for lenIdx in range(len(lens)):
-            nd         = lens[lenIdx]
-            start, end = inds[lenIdx], inds[lenIdx + 1]
-            lhs        = la.inv(isigT + sigScale * nd * Ab) * sigScale
-            
-            means[start:end,:] = rhs[start:end,:].dot(lhs) # huh?! Left and right refer to eqn for a single mean: once we're talking a DxK matrix it gets swapped
-         
-#       print("Vec-Means: %f, %f, %f, %f" % (means.min(), means.mean(), means.std(), means.max()))
-        debugFn (itr, means, "means", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means, varcs, Ab, docLens)
-        
+        #     # Update the distribution on the latent space
+        #     R_Y_base = aI_P + 1 / fv * V.dot(V.T)
+        #     R_Y = la.inv(R_Y_base)
+        #     debugFn(itr, R_Y, "R_Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype,
+        #             means, varcs, Ab, docLens)
+        #
+        #     Y = 1. / fv * A.dot(V.T).dot(R_Y)
+        #     debugFn(itr, Y, "Y", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means,
+        #             varcs, Ab, docLens)
+        #
+        #     # Update the mapping from the features to topics
+        #     A = (1. / fv * Y.dot(V) + (X.T.dot(means)).T).dot(R_A)
+        #     debugFn(itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means,
+        #             varcs, Ab, docLens)
+
+        A, _, _, _ = la.lstsq(X, means, lapack_driver="gelsy")
+        A = A.T
+
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT * sigScale, vocab, vocabPrior, Ab, dtype, MODEL_NAME)
             queryState = QueryState(means, expMeans, varcs, docLens)
 
-            boundValues[bvIdx] = var_bound(DataSet(W, feats=X), modelState, queryState, XTX)
-            boundLikes[bvIdx]  = log_likelihood(DataSet(W, feats=X), modelState, queryState)
-            boundIters[bvIdx]  = itr
-            perp = perplexity_from_like(boundLikes[bvIdx], docLens.sum())
-            print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[bvIdx]))
-            if bvIdx > 0 and  boundValues[bvIdx - 1] > boundValues[bvIdx]:
-                printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[bvIdx - 1], boundValues[bvIdx]))
+            boundValues.append (var_bound(DataSet(W, feats=X), modelState, queryState, XTX))
+            boundLikes.append (log_likelihood(DataSet(W, feats=X), modelState, queryState))
+            boundIters.append (itr)
+            perp = perplexity_from_like(boundLikes[-1], docLens.sum())
+            print (time.strftime('%X') + " : Iteration %d: Perplexity %4.0f bound %f" % (itr, perp, boundValues[-1]))
+            if len(boundIters) >= 2 and  boundValues[-2] > boundValues[-1]:
+                printStderr ("ERROR: bound degradation: %f > %f" % (boundValues[-2], boundValues[-1]))
 #           print ("Means: min=%f, avg=%f, max=%f\n\n" % (means.min(), means.mean(), means.max()))
 
             # Check to see if the improvement in the likelihood has fallen below the threshold
-            if bvIdx > 1 and boundIters[bvIdx] > 20:
-                lastPerp = perplexity_from_like(boundLikes[bvIdx - 1], docLens.sum())
+            if len(boundIters) > 2 and boundIters[-1] > 20:
+                lastPerp = perplexity_from_like(boundLikes[-2], docLens.sum())
                 if lastPerp - perp < 1:
-                    boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, boundLikes, bvIdx)
                     break
-            bvIdx += 1
         
     revert_sort = np.argsort(sortIdx, kind=STABLE_SORT_ALG)
     means       = means[revert_sort,:]

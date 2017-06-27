@@ -5,6 +5,8 @@ Created on 4 Jul 2014
 '''
 import sys
 import numpy as np
+import scipy.sparse as ssp
+from numpy.matrixlib.defmatrix import matrix
 
 def printStderr(msg):
     sys.stdout.flush()
@@ -67,3 +69,12 @@ def clamp (array1, array2, array3, length):
         outputs.append (outArr)
     
     return outputs[0], outputs[1], outputs[2]
+
+
+def to_dense_array(X):
+    if ssp.issparse(X):
+        X = X.todense()
+    if type(X) is matrix:
+        X = np.asarray(X)
+    return X
+
