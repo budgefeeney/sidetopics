@@ -90,13 +90,26 @@ _TweetsFreqWordPath       = _Tweets500FreqWordPath
 _TweetsFreqDictPath       = _Tweets500FreqDictPath
 
 
+_TrumpTweetsPath = "/Users/bryanfeeney/Desktop/TrumpDb/"
+_TrumpTweetsWords = _TrumpTweetsPath + "word-freq.pkl"
+_TrumpTweetsFeats = _TrumpTweetsPath + "side-freq.pkl"
+_TrumpTweetsDicts = _TrumpTweetsPath + "worddict-freq.pkl"
 
+_NusWidePath  = "/Users/bryanfeeney/Desktop/NusWide/"
+_NusWideWords = _NusWidePath + "W5K-ld.pkl"
+_NusWideFeats = _NusWidePath + "X-ld.pkl"
+_NusWideDicts = _NusWidePath + "dict5K.pkl"
 
-Reuters, Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6, 7
-WordsPath = [_ReutersWordPath, _AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
-FeatsPath = [None,             _AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                  None,                      _NipsFeatPath]
-CitesPath = [None,             _AclCitePath,  None,          None,            None,                None,                  None,                      None]
-DictsPath = [_ReutersDictPath, _AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath, None,                  _TweetsFreqDictPath,       _NipsDictPath]
+_NusWideImgPath  = _NusWidePath
+_NusWideImgWords = _NusWidePath + "W5K-ld-images.pkl"
+_NusWideImgFeats = _NusWidePath + "X-ld-images.pkl"
+_NusWideImgDicts = _NusWideDicts
+
+NusWideImg, NusWide, TrumpTweets, Reuters, Acl, AclNoLinks, TweetsAll, TweetsFreq, AuthorTweetsAll, AuthorTweetsFreq, Nips = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+WordsPath = [_NusWideImgWords, _NusWideWords, _TrumpTweetsWords, _ReutersWordPath, _AclWordPath,  _AclWordPath,  _TweetsWordPath, _TweetsFreqWordPath, _AuthorTweetsWordPath, _AuthorTweetsFreqWordPath, _NipsWordPath]
+FeatsPath = [_NusWideImgFeats, _NusWideFeats, _TrumpTweetsFeats, None,             _AclFeatsPath, _AclFeatsPath, _TweetsFeatPath, _TweetsFeatPath,     None,                  None,                      _NipsFeatPath]
+CitesPath = [None,             None,          None,              None,             _AclCitePath,  None,          None,            None,                None,                  None,                      None]
+DictsPath = [_NusWideImgDicts, _NusWideDicts, _TrumpTweetsDicts, _ReutersDictPath, _AclDictPath,  _AclDictPath,  None,            _TweetsFreqDictPath, None,                  _TweetsFreqDictPath,       _NipsDictPath]
 
 PreBuildTopicsDir="/Users/bryanfeeney/Desktop/acl-out-tm/lda/"
 PreBuiltAclGibbsTopics = { \
@@ -158,60 +171,61 @@ class Test(unittest.TestCase):
 
         sgd_setups = [(b,r,f) for b in [1, 5, 10, 100] for r in [1, 10, 30] for f in [0.6, 0.75, 0.9]]
 
-        Folds, ExecutedFoldCount = 5,5
+        Folds, ExecutedFoldCount = 5,1
         K,P,Q = 50, 150, 20
-        TrainIters, QueryIters, LogFreq = 600, 500, 50
+        TrainIters, QueryIters, LogFreq = 2, 50, 1
 
         PriorCov = 1
         VocabPrior = 5
-        Debug = False
+        Debug = True
 
         modelFileses = []
-        for DataSetName in [Reuters]:
-            for k in [20]:
-                #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
-                for modelName in [ LdaSvb ]:
-                    cmdline = '' \
-                            +(' --debug '          + str(Debug) if Debug else "") \
-                            + ' --model '          + modelName \
-                            + ' --dtype '          + 'f8'      \
-                            + ' --num-topics '     + str(k)    \
-                            + ' --num-lat-feats '  + str(P) \
-                            + ' --num-lat-topics ' + str(Q) \
-                            + ' --log-freq '       + str(LogFreq)       \
-                            + ' --eval '           + Perplexity  \
-                            + ' --gradient-batch-size '       + str(BatchSize) \
-                            + ' --gradient-rate-delay '       + str(RateDelay) \
-                            + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
-                            + ' --iters '          + str(TrainIters)      \
-                            + ' --query-iters '    + str(QueryIters)      \
-                            + ' --folds '          + str(Folds)      \
-                            + ' --truncate-folds ' + str(ExecutedFoldCount)      \
-                            + (' --word-dict '     + DictsPath[DataSetName] if DictsPath[DataSetName] is not None else "") \
-                            + ' --words '          + WordsPath[DataSetName] \
-                            + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
-                            + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
-                            + ' --topic-var '      + str(PriorCov) \
-                            + ' --feat-var '       + str(PriorCov) \
-                            + ' --lat-topic-var '  + str(PriorCov) \
-                            + ' --lat-feat-var '   + str(PriorCov) \
-                            + ' --vocab-prior '    + str(VocabPrior)
-                            # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
-        #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
-        #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
-        #                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
-        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
-        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
-        #                    + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
-        #                    + ' --words '          + wordsFile \
-        #                    + ' --feats '          + featsFile
-        #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
+        for DataSetName in [NusWideImg]:
+            for k in [10, 25, 50, 100]:
+                for p in [50, 100, 250, 500]:
+                    #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
+                    for modelName in [ StmYvBohning ]:
+                        cmdline = '' \
+                                +(' --debug '          + str(Debug) if Debug else "") \
+                                + ' --model '          + modelName \
+                                + ' --dtype '          + 'f8'      \
+                                + ' --num-topics '     + str(k)    \
+                                + ' --num-lat-feats '  + str(p) \
+                                + ' --num-lat-topics ' + str(Q) \
+                                + ' --log-freq '       + str(LogFreq)       \
+                                + ' --eval '           + Perplexity  \
+                                + ' --gradient-batch-size '       + str(BatchSize) \
+                                + ' --gradient-rate-delay '       + str(RateDelay) \
+                                + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
+                                + ' --iters '          + str(TrainIters)      \
+                                + ' --query-iters '    + str(QueryIters)      \
+                                + ' --folds '          + str(Folds)      \
+                                + ' --truncate-folds ' + str(ExecutedFoldCount)      \
+                                + (' --word-dict '     + DictsPath[DataSetName] if DictsPath[DataSetName] is not None else "") \
+                                + ' --words '          + WordsPath[DataSetName] \
+                                + (' --feats '         + FeatsPath[DataSetName] if FeatsPath[DataSetName] is not None else "") \
+                                + (' --links '         + CitesPath[DataSetName] if CitesPath[DataSetName] is not None else "") \
+                                + ' --topic-var '      + str(PriorCov) \
+                                + ' --feat-var '       + str(PriorCov) \
+                                + ' --lat-topic-var '  + str(PriorCov) \
+                                + ' --lat-feat-var '   + str(PriorCov) \
+                                + ' --vocab-prior '    + str(VocabPrior)
+                                # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
+            #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
+            #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
+            #                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \
+            #                    + ' --words '          + '/Users/bryanfeeney/Desktop/NIPS-from-pryor-Sep15/W_ar.pkl'
+            #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/words.pkl' \
+            #                    + ' --feats '          + '/Users/bryanfeeney/Desktop/Dataset-Sep-2014/side.pkl'
+            #                    + ' --words '          + wordsFile \
+            #                    + ' --feats '          + featsFile
+            #                    + ' --words '          + '/Users/bryanfeeney/Desktop/Tweets600/words-by-author.pkl' \
 
-                    modelFileses.extend (run(cmdline.strip().split(' ')))
+                        modelFileses.extend (run(cmdline.strip().split(' ')))
 
-                modelFileses.insert(0, wordsFile)
-                modelFileses.insert(1, featsFile)
-                print ("Files can be found in:" + "\n\t".join(modelFileses))
+                    modelFileses.insert(0, wordsFile)
+                    modelFileses.insert(1, featsFile)
+                    print ("Files can be found in:" + "\n\t".join(modelFileses))
         
     
     def _testLoadResult(self):
