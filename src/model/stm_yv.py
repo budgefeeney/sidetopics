@@ -211,7 +211,8 @@ def train (data, modelState, queryState, trainPlan):
     print("Creating posterior covariance of A, this will take some time...")
     XTX = X.T.dot(X)
     R_A = XTX
-    R_A = R_A.todense()      # dense inverse typically as fast or faster than sparse inverse
+    if ssp.issparse(R_A):
+        R_A = R_A.todense()  # dense inverse typically as fast or faster than sparse inverse
     R_A.flat[::F+1] += 1./fv # and the result is usually dense in any case
     R_A = la.inv(R_A)
     print("Covariance matrix calculated, launching inference")
