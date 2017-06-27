@@ -28,7 +28,6 @@ class DataSet:
         assert links is None or links.shape[0] == words.shape[0], "Differing row-counts for document-word and document-link matrices"
 
         assert type(words) is ssp.csr_matrix, "Words are not stored as a sparse CSR matrix"
-        assert feats is None or type(feats) is ssp.csr_matrix, "Features are not stored as a sparse CSR matrix"
         assert links is None or type(links) is ssp.csr_matrix, "Links are not stored as a sparse CSR matrix"
 
         # Now that the checks are done with, assign the values and apply the ordering.
@@ -324,7 +323,7 @@ class DataSet:
         return train, query
 
 
-    def doc_completion_split(self, min_doc_len=0, seed=0xBADB055):
+    def doc_completion_split(self, min_doc_len=0, seed=0xBADB055, est_prop=0.5):
         '''
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
@@ -343,9 +342,9 @@ class DataSet:
         rng = rd.RandomState(seed)
 
         dat    = self._words.data
-        jitter = rng.normal(scale=0.3, size=len(dat))
+        jitter = rng.normal(scale=est_prop * 0.666, size=len(dat))
         evl    = dat + jitter
-        est    = np.around(evl / 2.0)
+        est    = np.around(evl * est_prop)
         evl    = dat - est
 
         est = est.astype(self._words.dtype)
