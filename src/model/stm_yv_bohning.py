@@ -230,10 +230,13 @@ def train (data, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for itr in range(iterations):
+        A, _, _, _ = la.lstsq(X, means, lapack_driver="gelsy")
+        A = A.T
 
-        for _ in range(100): #(50 if itr == 0 else 1):
+        diff_a_yv = (A - Y.dot(V))
+
+        for _ in range(10): #(50 if itr == 0 else 1):
             # Update the covariance of the prior
-            diff_a_yv = (A - Y.dot(V))
             diff_m_xa = (means - X.dot(A.T))
 
             sigT = 1. / lfv * (Y.dot(Y.T))
@@ -310,8 +313,7 @@ def train (data, modelState, queryState, trainPlan):
         #     debugFn(itr, A, "A", W, X, XTX, F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, dtype, means,
         #             varcs, Ab, docLens)
 
-        A, _, _, _ = la.lstsq(X, means, lapack_driver="gelsy")
-        A = A.T
+
 
         if logFrequency > 0 and itr % logFrequency == 0:
             modelState = ModelState(F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT * sigScale, vocab, vocabPrior, Ab, dtype, MODEL_NAME)
@@ -365,7 +367,10 @@ def query(data, modelState, queryState, queryPlan):
     iterations, epsilon, logFrequency, fastButInaccurate, debug = queryPlan.iterations, queryPlan.epsilon, queryPlan.logFrequency, queryPlan.fastButInaccurate, queryPlan.debug
     means, expMeans, varcs, n = queryState.means, queryState.expMeans, queryState.varcs, queryState.docLens
     F, P, K, A, R_A, fv, Y, R_Y, lfv, V, sigT, vocab, vocabPrior, Ab, dtype = modelState.F, modelState.P, modelState.K, modelState.A, modelState.R_A, modelState.fv, modelState.Y, modelState.R_Y, modelState.lfv, modelState.V, modelState.sigT, modelState.vocab, modelState.vocabPrior, modelState.Ab, modelState.dtype
-    
+
+    # TODO Get ride of this via a command-line param
+    iterations = max(iterations, 100)
+
     # Debugging
     debugFn = _debug_with_bound if debug else _debug_with_nothing
     _debug_with_bound.old_bound = 0
@@ -540,4 +545,6 @@ def isOk(mat):
     if not (np.isnan(mat).any() or np.isinf(mat).any()):
         print ("Matrix is OK")
 
+def wordDists(model):
+    return model.vocab
 
