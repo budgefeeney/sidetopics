@@ -285,7 +285,7 @@ def sparseScalarProductOfSafeLnDot (A, B, C, out=None, start=None, end=None):
         newWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8(
              A.data, A.indices, A.indptr, B, C, out.data, 0, A.shape[0]))
 
-        print ("The old way was " + str(oldWay) + " and the new way was " + str(newWay))
+        #print ("The old way was " + str(oldWay) + " and the new way was " + str(newWay))
     elif A.dtype == np.float64:
         compiled.sparseScalarProductOfSafeLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     elif A.dtype == np.float32:
