@@ -218,8 +218,10 @@ def train (data, modelState, queryState, trainPlan):
     print("Creating posterior covariance of A, this will take some time...")
     XTX = X.T.dot(X)
     R_A = XTX
+    leastSquares = lambda feats, targets: la.lstsq(feats, targets, lapack_driver="gelsy")[0]
     if ssp.issparse(R_A):         # dense inverse typically as fast or faster than sparse
         R_A = to_dense_array(R_A) # inverse and the result is usually dense in any case
+        leastSquares = lambda feats, targets: np.array([ssp.linalg.lsqr (feats, targets[:,k])[0] for k in range(K)])
     R_A.flat[::F+1] += 1./fv
     R_A = la.inv(R_A)
     print("Covariance matrix calculated, launching inference")
@@ -230,7 +232,7 @@ def train (data, modelState, queryState, trainPlan):
     
     # Iterate over parameters
     for itr in range(iterations):
-        A, _, _, _ = la.lstsq(X, means, lapack_driver="gelsy")
+        A = leastSquares(X, means)
         A = A.T
 
         diff_a_yv = (A - Y.dot(V))
