@@ -95,7 +95,7 @@ _TrumpTweetsWords = _TrumpTweetsPath + "word-freq.pkl"
 _TrumpTweetsFeats = _TrumpTweetsPath + "side-freq.pkl"
 _TrumpTweetsDicts = _TrumpTweetsPath + "worddict-freq.pkl"
 
-_NusWidePath  = "/Users/bryanfeeney/Desktop/NusWide/"
+_NusWidePath  = "/Users/bryanfeeney/iCloud/Datasets/NusWide/"
 _NusWideWords = _NusWidePath + "W5K-ld.pkl"
 _NusWideFeats = _NusWidePath + "X-ld.pkl"
 _NusWideDicts = _NusWidePath + "dict5K.pkl"
@@ -180,7 +180,7 @@ class Test(unittest.TestCase):
         Debug = True
 
         modelFileses = []
-        for DataSetName in [NusWideImg]:
+        for DataSetName in [TweetsFreq]:
             for k in [K]: # [10, 25, 50, 100]:
                 for p in [P]: #, [50, 100, 250, 500]:
                     #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
@@ -193,10 +193,10 @@ class Test(unittest.TestCase):
                                 + ' --num-lat-feats '  + str(p) \
                                 + ' --num-lat-topics ' + str(Q) \
                                 + ' --log-freq '       + str(LogFreq)       \
-                                + ' --eval '           + TagPrecAtM  \
-                                + ' --gradient-batch-size '       + str(BatchSize) \
-                                + ' --gradient-rate-delay '       + str(RateDelay) \
-                                + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
+                                + ' --eval '           + HashtagPrecAtM  \
+                                + ' --gradient-batch-size '      + str(BatchSize) \
+                                + ' --gradient-rate-delay '      + str(RateDelay) \
+                                + ' --gradient-forgetting-rate ' + str(ForgettingRate) \
                                 + ' --iters '          + str(TrainIters)      \
                                 + ' --query-iters '    + str(QueryIters)      \
                                 + ' --folds '          + str(Folds)      \
@@ -209,9 +209,9 @@ class Test(unittest.TestCase):
                                 + ' --feat-var '       + str(PriorCov) \
                                 + ' --lat-topic-var '  + str(PriorCov) \
                                 + ' --lat-feat-var '   + str(PriorCov) \
-                                + ' --vocab-prior '    + str(VocabPrior) \
-                                + ' --tag-recall-opts ' + "0:-1,0.333"
-                                # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
+                                + ' --vocab-prior '    + str(VocabPrior)
+            #                    + ' --tag-recall-opts ' + "0:-1,0.333"
+            #                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
             #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
             #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
             #                    + ' --words '          + '/Users/bryanfeeney/Dropbox/Datasets/ACL/words.pkl' \

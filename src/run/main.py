@@ -263,6 +263,12 @@ def run(args):
     elif args.eval == HashtagPrecAtM:
         word_dict = load_dict(args.word_dict)
         hashtag_indices = popular_hashtag_indices (data, word_dict, 50)
+
+        cross_val_and_eval_tag_prec_rec_at_m(data, hashtag_indices, 0.5, mdl,
+                                             templateModel, trainPlan,
+                                             load_dict(args.word_dict), args.folds, args.eval_fold_count,
+                                             args.out_model)
+
         return cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, 0, mdl, templateModel, trainPlan, load_dict(args.word_dict), args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == TagPrecAtM:
         word_dict   = load_dict(args.word_dict)
@@ -570,7 +576,7 @@ def cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, hashtag_train_pr
 
 def cross_val_and_eval_tag_prec_rec_at_m (data, tag_indices, tag_train_prop, mdl, sample_model, train_plan, word_dict, num_folds, target_folds=None, model_dir= None):
     '''
-        For each fold in the number of cross-validated folds. Train on all other folds.
+    For each fold in the number of cross-validated folds. Train on all other folds.
     Then take the held-out fold, and remove a proportion (tag_train_prop) of its
     selected words, the tag_indices, which can be hashtags or just any word at all.
 
