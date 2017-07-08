@@ -19,6 +19,7 @@ from model.evals import perplexity_from_like, mean_average_prec, \
     MeanPrecRecAtMAllDocs, LroMeanPrecRecAtMAllDocs, \
     LroMeanPrecRecAtMFeatSplit, HashtagPrecAtM, TagPrecAtM
 from util.sigmoid_utils import rowwise_softmax
+from util.sparse_elementwise import sparseScalarProductOfDot
 
 DTYPE=np.float32
 
@@ -265,14 +266,14 @@ def run(args):
         return cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, 0, mdl, templateModel, trainPlan, load_dict(args.word_dict), args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == TagPrecAtM:
         word_dict   = load_dict(args.word_dict)
-        params      = [s.strip() for s in ",".split(args.tag_recall_opt)]
-        range_parts = [int(s.strip()) for s in ":".split(params[0])]
+        params      = [s.strip() for s in args.tag_recall_opt.split(",")]
+        range_parts = [int(s.strip()) for s in params[0].split(":")]
         if range_parts[1] == -1:
             range_parts[1] = len(word_dict)
         selected_words = [i for i in range(range_parts[0], range_parts[1])]
         proportion_to_move_out = float(params[1])
 
-        return cross_val_and_eval_hashtag_prec_at_m(data, selected_words, proportion_to_move_out, mdl, templateModel, trainPlan,
+        return cross_val_and_eval_tag_prec_rec_at_m(data, popular_indices(data, selected_words), proportion_to_move_out, mdl, templateModel, trainPlan,
                                                     load_dict(args.word_dict), args.folds, args.eval_fold_count,
                                                     args.out_model)
     elif args.eval == MeanAveragePrecAllDocs:
@@ -313,8 +314,8 @@ def load_dict(dict_path):
 
 def popular_hashtag_indices(data, word_dict, count=50):
     '''
-    Use the word_dict to identify which indices in the given words dictionary
-    in the data correspond to
+    Use the word_dict to identify the most popular <code>count</codt>
+    hashtags in the dictionary.
     :param data: the dataset, particularly the words
     :param word_dict: the words dictionary, just a list of words
     :param count: how many hashtag indices should we return
@@ -322,13 +323,24 @@ def popular_hashtag_indices(data, word_dict, count=50):
     '''
     hashtags        = [w for w in word_dict if w[0] == '#']
     hashtag_indices = [word_dict.index(h) for h in hashtags]
-    hashtag_counts  = np.squeeze(np.array(data.words[:,hashtag_indices].sum(axis=0)))
+    return popular_indices(data, hashtag_indices, count)
 
-    popular_hashtag_count_indices = hashtag_counts.argsort()[-count:][::-1]
-    popular_hashtag_indices = [hashtag_indices[i] for i in popular_hashtag_count_indices]
-    # popular_hashtags        = [word_dict[i] for i in popular_hashtag_indices]
 
-    return popular_hashtag_indices
+def popular_indices(data, word_indices, count=50):
+    '''
+    Use the word_dict to identify the most popular <code>count</codt>
+    words in the dictionary from the given subset.
+    :param data: the dataset, particularly the words
+    :param word_dict: the words dictionary, just a list of words
+    :param count: how many hashtag indices should we return
+    :return: the indices of the most popular hashtags
+    '''
+    word_counts  = np.squeeze(np.array(data.words[:,word_indices].sum(axis=0)))
+
+    popular_word_count_indices = word_counts.argsort()[-count:][::-1]
+    popular_word_indices = [word_indices[i] for i in popular_word_count_indices]
+
+    return popular_word_indices
 
 
 def parse_dtypes(dtype_str):
@@ -532,7 +544,7 @@ def cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, hashtag_train_pr
                     matched_doc_count = query_data_check_words[top_m, hi].sum()
                     rec_denom = min(m, h_count)
                     results[Precision][word_dict[hi]][m] = matched_doc_count / m
-                    results[Recall][word_dict[hi]][m]    = matched_doc_count / rec_denom
+                    results[Recall][word_dict[hi]][m]    = matched_doc_count / max(rec_denom, 1)
 
             print ("%10s\t%20s\t%6s\t" % ("Metric", "Hashtag", "Count") + "\t".join("%5d" % m for m in MS))
             for htag, prec_results in results[Precision].items():
@@ -551,6 +563,124 @@ def cross_val_and_eval_hashtag_prec_at_m(data, hashtag_indices, hashtag_train_pr
 
 
     return model_files
+
+
+#def link_split_prec_rec(data, mdl, sample_model, train_plan, folds, target_folds=None, model_dir=None,
+#                        ldaModel=None, ldaTopics=None):
+
+def cross_val_and_eval_tag_prec_rec_at_m (data, tag_indices, tag_train_prop, mdl, sample_model, train_plan, word_dict, num_folds, target_folds=None, model_dir= None):
+    '''
+        For each fold in the number of cross-validated folds. Train on all other folds.
+    Then take the held-out fold, and remove a proportion (tag_train_prop) of its
+    selected words, the tag_indices, which can be hashtags or just any word at all.
+
+    Use the model's query function to fit the document. Then use that to predict the
+    remaining tags. Note that in this case we're using features and _some text_ to
+    predict the remaining text. Thus this isn't too far away from a document-completion
+    metric. However the evaluation is particularly tailored to retrieval style
+    metrics.
+
+    Evaluate using precision@m, recall@m, mean reciprocal-rank and
+    mean average-precision
+
+    Average all results across all documents in all held-out folds
+
+    :param data: the dataset
+    :param tag_indices:  the indices of the "tags", the special words we will partially
+    remove and try to predict
+    :param tag_train_prop: how many of the selected tags to retain for "training" in the
+    held out query set: these are used with the features to predict the removed tags
+    :param mdl: the model module
+    :param sample_model: the template model, used to create new models for each new training run
+    :param train_plan: the training plan, iterations etc.
+    :param word_dict: the dictionary of words, used to provide tables
+    :param num_folds: the number of folds the dataset should be split into
+    :param target_folds: the number of train/query runs to perform, 1 < target_folds < num_folds.
+    Set to num_folds if None
+    :param model_dir: the directory in which each trained model should be saved for future
+    investigation. If none models aren't saved.
+    :return: the list of model files only. The metrics are printed out to screen.
+    '''
+    ms = [10, 20, 30, 40, 50, 75, 100, 150, 250, 500]
+    model_files = []
+    assert num_folds > 1, "Need at least two folds for this to make any sense whatsoever"
+
+    if target_folds is None:
+        target_folds = num_folds
+
+    combi_precs, combi_recs, combi_dcounts = None, None, None
+    mrr_sum, mrr_doc_count = 0, 0
+    map_sum, map_doc_count = 0, 0
+    fold_count = 0
+    for fold in range(target_folds):
+        # try:
+        # Prepare the training, query and validation data
+        train_data, query_data = data.cross_valid_split (fold, num_folds)
+        query_data_train_words, query_data_check_words = \
+            soft_split_on_indices(query_data.words, tag_indices, rd.RandomState(0xC0FFEE), tag_train_prop)
+        query_data = query_data.copy_with_changes(words=query_data_train_words)
+
+        print("\n\nFold %d\n" % fold + ("-" * 80))
+
+        model = mdl.newModelFromExisting(sample_model)
+        train_tops = mdl.newQueryState(train_data, model)
+
+        model, train_tops, (train_itrs, train_vbs, train_likes) = \
+            mdl.train(train_data, model, train_tops, train_plan)
+
+        print(
+            "Training perplexity is %.2f " % perplexity_from_like(mdl.log_likelihood(train_data, model, train_tops),
+                                                                  train_data.word_count))
+
+        # Infer the expected link probabilities
+        _, query_tops        = mdl.query (model, mdl.newQueryState(query_data, model), train_plan)
+        expected_links       = csr_clip(query_data_check_words, 0, 1)
+        predicted_link_probs = sparseScalarProductOfDot(expected_links, rowwise_softmax(query_tops.means), mdl.wordDists(model))
+
+        # Evaluation 1/3: Precision and Recall at M
+        precs, recs, doc_counts = mean_prec_rec_at(expected_links, predicted_link_probs, at=ms,
+                                                   groups=[(0, 3), (3, 5), (5, 10), (10, 1000)])
+        print("Fold %2d: Mean-Precisions at \n" % fold, end="")
+
+        printTable("Precision", precs, doc_counts, ms)
+        printTable("Recall", recs, doc_counts, ms)
+
+        combi_precs, _ = combine_map(combi_precs, combi_dcounts, precs, doc_counts)
+        combi_recs, combi_dcounts = combine_map(combi_recs, combi_dcounts, recs, doc_counts)
+
+        # Evaluation 2/3: Mean Reciprocal-Rank
+        mrr = mean_reciprocal_rank(expected_links, predicted_link_probs)
+        print("Mean reciprocal-rank : %f" % mrr)
+        mrr_sum += mrr * expected_links.shape[0]
+        mrr_doc_count += expected_links.shape[0]
+
+        # Evaluation 3/3: Mean Average-Precision
+        map = mean_average_prec(expected_links, predicted_link_probs)
+        print("Mean Average Precision : %f" % map)
+        map_sum += map * expected_links.shape[0]
+        map_doc_count += expected_links.shape[0]
+
+        # Save the files if necessary and move onto the next fold if required
+        model_files = save_if_necessary(model_files, model_dir, model, data, fold, train_itrs, train_vbs,
+                                        train_likes, train_tops, train_tops, mdl)
+        fold_count += 1
+        if fold_count == target_folds:
+            break
+            # except Exception as e:
+            #     print("Fold " + str(fold) + " failed: " + str(e))
+
+    print("-" * 80 + "\n\n Final Results\n\n")
+    printTable("Precision", combi_precs, combi_dcounts, ms)
+    printTable("Recall", combi_recs, combi_dcounts, ms)
+    print("Mean reciprocal-rank: %f" % (mrr_sum / mrr_doc_count))
+    print("Mean average-precision: %f" % (map_sum / map_doc_count))
+
+    return model_files
+
+
+def csr_clip(matrix, min_value, max_value):
+    return ssp.csr_matrix((np.clip(matrix.data, min_value, max_value), matrix.indices, matrix.indptr), shape=matrix.shape)
+
 
 
 def soft_split_on_indices(csr_mat, columns_set):

@@ -15,8 +15,8 @@ from run.main import run, ModelNames, \
     SimLda, SimTfIdf, LdaSvb, StmUyvBohning, MomEm, MomGibbs, LdaCvb, LdaCvbZero
 
 from model.evals import Perplexity, MeanAveragePrecAllDocs, \
-    MeanPrecRecAtMAllDocs, HashtagPrecAtM, LroMeanPrecRecAtMAllDocs, \
-    LroMeanPrecRecAtMFeatSplit
+    MeanPrecRecAtMAllDocs, HashtagPrecAtM, TagPrecAtM, \
+    LroMeanPrecRecAtMAllDocs, LroMeanPrecRecAtMFeatSplit
 
 AclPath = "/Users/bryanfeeney/iCloud/Datasets/ACL/ACL.100.clean/"
 _AclWordPath  = AclPath + "words-freq.pkl"
@@ -172,8 +172,8 @@ class Test(unittest.TestCase):
         sgd_setups = [(b,r,f) for b in [1, 5, 10, 100] for r in [1, 10, 30] for f in [0.6, 0.75, 0.9]]
 
         Folds, ExecutedFoldCount = 5,1
-        K,P,Q = 50, 150, 20
-        TrainIters, QueryIters, LogFreq = 2, 50, 1
+        K,P,Q = 10, 150, 20
+        TrainIters, QueryIters, LogFreq = 5, 5, 1
 
         PriorCov = 1
         VocabPrior = 5
@@ -181,8 +181,8 @@ class Test(unittest.TestCase):
 
         modelFileses = []
         for DataSetName in [NusWideImg]:
-            for k in [10, 25, 50, 100]:
-                for p in [50, 100, 250, 500]:
+            for k in [K]: # [10, 25, 50, 100]:
+                for p in [P]: #, [50, 100, 250, 500]:
                     #for (BatchSize, RetardationRate, ForgettingRate) in sgd_setups:
                     for modelName in [ StmYvBohning ]:
                         cmdline = '' \
@@ -193,7 +193,7 @@ class Test(unittest.TestCase):
                                 + ' --num-lat-feats '  + str(p) \
                                 + ' --num-lat-topics ' + str(Q) \
                                 + ' --log-freq '       + str(LogFreq)       \
-                                + ' --eval '           + Perplexity  \
+                                + ' --eval '           + TagPrecAtM  \
                                 + ' --gradient-batch-size '       + str(BatchSize) \
                                 + ' --gradient-rate-delay '       + str(RateDelay) \
                                 + ' --gradient-forgetting-rate '  + str(ForgettingRate) \
@@ -209,7 +209,8 @@ class Test(unittest.TestCase):
                                 + ' --feat-var '       + str(PriorCov) \
                                 + ' --lat-topic-var '  + str(PriorCov) \
                                 + ' --lat-feat-var '   + str(PriorCov) \
-                                + ' --vocab-prior '    + str(VocabPrior)
+                                + ' --vocab-prior '    + str(VocabPrior) \
+                                + ' --tag-recall-opts ' + "0:-1,0.333"
                                 # + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
             #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
             #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]

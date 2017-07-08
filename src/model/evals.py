@@ -97,9 +97,7 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
     :param at: how far to go down to calculate precision, may be a list. Defaults
     to 100
     :param groups: break down precision at m further, by considering those subsets
-    of documents that have the given range of documents. e.g for two segments, one
-    less than 10, one between 10 (inclusive) and 15 (exclusive) and 15 or greater
-    specify [(0,10), (10, 15), (15,1000)]. By default there is one value which
+    of documents whose count of out-links is in the given range  By default there is one value which
     includes everything. Also  documents with no outlinks are skipped always.
     :return: First a dictionary of tuples to lists, the tuples denoting how many links
     were in the documents considered, the lists being the precisions at m evaluated
@@ -116,14 +114,14 @@ def mean_prec_rec_at(expected_links, estim_link_probs, at=None, groups=None):
         return rangeTuples[i]
 
     if at is None:
-        ms = [100]
+        at = [100]
     if type(at) is not list:
         ms = [at]
     else:
         ms = at
 
     if groups is None:
-        groups = [(0, 10000)]
+        groups = [ AllGroups ]
     if not AllGroups in groups:
         groups.append(AllGroups)
 
@@ -189,7 +187,7 @@ def mean_average_prec(expected_links, estim_link_probs):
     retrieved links there are a lot of irrelevant links ahead of and/or between
     the relevant links.
 
-    The precision is the number of relevant results returned as a proprotion
+    The precision is the number of relevant results returned as a proportion
     of all results returned.
 
     The precision-at-m is the precision evaluated on the first m elements of the
