@@ -217,11 +217,11 @@ def sparseScalarProductOfDot (A, B, C, out=None):
     if out is None:
         out = A.copy()
     if A.dtype == np.float64:
-        compiled.sparseScalarQuotientOfDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarProductOfDot_f8(A.data, A.indices, A.indptr, B, C, out.data)
     elif A.dtype == np.float32:
-        compiled.sparseScalarQuotientOfDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
+        compiled.sparseScalarProductOfDot_f4(A.data, A.indices, A.indptr, B, C, out.data)
     else:
-        _sparseScalarQuotientOfDot_py(A,B,C, out)
+        _sparseScalarProductOfDot_py(A,B,C, out)
     return out
 
 def _sparseScalarProductOfDot_py(A,B,C, out=None):
