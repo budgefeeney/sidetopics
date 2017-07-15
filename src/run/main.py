@@ -262,7 +262,7 @@ def run(args):
         return cross_val_and_eval_perplexity(data, mdl, templateModel, trainPlan, queryPlan, args.folds, args.eval_fold_count, args.out_model)
     elif args.eval == HashtagPrecAtM:
         word_dict = load_dict(args.word_dict)
-        hashtag_indices = popular_hashtag_indices (data, word_dict, 50)
+        hashtag_indices = popular_hashtag_indices (data, word_dict, 200)
 
         cross_val_and_eval_tag_prec_rec_at_m(data, hashtag_indices, 0.5, mdl,
                                              templateModel, trainPlan,
@@ -639,7 +639,7 @@ def cross_val_and_eval_tag_prec_rec_at_m (data, tag_indices, tag_train_prop, mdl
                                                                   train_data.word_count))
 
         # Infer the expected link probabilities
-        _, query_tops        = mdl.query (model, mdl.newQueryState(query_data, model), train_plan)
+        _, query_tops        = mdl.query (query_data, model, mdl.newQueryState(query_data, model), train_plan)
         expected_links       = csr_clip(query_data_check_words, 0, 1)
         predicted_link_probs = sparseScalarProductOfDot(expected_links, rowwise_softmax(query_tops.means), mdl.wordDists(model))
 

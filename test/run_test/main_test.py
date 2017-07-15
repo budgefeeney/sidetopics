@@ -173,7 +173,7 @@ class Test(unittest.TestCase):
 
         Folds, ExecutedFoldCount = 5,1
         K,P,Q = 10, 150, 20
-        TrainIters, QueryIters, LogFreq = 5, 5, 1
+        TrainIters, QueryIters, LogFreq = 2, 2, 1
 
         PriorCov = 1
         VocabPrior = 5
@@ -209,8 +209,8 @@ class Test(unittest.TestCase):
                                 + ' --feat-var '       + str(PriorCov) \
                                 + ' --lat-topic-var '  + str(PriorCov) \
                                 + ' --lat-feat-var '   + str(PriorCov) \
-                                + ' --vocab-prior '    + str(VocabPrior)
-            #                    + ' --tag-recall-opts ' + "0:-1,0.333"
+                                + ' --vocab-prior '    + str(VocabPrior) \
+                                + ' --tag-recall-opts ' + "0:-1,0.75"
             #                     + ' --out-model '      + '/Users/bryanfeeney/Desktop/acl-out-tm' \
             #                    + ' --feats-mask '     + FeatsMask[DataSetName] \
             #                    + ' --lda-model '      + PreBuiltVbTopics[DataSetName][k]
