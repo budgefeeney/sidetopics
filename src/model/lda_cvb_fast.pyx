@@ -609,7 +609,7 @@ def iterate_f64(int iterations, int D_query, int D_train, int K, int T, \
                             q_n_kt[k,t] += diff
                             q_n_k[k]    += diff
 
-                            diff         = mems[k] - (z_dnk[d,n,k] * (1 - z_dnk[d,n,k]))
+                            diff         = (mems[k] * (1 - mems[k])) - (z_dnk[d,n,k] * (1 - z_dnk[d,n,k]))
                             q_v_dk[d,k] += diff
                             q_v_kt[k,t] += diff
                             q_v_k[k]    += diff
