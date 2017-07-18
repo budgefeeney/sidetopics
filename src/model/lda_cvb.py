@@ -284,7 +284,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
         perp = perplexity_from_like(likelyValues[-1], W.sum())
         print("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (segment * segIters, perp, boundValues[-1]))
 
-        if len(boundIters) > 2 and (boundIters[-1] > 10):
+        if len(boundIters) > 2 and (boundIters[-1] > 30):
             lastPerp = perplexity_from_like(likelyValues[-2], W.sum())
             if lastPerp - perp < 1:
                 finishedTraining = True
