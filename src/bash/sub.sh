@@ -47,22 +47,32 @@ EVAL="perplexity"
 TRAIN_ITERS=500
 QUERY_ITERS=100
 
-OUT_DIR=`dirname $0` 
+OUT_DIR=`dirname $0`
+BACKUP=$PWD
+cd $OUT_DIR
+OUT_DIR=$PWD
+cd $BACKUP 
 
 STM_EXEC=`which python3`
 SRC_DIR="/Users/bryanfeeney/Workspace/sidetopics/src"
 cd $SRC_DIR
 STM_EXEC="$STM_EXEC run/main.py "
+export PYTHONPATH=$SRC_DIR:$PYTHONPATH
 
-OUT_PATH="$OUT_DIR/out-models"
-test -d $OUT_PATH || mkdir -v $OUT_PATH
+OUT_DIR="$OUT_DIR/output"
+test -d $OUT_DIR || mkdir -v $OUT_DIR
+OUT_MODELS="$OUT_DIR/models"
+test -d $OUT_MODELS || mkdir -v $OUT_MODELS
+OUT_LOGS="$OUT_DIR/logs"
+test -d $OUT_LOGS || mkdir -v $OUT_LOGS
+
 
 
 for ALGOR in $ALGORS
 do
 	for TOPIC_COUNT in $TOPIC_COUNTS
 	do
-		LOG_FILE="Job-$ALGOR-K-$TOPIC_COUNT"
+		LOG_FILE="$OUT_LOGS/Job-$1-$ALGOR-K-$TOPIC_COUNT"
 	
 		echo "$STM_EXEC \
 		--model $ALGOR \
@@ -72,9 +82,21 @@ do
 		--eval $EVAL \
 		--iters $TRAIN_ITERS \
 		--query-iters $QUERY_ITERS \
-		--out-model $OUT_PATH \
+		--out-model $OUT_MODELS \
 		--words $WORDS \
 		>$LOG_FILE.out 2>$LOG_FILE.err"
+		
+		$STM_EXEC \
+		--model $ALGOR \
+		--num-topics $TOPIC_COUNT  \
+		--folds $FOLDS \
+		--truncate-folds $MIN_FOLDS \
+		--eval $EVAL \
+		--iters $TRAIN_ITERS \
+		--query-iters $QUERY_ITERS \
+		--out-model $OUT_MODELS \
+		--words $WORDS \
+		>$LOG_FILE.out 2>$LOG_FILE.err
 	done
 done
 
