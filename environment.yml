@@ -1,0 +1,22 @@
+name: sidetopics
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.6
+  - cython
+  - gcc
+  - openmp
+  - gsl
+  - numpy
+  - scipy
+  - scikit-learn
+  - pandas
+  - numpy
+  - bottleneck
+  - jupyterlab
+  - matplotlib
+  - seaborn
+  - pip
+  - pip:
+    - spacy
+    - aiogram
