@@ -75,7 +75,10 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components)
+        rd.seed(0xC0FFEE)
         assignments = model.fit_transform(dataset)
+        rd.seed(0xC0FFEE)
+
         assignments_2 = model.fit_transform(dataset)
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
@@ -104,7 +107,9 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components)
+        rd.seed(0xC0FFEE)
         assignments = model.fit_transform(dataset)
+        rd.seed(0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
@@ -130,12 +135,13 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
 
     def test_lda_vb_data(self):
-        rd.seed(0xC0FFEE)
         testcase = TopicModelTestSample.new_fixed()
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components)
+        rd.seed(0xC0FFEE)
         assignments = model.fit_transform(dataset)
+        rd.seed(0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=2)
 
