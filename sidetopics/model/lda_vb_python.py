@@ -399,7 +399,6 @@ def train(data, model, query, plan, updateVocab=True):
     # Start traininng
     d = -1
     for b in range(batchCount * iterations):
-        print(f"Starting batch {b}, topicMeans = {(topicMeans * 100).astype(np.int32)}")
         grad.fill(vocabPrior)
         # firstD = d
         for s in range(batchSize):
