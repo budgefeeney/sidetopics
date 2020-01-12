@@ -140,12 +140,22 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result._last_query_state = self._last_query_state
 
     def fit_transform(self,  X: DataSet, y: np.ndarray = None, **kwargs) -> np.ndarray:
+        print("fit-transform")
         return self.fit(X, y, **kwargs).transform(X, **kwargs)
 
     def fit(self,
             X: DataSet,
             y: np.ndarray = None,
             **kwargs) -> "LdaCvb":
+        """
+        Fits the current model. If called twice, will use the previous _trained_ model
+        state as the current initial value to refine, i.e. it';; train further
+        :param X: the document statistics, and associated features
+        :param y: Not used, part of the sklearn API
+        :param iterations: how many iterations to train for
+        :param kwargs: Any futher (undocumented) arguments.
+        :return: a reference to this model object
+        """
         module = self._module
         if self._model_state is None:
             logging.info("Creating new model-state at random")
@@ -190,6 +200,19 @@ class TopicModel(BaseEstimator, TransformerMixin):
             X: DataSet,
             y: np.ndarray = None,
             **kwargs) -> np.ndarray:
+        """
+        Transforms the given data: essentially inferring topic-assignment distributions for the data keeping
+        all other model parameters (word distributions, topic-priors) fixed.
+
+        If "resume" is true, then we assume this is the _second_ time training on the given dataset, and
+        use the past set of feature-assignments as the initial state to refine given the data. This is
+        a strange thing to do
+        :param X: the document statistics, and associated features
+        :param y: Not used, part of the sklearn API
+        :param iterations: how many iterations to run in the query phase
+        :param kwargs: Any futher (undocumented) arguments.
+        :return: a distribution of topic-assignment probabilities one for each document.
+        """
         module = self._module
         if self._model_state is None:
             raise ValueError("Untrained model")

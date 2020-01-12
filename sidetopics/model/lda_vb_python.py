@@ -104,6 +104,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
             docLenSum += sample_doc.sum()
         wordDists[k,:] /= wordDists[k,:].sum()
 
+    print(f'wordDists[0,:10] = {wordDists[0,:10]}')
     return ModelState(K, topicPrior, vocabPrior, wordDists, False, dtype, MODEL_NAME)
 
 
@@ -386,19 +387,19 @@ def train(data, model, query, plan, updateVocab=True):
     stepSize = np.ones((K,), dtype=dtype)
 
     # The digamma terms for the vocabularly
-    diWordDistSums = np.empty((K,), dtype=dtype)
-    diWordDists = np.empty(wordDists.shape, dtype=dtype)
-
+    diWordDists = fns.digamma(wordDists)
+    diWordDistSums = np.sum(wordDists, axis=1)
+    fns.digamma(diWordDistSums, out=diWordDistSums)
 
     # Amend the name to incorporate training information
     rateAlgor = plan.rate_algor
     modelName = "lda/svbp/%s" % _sgd_desc(plan)
     print(modelName)
 
-
     # Start traininng
     d = -1
     for b in range(batchCount * iterations):
+        print(f"Starting batch {b}, topicMeans = {(topicMeans * 100).astype(np.int32)}")
         grad.fill(vocabPrior)
         # firstD = d
         for s in range(batchSize):
