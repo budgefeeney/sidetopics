@@ -49,7 +49,7 @@ MODEL_NAME="lda/vb/c0"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate debug')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -88,14 +88,14 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     the given number of topics. Everything is instantiated purely
     at random. This contains all parameters independent of of
     the dataset (e.g. learnt priors)
-    
+
     Param:
     data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     topicPrior - the prior over topics, either a scalar or a K-dimensional vector
     vocabPrior - the prior over vocabs, either a scalar or a T-dimensional vector
     dtype      - the datatype to be used throughout.
-    
+
     Return:
     A ModelState object
     '''
@@ -109,7 +109,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
         topicPrior = constantArray((K,), (50.0 / K) + 0.5, dtype=dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 0.1 + 0.5
-        
+
     n_dk = None # These start out at none until we actually
     n_kv = None # go ahead and train this model.
     n_k  = None
@@ -117,7 +117,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     v_dk = None
     v_kv = None
     v_k  = None
-    
+
     return ModelState(K, topicPrior, vocabPrior, n_dk, n_kv, n_k, v_dk, v_kv, v_k, dtype, MODEL_NAME)
 
 
@@ -126,11 +126,11 @@ def newQueryState(data, modelState, debug=False):
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
     datapoints.
-    
+
     Param:
     data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
-    
+
     REturn:
     A CtmQueryState object
     '''
@@ -142,21 +142,21 @@ def newQueryState(data, modelState, debug=False):
     W_list, docLens = toWordList(W)
     if debug: print("Done")
     maxN = int(np.max(docLens)) # bizarre Numpy 1.7 bug in rd.dirichlet/reshape
-    
+
     # Initialise the per-token assignments at random according to the dirichlet hyper
     if debug: print ("Sampling the " + str(D * maxN * K) + " per-token topic distributions... ", end="")
     sys.stdout.flush()
 #     z_dnk = rd.dirichlet(modelState.topicPrior, size=D * maxN) \
 #           .astype(modelState.dtype) \
-#           .reshape((D,maxN,K)) # very expensive 
+#           .reshape((D,maxN,K)) # very expensive
     z_dnk = rd.rand(D*maxN,K).astype(modelState.dtype)
     z_dnk /= (z_dnk.sum(axis=1))[:,np.newaxis]
     z_dnk = z_dnk.reshape((D,maxN,K))
     if debug: print ("Done")
     sys.stdout.flush()
-    
+
     n_dk, n_kt, n_k, v_dk, v_kt, v_k = compiled.calculateCounts (W_list, docLens, z_dnk, W.shape[1])
-    
+
     # Lastly, convert the memory-views returned from Cython into numpy arrays
     W_list, docLens = np.asarray(W_list), np.asarray(docLens)
     n_dk = np.asarray(n_dk)
@@ -165,7 +165,7 @@ def newQueryState(data, modelState, debug=False):
     v_dk = np.asarray(v_dk)
     v_kt = np.asarray(v_kt)
     v_k  = np.asarray(v_k)
-    
+
     return QueryState(W_list, docLens, n_dk, n_kt, n_k, v_dk, v_kt, v_k, z_dnk)
 
 
@@ -178,7 +178,7 @@ def wordDists(model):
 
 def toWordList (w_csr):
     docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)
-    
+
     if w_csr.dtype == np.int32:
         return compiled.toWordList_i32 (w_csr.indptr, w_csr.indices, w_csr.data, docLens), docLens
     elif w_csr.dtype == np.float32:
@@ -210,15 +210,15 @@ def train (data, modelState, queryState, trainPlan, query=False):
                  and then returned.
     trainPlan  - how to execute the training process (e.g. iterations,
                  log-interval etc.)
-    query      - 
+    query      -
 
     Return:
-    The updated model object (note parameters are updated in place, so make a 
+    The updated model object (note parameters are updated in place, so make a
     defensive copy if you want it)
     The query object with the update query parameters
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
-        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug           
+        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     W_list, docLens, q_n_dk, q_n_kt, q_n_k, q_v_dk, q_v_kt, q_v_k, z_dnk = \
         queryState.W_list, queryState.docLens, \
         queryState.n_dk, queryState.n_kt, queryState.n_k, \
@@ -228,25 +228,25 @@ def train (data, modelState, queryState, trainPlan, query=False):
         modelState.n_dk, modelState.n_kt, modelState.n_k, \
         modelState.v_dk, modelState.v_kt, modelState.v_k
     topicPrior = topicPrior_.mean()
-    
+
     D_train = 0 if m_n_dk is None else m_n_dk.shape[0]
     D_query = q_n_dk.shape[0]
     W = data.words
     T = W.shape[1]
-    
+
     # Quick sanity check
     if np.any(docLens < 1):
         raise ValueError ("Input document-term matrix contains at least one document with no words")
-    
+
     # Book-keeping for logs
     logPoints    = 1 if logFrequency == 0 else iterations // logFrequency
     boundIters   = []
     boundValues  = []
     likelyValues = []
-    
+
     # Early stopping check
     finishedTraining = False
-    
+
     # Add the model counts (essentially the learnt model parameters) to those for
     # the query, assuming the model has been trained previously
     if m_n_dk is not None:
@@ -254,15 +254,15 @@ def train (data, modelState, queryState, trainPlan, query=False):
         np.add (q_v_kt, m_v_kt, out=q_v_kt)
         np.add (q_n_k,  m_n_k,  out=q_n_k)  # q_n_k  += m_n_k
         np.add (q_v_k,  m_v_k,  out=q_v_k)
-    
+
 #     print ("Topic prior : " + str(topicPrior))
-    
+
     # Select the training iterations function appropriate for the dtype
     if debug: print ("Starting Training")
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
-    
+
     # Iterate in segments, pausing to take measures of the bound / likelihood
     segIters  = logFrequency
     remainder = iterations - segIters * (logPoints - 1)
@@ -274,12 +274,12 @@ def train (data, modelState, queryState, trainPlan, query=False):
                        z_dnk,\
                        topicPrior, vocabPrior)
 
-        
+
         # Measure and record the improvement to the bound and log-likely
         boundIters.append   (segment * segIters)
         boundValues.append  (var_bound_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
         likelyValues.append (log_likely_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
-        
+
         # Check to see if the improvement in the bound has fallen below the threshold
         perp = perplexity_from_like(likelyValues[-1], W.sum())
         print("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (segment * segIters, perp, boundValues[-1]))
@@ -290,7 +290,7 @@ def train (data, modelState, queryState, trainPlan, query=False):
                 finishedTraining = True
                 print("Converged, existing early")
                 break
-    
+
     # Final scheduled batch of iterations if we haven't already converged.
     if not finishedTraining:
         do_iterations (remainder, D_query, D_train, K, T, \
@@ -299,11 +299,11 @@ def train (data, modelState, queryState, trainPlan, query=False):
                    q_v_dk, q_v_kt, q_v_k, \
                    z_dnk,\
                    topicPrior, vocabPrior)
-    
+
         boundIters.append   (iterations - 1)
         boundValues.append  (var_bound_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
         likelyValues.append (log_likely_intermediate(data, modelState, queryState, q_n_kt, q_n_k))
-        
+
     # Now return the results
     if query: # Model is unchanged, query is changed
         if m_n_dk is not None:
@@ -328,12 +328,12 @@ def train (data, modelState, queryState, trainPlan, query=False):
             m_v_dk = q_v_dk.copy()
             m_v_kt = q_v_kt.copy()
             m_v_k  = q_v_k.copy()
-            
+
     return ModelState(K, topicPrior, vocabPrior, m_n_dk, m_n_kt, m_n_k, m_v_dk, m_v_kt, m_v_k, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, q_n_dk, q_n_kt, q_n_k, q_v_dk, q_v_kt, q_v_k, z_dnk), \
            (np.array(boundIters), np.array(boundValues), np.array(likelyValues))
-  
-  
+
+
 def var_bound_intermediate (data, model, query, n_kt, n_k):
     model = ModelState(\
         model.K, \
@@ -347,7 +347,7 @@ def var_bound_intermediate (data, model, query, n_kt, n_k):
         model.v_k, \
         model.dtype, \
         model.name)
-    
+
     return var_bound (data, model, query)
 
 def log_likely_intermediate (data, model, query, n_kt, n_k):
@@ -363,7 +363,7 @@ def log_likely_intermediate (data, model, query, n_kt, n_k):
         model.v_k, \
         model.dtype, \
         model.name)
-    
+
     return log_likelihood (data, model, query)
 
 def query(data, modelState, queryState, queryPlan):
@@ -390,12 +390,12 @@ def log_likelihood (data, modelState, queryState):
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
     queryState object.
-    
+
     Actually returns a vector of D document specific log likelihoods
     '''
     n_dk, n_kt = queryState.n_dk, modelState.n_kt
     a, b       = modelState.topicPrior, modelState.vocabPrior
-   
+
     if np.isscalar(a) or type(a) is float:
         a = constantArray((modelState.K,), a, n_dk.dtype)
 
@@ -405,23 +405,23 @@ def log_likelihood (data, modelState, queryState):
     # Scale to create distributions over doc-topics and topic-vocabs
     doc_norm = n_dk.sum(axis = 1)
     voc_norm = n_kt.sum(axis = 1)
-    
+
     n_dk /= doc_norm[:,np.newaxis]
     n_kt /= voc_norm[:,np.newaxis]
-    
+
     # Use distributions to create log-likelihood. This could be made
     # faster still by not materializing the (admittedly sparse) matrix
     ln_likely = sparseScalarProductOfSafeLnDot(data.words.astype(n_dk.dtype), n_dk, n_kt).sum()
-    
+
     # Rescale back to word-counts
     n_dk *= doc_norm[:,np.newaxis]
     n_kt *= voc_norm[:,np.newaxis]
-    
+
     n_dk -= a[np.newaxis, :]
     n_kt -= b
-    
+
     return ln_likely
-    
+
 
 def var_bound(data, modelState, queryState):
     '''
@@ -439,26 +439,26 @@ def var_bound(data, modelState, queryState):
     z_dnk = queryState.z_dnk
     a     = modelState.topicPrior
     b     = modelState.vocabPrior
-    
+
     docLens = queryState.docLens
-    
+
     bound = 0
 
     if type(a) is float or np.isscalar(a):
         a = constantArray((modelState.K,), a, modelState.dtype)
-    
+
     # Expected value of the p(W,Z). Note everything else marginalized out, and
     # we're using a 0-th order Taylor expansion.
     try:
         bound += D * (fns.gammaln(a.sum()) - fns.gammaln(a).sum())
         bound += K * (fns.gammaln(T * b) - T * fns.gammaln(b))
-    
+
         bound -= np.sum (fns.gammaln(a.sum() + docLens))
         bound += np.sum (fns.gammaln(a[np.newaxis,:] + n_dk))
-    
+
         bound -= np.sum (fns.gammaln(T * b + n_k))
         bound += np.sum (fns.gammaln(b + n_kt))
-    
+
         # The entropy of z_dnk. Have to do this in a loop as z_dnk is
         # is jagged in it's third dimension.
         if modelState.dtype == np.float32:
@@ -470,7 +470,7 @@ def var_bound(data, modelState, queryState):
     except OverflowError:
         print("Overflow error encountered, returning zero")
         return 0
-    
+
     return bound
 
 def vocab(modelState):

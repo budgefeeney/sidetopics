@@ -504,7 +504,7 @@ def _old_train(data, model, query, plan, updateVocab=True):
     D,T = W.shape
 
     iters, bnds, likes = [], [], []
-    
+
     # A few parameters for handling adaptive step-sizes in SGD
     grad = 0
     grad_inner = 0
@@ -773,7 +773,7 @@ def var_bound(data, model, query, z_dnk = None):
     Determines the variational bounds.
     '''
     bound = 0
-    
+
     # Unpack the the structs, for ease of access and efficiency
     K, topicPrior, wordPrior, wordDists, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.dtype
@@ -783,7 +783,7 @@ def var_bound(data, model, query, z_dnk = None):
     # Initialize z matrix if necessary
     W,X = data.words, data.links
     D,T = W.shape
-        
+
     # Perform the digamma transform for E[ln \theta] etc.
     topicDists      = topicDists.copy()
     diTopicDists    = fns.digamma(topicDists)
@@ -801,7 +801,7 @@ def var_bound(data, model, query, z_dnk = None):
     # and its entropy
     ent_topics = _dirichletEntropy(topicDists)
     bound += ent_topics
-        
+
     # E[ln p(vocabs|vocabPrior)]
     #
     if type(model.vocabPrior) is float or type(model.vocabPrior) is int:
@@ -833,7 +833,7 @@ def var_bound(data, model, query, z_dnk = None):
 
         # E[ln p(W|Z)] = sum_d sum_n sum_k sum_t E[z_dnk] w_dnt E[ln vocab_kt]
         prob_words += np.sum(W[d, :].data[np.newaxis, :] * z * (diWordDists[:, wordIdx] - diSumWordDists[:, np.newaxis]))
-        
+
         # And finally the entropy of Z
         ent_z -= np.dot(z * safe_log(z), W[d, :].data).sum()
 
@@ -853,8 +853,5 @@ def _dirichletEntropy (P):
     lnB   = fns.gammaln(P).sum(axis=1) - fns.gammaln(psums)
     term1 = (psums - K) * fns.digamma(psums)
     term2 = (P - 1) * fns.digamma(P)
-    
+
     return (lnB + term1 - term2.sum(axis=1)).sum()
-
-
-

@@ -51,7 +51,7 @@ MODEL_NAME="lda/vb"
 
 TrainPlan = namedtuple ( \
     'TrainPlan',
-    'iterations epsilon logFrequency fastButInaccurate debug')                            
+    'iterations epsilon logFrequency fastButInaccurate debug')
 
 QueryState = namedtuple ( \
     'QueryState', \
@@ -85,32 +85,32 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     the given number of topics. Everything is instantiated purely
     at random. This contains all parameters independent of of
     the dataset (e.g. learnt priors)
-    
+
     Param:
     data - the dataset of words, features and links of which only words are used in this model
     K - the number of topics
     topicPrior - the prior over topics, either a scalar or a K-dimensional vector
     vocabPrior - the prior over vocabs, either a scalar or a T-dimensional vector
     dtype      - the datatype to be used throughout.
-    
+
     Return:
     A ModelState object
     '''
     assert K > 1, "There must be at least two topics"
     T = data.words.shape[1]
-    
+
     if topicPrior is None:
         topicPrior = constantArray((K,), 50.0 / K, dtype) # From Griffiths and Steyvers 2004
     if vocabPrior is None:
         vocabPrior = 1.1 # Also from G&S
-    
+
     vocabPriorVec = constantArray((T,), vocabPrior, dtype)
     wordDists = rd.dirichlet(vocabPriorVec, size=K).astype(dtype)
-    
+
     # Peturb to avoid zero probabilities
     wordDists += 1./T
     wordDists /= (wordDists.sum(axis=1))[:,np.newaxis]
-    
+
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
 
 
@@ -119,11 +119,11 @@ def newQueryState(data, modelState):
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
     datapoints.
-    
+
     Param:
     data - the dataset of words, features and links of which only words are used in this model
     modelState - the model state object
-    
+
     Return:
     A CtmQueryState object
     '''
@@ -131,7 +131,7 @@ def newQueryState(data, modelState):
     print("Converting Bag of Words matrix to List of List representation... ", end="")
     W_list, docLens = toWordList(data.words)
     print("Done")
-    
+
     # Initialise the per-token assignments at random according to the dirichlet hyper
     topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)
 
@@ -143,7 +143,7 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     Create a training plan determining how many iterations we
     process, how often we plot the results, how often we log
     the variational bound, etc.
-    
+
     epsilon is oddly measured, we just evaluate the angle of the line segment between
     the last value of the bound and the current, and if it's less than the given angle,
     then stop.
@@ -164,15 +164,15 @@ def train (data, modelState, queryState, trainPlan):
                  and then returned.
     trainPlan  - how to execute the training process (e.g. iterations,
                  log-interval etc.)
-    query      - 
+    query      -
 
     Return:
-    The updated model object (note parameters are updated in place, so make a 
+    The updated model object (note parameters are updated in place, so make a
     defensive copy if you want it)
     The query object with the update query parameters
     '''
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
-        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug           
+        trainPlan.iterations, trainPlan.epsilon, trainPlan.logFrequency, trainPlan.fastButInaccurate, trainPlan.debug
     W_list, docLens, topicDists = \
         queryState.W_list, queryState.docLens, queryState.topicDists
     K, topicPrior, vocabPrior, wordDists, dtype = \
@@ -180,30 +180,30 @@ def train (data, modelState, queryState, trainPlan):
 
     W   = data.words
     D,T = W.shape
-    
+
     # Quick sanity check
     if np.any(docLens < 1):
         raise ValueError ("Input document-term matrix contains at least one document with no words")
-    
+
     # Book-keeping for logs
     logPoints    = 1 if logFrequency == 0 else iterations // logFrequency
     boundIters   = np.zeros(shape=(logPoints,))
     boundValues  = np.zeros(shape=(logPoints,))
     likelyValues = np.zeros(shape=(logPoints,))
     bvIdx = 0
-    
+
     # Instead of storing the full topic assignments for every individual word, we
     # re-estimate from scratch. I.e for the memberships z which is DxNxT in dimension,
-    # we only store a 1xNxT = NxT part. 
+    # we only store a 1xNxT = NxT part.
     z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
- 
+
     # Select the training iterations function appropriate for the dtype
     current_micro_time = lambda: int(time.time())
     do_iterations = compiled.iterate_f32 \
                     if modelState.dtype == np.float32 \
                     else compiled.iterate_f64
 #    do_iterations = iterate # pure Python
-    
+
     # Iterate in segments, pausing to take measures of the bound / likelihood
     segIters  = logFrequency
     remainder = iterations - segIters * (logPoints - 1)
@@ -214,34 +214,34 @@ def train (data, modelState, queryState, trainPlan):
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
-        
+
         duration = current_micro_time() - start
-    
+
         boundIters[bvIdx]   = segment * segIters
         boundValues[bvIdx]  = var_bound(data, modelState, queryState)
         likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
         perp = perplexity_from_like(likelyValues[bvIdx], W.sum())
         bvIdx += 1
-        
+
         if converged (boundIters, boundValues, bvIdx, epsilon, minIters=20):
             boundIters, boundValues, likelyValues = clamp (boundIters, boundValues, likelyValues, bvIdx)
             return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
                 QueryState(W_list, docLens, topicDists), \
                 (boundIters, boundValues, likelyValues)
-        
+
         print ("Segment %d/%d Total Iterations %d Duration %d Perplexity %4.0f Bound %10.2f Likelihood %10.2f" % (segment, logPoints, totalItrs, duration, perp, boundValues[bvIdx - 1], likelyValues[bvIdx - 1]))
-    
+
     # Final batch of iterations.
     do_iterations (remainder, D, K, T, \
                  W_list, docLens, \
                  topicPrior, vocabPrior, \
                  z_dnk, topicDists, wordDists)
-    
+
     boundIters[bvIdx]   = iterations - 1
     boundValues[bvIdx]  = var_bound(data, modelState, queryState)
     likelyValues[bvIdx] = log_likelihood(data, modelState, queryState)
-   
-            
+
+
     return ModelState(K, topicPrior, vocabPrior, wordDists, modelState.dtype, modelState.name), \
            QueryState(W_list, docLens, topicDists), \
            (boundIters, boundValues, likelyValues)
@@ -253,35 +253,35 @@ def iterate (iterations, D, K, T, \
              W_list, docLens, \
              topicPrior, vocabPrior, \
              z_dnk, topicDists, wordDists):
-    
+
     totalItrs = 0
     epsilon = 0.01 / K
     oldWordDists = np.empty(wordDists.shape, wordDists.dtype)
     newWordDists = wordDists
-    
-    
+
+
     for _ in range(iterations):
         oldWordDists, newWordDists = newWordDists, oldWordDists
         lnWordDists = safe_log(oldWordDists, out=oldWordDists)
         newWordDists.fill (vocabPrior)
-        
+
         for d in range(D):
             oldTopics = topicDists[d,:].copy()
             topicDists[d,:]= 1./ K
             lnWordProbs = lnWordDists[:,W_list[d,0:docLens[d]]]
-            
+
             innerItrs = 0
             while ((innerItrs < MaxInnerItrs) or (np.sum(np.abs(oldTopics - topicDists[d,:])) > epsilon)) \
             and (innerItrs < MaxInnerItrs):
                 diTopic     = fns.digamma(topicDists[d,:])
                 z_dnk[:docLens[d],:] = lnWordProbs.T + diTopic[np.newaxis,:]
-                
+
                 # We've been working in log-space till now, before we go to true
                 # probability space rescale so we don't underflow everywhere
                 maxes  = z_dnk.max(axis=1)
                 z_dnk -= maxes[:,np.newaxis]
                 np.exp(z_dnk, out=z_dnk)
-                
+
                 # Now normalize so probabilities sum to one
                 sums   = z_dnk.sum(axis=1)
                 z_dnk /= sums[:,np.newaxis]            # Update vocabulary: hard to do with a list representation
@@ -289,15 +289,15 @@ def iterate (iterations, D, K, T, \
                 # Now use it to infer the topic distribution
                 topicDists[d,:] = topicPrior + np.sum(z_dnk[:docLens[d],:], axis=0)
                 topicDists[d,:] /= np.sum(topicDists[d,:])
-                
+
                 innerItrs += 1
-            
+
             totalItrs += innerItrs
             for k in range(K):
                 for n in range(docLens[d]):
                     newWordDists[k,W_list[d,n]] += z_dnk[n,k]
             newWordDists /= newWordDists.sum(axis=1)[:,np.newaxis]
-        
+
     return totalItrs
 
 
@@ -325,43 +325,43 @@ def query(data, modelState, queryState, queryPlan):
     W   = data.words
     D,T = W.shape
     z_dnk = np.empty((docLens.max(), K), dtype=dtype, order='F')
-    
-    
+
+
     if modelState.dtype == np.float32:
         for _ in range(queryPlan.iterations):
             compiled.query_f64 (D, T, K, \
                      W_list, docLens, \
-                     topicPrior, z_dnk, topicDists, 
+                     topicPrior, z_dnk, topicDists,
                      vocabDists)
     else:
         for _ in range(queryPlan.iterations):
             compiled.query_f64 (D, T, K, \
                      W_list, docLens, \
-                     topicPrior, z_dnk, topicDists, 
+                     topicPrior, z_dnk, topicDists,
                      vocabDists)
-    
+
     queryState.topicDists
     return modelState, queryState
 
 def wordDists (modelState):
     '''
-    The K x T matrix of  word distributions inferred for the K topics 
+    The K x T matrix of  word distributions inferred for the K topics
     '''
     result = modelState.wordDists
     norm   = np.sum(modelState.wordDists, axis=1)
     result /= norm[:,np.newaxis]
-    
+
     return result
 
 def topicDists (queryState):
     '''
-    The D x K matrix of topics distributions inferred for the K topics 
+    The D x K matrix of topics distributions inferred for the K topics
     across all D documents
     '''
     result = queryState.topicDists
     norm   = np.sum(queryState.topicDists, axis=1)
     result /= norm[:,np.newaxis]
-    
+
     return result
 
 def log_likelihood (data, modelState, queryState):
@@ -369,11 +369,11 @@ def log_likelihood (data, modelState, queryState):
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
     queryState object.
-    
+
     Actually returns a vector of D document specific log likelihoods
     '''
     return sparseScalarProductOfSafeLnDot(data.words, topicDists(queryState), wordDists(modelState)).sum()
-    
+
 
 def var_bound(data, modelState, queryState, z_dnk = None):
     '''
@@ -390,29 +390,29 @@ def var_bound(data, modelState, queryState, z_dnk = None):
     maxN = docLens.max()
     if z_dnk == None:
         z_dnk = np.empty(shape=(maxN, K), dtype=dtype)
-    
+
     wordDistsMatrix = wordDists(modelState)
-        
+
     diWordDists = fns.digamma(wordDistsMatrix.copy()) - fns.digamma(wordDistsMatrix.sum(axis=1))[:,np.newaxis]
     lnWordDists = np.log(wordDistsMatrix)
-   
+
     bound = 0
-    
+
     # Expected Probablity
     #
-    
+
     # P(topics|topicPrior)
     diTopicDists = fns.digamma(topicDists) - fns.digamma(topicDists.sum(axis=1))[:,np.newaxis]
     ln_b_topic = fns.gammaln(topicPrior.sum()) - fns.gammaln(topicPrior).sum()
     bound += D * ln_b_topic \
            + np.sum((topicPrior - 1) * diTopicDists)
-    
+
     # and its entropy
     ent = fns.gammaln(topicDists.sum(axis=1)).sum() - fns.gammaln(topicDists).sum() \
         + np.sum ((topicDists - 1) * diTopicDists)
-    
+
     bound -= ent
-    
+
     # P(z|topic) is tricky as we don't actually store this. However
     # we make a single, simple estimate for this case.
     # NOTE COPY AND PASTED FROM iterate_f32  / iterate_f64 (-ish)
@@ -420,36 +420,36 @@ def var_bound(data, modelState, queryState, z_dnk = None):
         lnWordProbs = lnWordDists[:,W_list[d,0:docLens[d]]]
         diTopic     = fns.digamma(topicDists[d,:])
         z_dnk[0:docLens[d],:] = lnWordProbs.T + diTopic[np.newaxis,:]
-        
+
         # We've been working in log-space till now, before we go to true
         # probability space rescale so we don't underflow everywhere
         maxes  = z_dnk.max(axis=1)
         z_dnk -= maxes[:,np.newaxis]
         np.exp(z_dnk, out=z_dnk)
-        
+
         # Now normalize so probabilities sum to one
         sums   = z_dnk.sum(axis=1)
         z_dnk /= sums[:,np.newaxis]
 #        z_dnk[docLens[d]:maxN,:] = 0 # zero probablities for words that don't exist
-        
+
         # Now use to calculate  E[ln p(Z|topics), E[ln p(W|Z) and H[Z] in that order
         diTopic -= fns.digamma(np.sum(topicDists[d,:]))
         bound += np.sum(z_dnk * diTopic[np.newaxis,:])
         bound += np.sum(z_dnk[0:docLens[d],:].T * diWordDists[:,W_list[d,0:docLens[d]]])
         bound -= np.sum(z_dnk[0:docLens[d],:] * safe_log(z_dnk[0:docLens[d],:]))
-        
+
     # p(vocabDists|vocabPrior)
-    
+
     ln_b_vocab = fns.gammaln(T * vocabPrior) - T * fns.gammaln(vocabPrior)
     bound += K * ln_b_vocab \
            + (vocabPrior - 1) * np.sum(diWordDists)
-    
+
     # and its entropy
     ent = fns.gammaln(wordDistsMatrix.sum(axis=1)).sum() - fns.gammaln(wordDistsMatrix).sum() \
         + np.sum ((wordDistsMatrix - 1) * diWordDists)
-    
-    bound -= ent   
-    
+
+    bound -= ent
+
     return bound
 
 def vocab(modelState):

@@ -51,7 +51,10 @@ class TopicModelTestSample:
         return self.components.shape[0]
 
     @staticmethod
-    def new_fixed():
+    def new_fixed(seed: int = None):
+        if seed is not None:
+            rd.seed(seed)
+
         components = np.array([
             [0] * WORDS_PER_TOPIC*0 +  [1] * WORDS_PER_TOPIC + [0] * 4*WORDS_PER_TOPIC,
             [0] * WORDS_PER_TOPIC*1 + [1] * WORDS_PER_TOPIC + [0] * 3*WORDS_PER_TOPIC,
@@ -71,65 +74,57 @@ class SklearnLdaCvbTest(unittest.TestCase):
     # Add a test to ensure that repeated calls to transform have the same effect (i.e. we're not training by accident)
 
     def test_lda_cvb0_data(self):
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components)
-        rd.seed(0xC0FFEE)
-        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
-        rd.seed(0xC0FFEE)
 
+        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
         print(f'{assignments}')
 
     def test_lda_cvb0_resume_simple_data(self):
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset, iterations=100)
 
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         _ = model.fit_transform(dataset, iterations=90)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
     def test_lda_cvb_data(self):
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components)
-        rd.seed(0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
-        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components)
-        rd.seed(0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
         print(f'{assignments}')
 
     def test_lda_cvb_resume_simple_data(self):
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset, iterations=100)
 
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
         _ = model.fit_transform(dataset, iterations=90)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
@@ -137,67 +132,63 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
 
     def test_lda_vb_data(self):
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50)
-        rd.seed(0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50)
-        rd.seed(0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50, seed=0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=4)
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
         print(f'{assignments}')
 
     def test_lda_vb_resume_simple_data(self):
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset, iterations=100)
 
-        rd.seed(0xC0FFEE)
-        testcase = TopicModelTestSample.new_fixed()
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
         _ = model.fit_transform(dataset, iterations=90)
-        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)  # resume applies to transform rather than fit, which resumed by default
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)  # FIXME resume applies to transform rather than fit, which resumed by default
 
-        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2)
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
-    #
-    # def test_lda_gibbs_data(self):
-    #     testcase = TopicModelTestSample.new_fixed()
-    #     dataset = testcase.as_dataset(debug=True)
-    #
-    #     model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components)
-    #     assignments = model.fit_transform(dataset)
-    #
-    #     self.assertCountEqual([0], [0], "Equal")
-    #
-    #     print(f'{assignments}')
-    #
-    # def test_lda_gibbs_resume_simple_data(self):
-    #     rd.seed(0xC0FFEE)
-    #     testcase = TopicModelTestSample.new_fixed()
-    #     dataset = testcase.as_dataset(debug=True)
-    #
-    #     model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components)
-    #     assignments = model.fit_transform(dataset)
-    #
-    #     rd.seed(0xC0FFEE)
-    #     testcase = TopicModelTestSample.new_fixed()
-    #     dataset = testcase.as_dataset(debug=True)
-    #
-    #     model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components)
-    #     _ = model.fit_transform(dataset, iterations=900)
-    #     assignments_from_resume = model.fit_transform(dataset, iterations=100, resume=True)
-    #
-    #     np.testing.assert_allclose(assignments, assignments_from_resume, atol=1E-3)
+
+    def test_lda_gibbs_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset)
+
+        self.assertCountEqual([0], [0], "Equal")
+
+        print(f'{assignments}')
+
+    def test_lda_gibbs_resume_simple_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components,
+                           iterations=500, burn_in=500, thin=10, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset)
+
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055 )
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components,
+                           iterations=500, burn_in=500, thin=10, query_iterations=100, seed=0xC0FFEE)
+        _tmp = model.fit_transform(dataset, iterations=400)
+        assignments_from_resume = model.fit_transform(dataset, iterations=100, burn_in=0, thin=10, resume=True)
+
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2) # close enough for sampling...
 
 
 

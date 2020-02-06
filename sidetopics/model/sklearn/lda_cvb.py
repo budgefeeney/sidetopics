@@ -11,6 +11,7 @@ import enum
 from sklearn.base import BaseEstimator
 from sklearn.base import TransformerMixin
 import numpy as np
+import numpy.random as rd
 import math
 import logging
 from typing import List, Tuple, NamedTuple
@@ -82,6 +83,10 @@ class TopicModel(BaseEstimator, TransformerMixin):
     rate_b: float = 0.5
     rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH
 
+    # For sampling-based learning
+    burn_in: int = -1
+    thin: int = -1
+
     log_frequency: int
     debug: bool = False
 
@@ -101,7 +106,10 @@ class TopicModel(BaseEstimator, TransformerMixin):
                  rate_a: float = 2,
                  rate_b: float = 0.5,
                  rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH,
-                 debug: bool = False):
+                 burn_in: int = -1,
+                 thin: int = -1,
+                 debug: bool = False,
+                 seed: int = 0xC0FFEE):
         self._module = kind.value
 
         self._model_state = None
@@ -127,7 +135,13 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self.rate_b = rate_b
         self.rate_algor = rate_algor
 
+        self.burn_in = burn_in
+        self.thin = thin
+
         self.debug = debug
+        rd.seed(seed)
+        if self._module is _lda_gibbs:
+            self._module.seed_rng(seed)
 
     def copy(self) -> "TopicModel":
         """
@@ -140,7 +154,6 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result._last_query_state = self._last_query_state
 
     def fit_transform(self,  X: DataSet, y: np.ndarray = None, **kwargs) -> np.ndarray:
-        print("fit-transform")
         return self.fit(X, y, **kwargs).transform(X, **kwargs)
 
     def fit(self,
@@ -164,7 +177,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
                                                         vocabPrior=self.topic_word_prior,
                                                         K=self.n_components)
         iters = kwargs.get('iterations') or self.iterations
-        train_plan = self._new_train_plan(module, iters)
+        train_plan = self._new_train_plan(module, iters, **kwargs)
         input_query = self.make_or_resume_query_state(X, kwargs.get('resume'))
 
         self._model_state, self._last_query_state, m = module.train(X, self._model_state, input_query, train_plan)
@@ -172,7 +185,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self.fit_metrics_ = EpochMetrics.from_ibl_tuple(m)
         return self
 
-    def _new_train_plan(self, module, iters: int):
+    def _new_train_plan(self, module, iters: int, **kwargs):
         if module is _lda_vb_python:
             return module.newTrainPlan(
                 iterations=iters,
@@ -186,6 +199,15 @@ class TopicModel(BaseEstimator, TransformerMixin):
                 rate_a=self.rate_a,
                 rate_b=self.rate_b,
                 rate_algor=self.rate_algor.value
+            )
+        elif module is _lda_gibbs:
+            return module.newTrainPlan(
+                iterations=iters,
+                burnIn=kwargs.get('burn_in') or self.burn_in,
+                thin=kwargs.get('thin') or self.thin,
+                logFrequency=self.log_frequency,
+                fastButInaccurate=self.use_approximations,
+                debug=self.debug
             )
         else:
             return module.newTrainPlan(
@@ -216,10 +238,14 @@ class TopicModel(BaseEstimator, TransformerMixin):
         module = self._module
         if self._model_state is None:
             raise ValueError("Untrained model")
-        iters = kwargs.get('iterations') or self.query_iterations
-        query_plan = self._new_train_plan(module, iters)
+
         input_query = self.make_or_resume_query_state(X, kwargs.get('resume'))
+
+        iters = kwargs.get('iterations') or self.query_iterations
+        query_plan = self._new_train_plan(module, iters, **kwargs)
+
         self._model_state, inferred_query_state = module.query(X, self._model_state, input_query, query_plan)
+
         self.transform_metrics_ = None
         if kwargs.get('persist_query_state', True):
             self._bound = math.nan
