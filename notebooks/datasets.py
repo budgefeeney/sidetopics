@@ -17,8 +17,7 @@ DATASET_DIR = pathlib.Path('/') / 'Volumes' / 'DatasetSSD'
 class LabelledMatrix:
     """
     A matrix with a set of labels for every column
-    """
-    values: Union[ssp.csr_matrix, np.ndarray]
+         values: Union[ssp.csr_matrix, np.ndarray]
     labels: Any = None
         
     def __init__(self, values, labels=None):
