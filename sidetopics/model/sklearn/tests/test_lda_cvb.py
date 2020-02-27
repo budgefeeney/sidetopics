@@ -188,8 +188,17 @@ class SklearnLdaCvbTest(unittest.TestCase):
         _tmp = model.fit_transform(dataset, iterations=400)
         assignments_from_resume = model.fit_transform(dataset, iterations=100, burn_in=0, thin=10, resume=True)
 
-        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2) # close enough for sampling...
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2)  # close enough for sampling...
 
 
+    def test_lda_svb(self):  #using the LDA_VB_PYTHON impl
+        pass
 
+    def test_lda_gibbs_resume_simple_data(self):  #using the LDA_VB_PYTHON impl
+        pass
+
+    # Aim of the work is to compare MoM with LDA
+    # To compare LDA Gibbs with LDA VB with LDA SVB
+    # To compare LDA VB with HDP
+    # To look into hyper learning with LDA
 
