@@ -23,6 +23,8 @@ import sidetopics.model.lda_vb as _lda_vb
 import sidetopics.model.lda_gibbs as _lda_gibbs
 import sidetopics.model.lda_svb as _lda_svb
 import sidetopics.model.lda_vb_python as _lda_vb_python
+import sidetopics.model.mom_em as _mom_em
+import sidetopics.model.mom_gibbs as _mom_gibbs
 
 
 class TopicModelType(enum.Enum):
@@ -32,6 +34,8 @@ class TopicModelType(enum.Enum):
     LDA_VB_PYTHON_IMPL = _lda_vb_python
     LDA_SVB = _lda_svb  # the python one above has all the online algorithms
     LDA_GIBBS = _lda_gibbs
+    MOM_VB = _mom_em
+    MOM_GIBBS = _mom_gibbs
 
 
 

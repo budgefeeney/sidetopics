@@ -99,7 +99,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
     return ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, False, dtype, MODEL_NAME)
 
 
-def newQueryState(data, modelState):
+def newQueryState(data, modelState, debug):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -113,6 +113,9 @@ def newQueryState(data, modelState):
     Return:
     A QueryState object
     '''
+    if debug:
+        print("Ignoring setting of debug to True")
+
     docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
