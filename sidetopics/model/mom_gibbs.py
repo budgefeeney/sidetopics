@@ -5,7 +5,7 @@ Mixture of Multinomials implement using a MAP EM algorithm.
 '''
 import numpy as np
 import numpy.random as rd
-import scipy.misc as fns
+import scipy.special as fns
 
 
 from sidetopics.util.misc import constantArray
@@ -97,7 +97,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
     return ModelState(K, topicPrior, vocabPrior, wordDists, False, dtype, MODEL_NAME)
 
 
-def newQueryState(data, modelState):
+def newQueryState(data, modelState, debug):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -111,6 +111,8 @@ def newQueryState(data, modelState):
     Return:
     A QueryState object
     '''
+    if debug:
+        print("Ignoring setting of debug to True")
     docLens = np.squeeze(np.asarray(data.words.sum(axis=1)))
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
@@ -274,7 +276,7 @@ def train(data, model, query, plan, updateVocab=True):
             sampleCount += 1
 
 
-        if itr % logFrequency == 0 or debug:
+        if debug or (logFrequency > 0 and itr % logFrequency == 0):
             m = ModelState(K, topicPrior, vocabPrior, wordDists, True, dtype, model.name)
             q = QueryState(query.docLens, topicDists, True)
 

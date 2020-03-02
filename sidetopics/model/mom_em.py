@@ -5,7 +5,7 @@ Mixture of Multinomials implement using a MAP EM algorithm.
 '''
 import numpy as np
 import numpy.random as rd
-import scipy.misc as fns
+import scipy.special as fns
 
 
 from sidetopics.util.misc import constantArray
@@ -233,7 +233,7 @@ def train(data, model, query, plan, updateVocab=True):
         corpusTopicDist[:] += topicPrior
         corpusTopicDist    /= corpusTopicDist.sum()
 
-        if itr % logFrequency == 0 or debug:
+        if debug or (logFrequency > 0 and itr % logFrequency == 0):
             m = ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, True, dtype, model.name)
             q = QueryState(query.docLens, topicDists, True)
 

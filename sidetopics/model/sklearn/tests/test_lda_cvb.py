@@ -90,7 +90,7 @@ class SklearnLdaCvbTest(unittest.TestCase):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.MOM, n_components=testcase.n_components, seed=0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset, iterations=100)
 
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -126,6 +126,35 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.MOM_VB, n_components=testcase.n_components, seed=0xC0FFEE)
+        _ = model.fit_transform(dataset, iterations=90)
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
+
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
+
+    def test_mom_gibbs_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset)
+
+        model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset)
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
+
+        print(f'{assignments}')
+
+    def test_mom_gibbs_resume_simple_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset, iterations=100)
+
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
         _ = model.fit_transform(dataset, iterations=90)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
