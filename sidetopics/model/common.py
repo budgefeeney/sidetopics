@@ -361,7 +361,7 @@ class DataSet:
             t_lens = np.squeeze(np.asarray(words_train.sum(axis=1)))
             q_lens = np.squeeze(np.asarray(words_query.sum(axis=1)))
             t_empties = np.where(t_lens < min_doc_len)[0]
-            q_empties = np.qhere(q_lens < min_doc_len)[0]
+            q_empties = np.where(q_lens < min_doc_len)[0]
 
             empties = np.unique ([t_empties, q_empties])
             if len (empties) > 0:
