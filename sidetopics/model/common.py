@@ -228,7 +228,7 @@ class DataSet:
         self._links.data.fill(1)
 
 
-    def prune_and_shuffle(self, min_doc_len=0.5, min_link_count=0, seed=0xC0FFEE):
+    def prune_and_shuffle(self, min_unique_word_count=0.5, min_link_count=0, seed=0xC0FFEE):
         '''
         This IN-PLACE operation prunes out any documents where the document-length
         is less than the minimum, and the shuffles the matrices in a coherent manner.
@@ -236,20 +236,27 @@ class DataSet:
         The order of the remaining matrices is returned.
 
         Note that if no links matrix exists, min_link_count is ignored.
+
+        :param min_unique_word_count the number of distinct words which must occur in the
+        the document for it to be retained.
+        :param min_link_count the minimum number of FIXME in/out links that must be FIXME
+        in order for a document to be retained in addition to the unique word count
         '''
         rng = rd.RandomState(seed)
 
         tmp = self._words.astype(np.bool).astype(np.int32)
 
-        doc_lens = np.squeeze(np.asarray(tmp.sum(axis=1)))
-        if doc_lens.min() < min_doc_len:
-            good_rows = (np.where(doc_lens >= min_doc_len))[0]
+        unique_word_counts = np.squeeze(np.asarray(tmp.sum(axis=1)))
+        if unique_word_counts.min() < min_unique_word_count:
+            good_rows = (np.where(unique_word_counts >= min_unique_word_count))[0]
             self._order = good_rows
             print ("Removed %d documents with fewer than %d unique words. %d documents remain" \
-                   % (len(doc_lens) - len(good_rows), min_doc_len, len(good_rows)))
+                   % (len(unique_word_counts) - len(good_rows), min_unique_word_count, len(good_rows)))
         else:
             doc_count = self._words.shape[0]
-            self._order = np.linspace(0, doc_count - 1, doc_count)
+            if self._order is not None:
+                print("Overwriting old _order member")
+            self._order = np.linspace(0, doc_count - 1, doc_count).astype(np.int32)
 
         rng.shuffle(self._order)
         self._reorder(self._order)
