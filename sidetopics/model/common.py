@@ -334,7 +334,7 @@ class DataSet:
         return train, query
 
 
-    def doc_completion_split(self, min_doc_len=0, seed=0xBADB055, est_prop=0.5):
+    def doc_completion_split(self, min_unique_word_count=0, seed=0xBADB055, est_prop=0.5):
         '''
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
@@ -346,6 +346,15 @@ class DataSet:
         object.
 
         This is always split with the a custom RNG seeded with the given seed
+        
+        :param min_unique_word_count: Documents for which the unique word count
+        (i.e. vocabulary size, which is smaller the document length) is less than
+        this value will not be included in either set.
+        :param seed: controls how the random split is done.
+        :param est_prop: which proportion of the word occurences should be in the
+        first returned dataset - the estimation one. This is occurences and not
+        unique words, ideally both documents will have at least one occurence of
+        each word that occurs in the master document.
         '''
         if self._feats is not None:
             return self, self
@@ -364,17 +373,21 @@ class DataSet:
         words_train = ssp.csr_matrix((est, self._words.indices, self._words.indptr), shape=self._words.shape)
         words_query = ssp.csr_matrix((evl, self._words.indices, self._words.indptr), shape=self._words.shape)
 
-        if min_doc_len > 0:
-            t_lens = np.squeeze(np.asarray(words_train.sum(axis=1)))
-            q_lens = np.squeeze(np.asarray(words_query.sum(axis=1)))
-            t_empties = np.where(t_lens < min_doc_len)[0]
-            q_empties = np.where(q_lens < min_doc_len)[0]
+        if min_unique_word_count > 0:
+            t_lens = np.squeeze(np.asarray(words_train.astype(np.bool).sum(axis=1)))
+            q_lens = np.squeeze(np.asarray(words_query.astype(np.bool).sum(axis=1)))
+            t_good = np.where(t_lens >= min_unique_word_count)[0]
+            q_good = np.where(q_lens >= min_unique_word_count)[0]
 
-            empties = np.unique ([t_empties, q_empties])
-            if len (empties) > 0:
-                words_train = words_train[empties,:]
-                words_query = words_query[empties,:]
-                print ("Removed %d documents with fewer than %d words. %d documents remain" % (len(empties), min_doc_len, words_train.shape[0] - len(empties)))
+            tq_good = sorted(set(t_good).intersection(set(q_good)))
+            if len(tq_good) != words_train.shape[0]:
+                words_train = words_train[tq_good,:]
+                words_query = words_query[tq_good,:]
+                print ("Removed %d documents with fewer than %d words. %d documents remain" % (len(self) - len(tq_good)), min_unique_word_count, len(tq_good))
+                
+                # FIXME Need to handle links and feats as well...
+                if (self._feats is not None) or (self._links is not None):
+                    raise ValueError ("Not implemente for features and/or links")
 
         return \
             DataSet(words_train, self._feats, self._links), \

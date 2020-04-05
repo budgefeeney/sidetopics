@@ -97,4 +97,4 @@ src/model/lda_cvb_fast.c
 
 .idea/**
 
-notebooks/.ipynb_checkpoints/**
+**/.ipynb_checkpoints/**
