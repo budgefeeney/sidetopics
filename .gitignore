@@ -96,3 +96,5 @@ src/model/lda_cvb_fast.c
 **/__pycache__
 
 .idea/**
+
+notebooks/.ipynb_checkpoints/**
