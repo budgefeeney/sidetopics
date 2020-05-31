@@ -4,7 +4,7 @@ this far, to facilitate running them within the newer scikit-learn compatible
 frameworks.
 """
 
-from typing import Union
+from typing import Union, Dict
 from types import ModuleType
 import enum
 
@@ -27,6 +27,42 @@ import sidetopics.model.mom_em as _mom_em
 import sidetopics.model.mom_gibbs as _mom_gibbs
 
 
+_ = logging.getLogger()
+logging.basicConfig(level=logging.DEBUG,
+                    format="%(filename)s:%(funcName)s:%(lineno)s   :: %(message)s")
+
+
+def dict_without(d: Dict[str, str], key: str) -> Dict[str, str]:
+    """
+    A copy of the dict with everything except the given key
+    """
+    r = d.copy()
+    if key in r:
+        r.pop(key)
+    return r
+
+
+class ScoreMethod(enum.Enum):
+    LogLikelihoodPoint = 'log_likelihood_point'
+    LogLikelihoodExpectation = 'log_likelihood_expectation'
+    PerplexityPoint = 'perplexity_point'
+    PerplexityBoundOrSampled = 'perplexity_expectation'
+
+    @staticmethod
+    def from_str(name: str) -> "ScoreMethod":
+        name = name.strip().lower()
+        for possibility in ScoreMethod:
+            if name == possibility.value:
+                return possibility
+        raise ValueError("No score methodd with that name")
+    
+    def is_point_estimate(self) -> bool:
+        return self in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]
+    
+    def is_perplexity(self) -> bool:
+        return self in [ScoreMethod.PerplexityBoundOrSampled, ScoreMethod.PerplexityPoint]
+
+
 class TopicModelType(enum.Enum):
     LDA_CVB0 = _lda_cvb0
     LDA_CVB = _lda_cvb
@@ -36,6 +72,10 @@ class TopicModelType(enum.Enum):
     LDA_GIBBS = _lda_gibbs
     MOM_VB = _mom_em
     MOM_GIBBS = _mom_gibbs
+
+    def uses_sampling_based_inference(self) -> bool:
+        return (self is TopicModelType.MOM_GIBBS) or (self is TopicModelType.LDA_GIBBS)
+
 
 
 
@@ -62,6 +102,7 @@ class TrainingStyleTypes(enum.Enum):
 class TopicModel(BaseEstimator, TransformerMixin):
 
     _module: ModuleType
+    kind: TopicModelType
 
     _model_state: _lda_cvb0.ModelState
     _last_query_state: _lda_cvb0.QueryState
@@ -115,6 +156,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
                  debug: bool = False,
                  seed: int = 0xC0FFEE):
         self._module = kind.value
+        self.kind = kind
 
         self._model_state = None
         self._last_query_state = None
@@ -158,7 +200,15 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result._last_query_state = self._last_query_state
 
     def fit_transform(self,  X: DataSet, y: np.ndarray = None, **kwargs) -> np.ndarray:
-        return self.fit(X, y, **kwargs).transform(X, **kwargs)
+        return self.fit(
+            X, y,
+            persist_query_state=True,
+            **dict_without(kwargs, 'persist_query_state')
+        ).transform(
+            X,
+            resume=True,
+            **dict_without(kwargs, 'resume')
+        )
 
     def fit(self,
             X: DataSet,
@@ -170,7 +220,12 @@ class TopicModel(BaseEstimator, TransformerMixin):
         :param X: the document statistics, and associated features
         :param y: Not used, part of the sklearn API
         :param iterations: how many iterations to train for
-        :param kwargs: Any futher (undocumented) arguments.
+        :param persist_query_state: set to true to be able to continue where you left off on a second
+        call to transform
+        :param resume: if True use the previous output from either train() or transform(). Only works
+        if you set persist_query_state=True in the previous call to either train() or transform()
+        as the initial starting state.
+        :param kwargs: Any further (undocumented) arguments.
         :return: a reference to this model object
         """
         module = self._module
@@ -180,14 +235,30 @@ class TopicModel(BaseEstimator, TransformerMixin):
                                                         topicPrior=self.doc_topic_prior,
                                                         vocabPrior=self.topic_word_prior,
                                                         K=self.n_components)
+        else:
+            logging.info("Resuming fit using previous model state")
+
         iters = kwargs.get('iterations') or self.iterations
         train_plan = self._new_train_plan(module, iters, **kwargs)
         input_query = self.make_or_resume_query_state(X, kwargs.get('resume'))
 
-        self._model_state, self._last_query_state, m = module.train(X, self._model_state, input_query, train_plan)
+        self._model_state, inferred_query_state, m = module.train(X, self._model_state, input_query, train_plan)
         self.bound_ = math.nan
+        self._set_or_clear_last_query_state(X, inferred_query_state, kwargs.get('persist_query_state'))
+
         self.fit_metrics_ = EpochMetrics.from_ibl_tuple(m)
+        logging.info(f"Fit model to data after {iters} iterations")
         return self
+
+    def _set_or_clear_last_query_state(self, X: DataSet, inferred_query_state, persist_query_state=False):
+        if persist_query_state:
+            logging.info("Persisting query state")
+            self._last_X = X
+            self._last_query_state = inferred_query_state
+        else:
+            logging.info("Resetting persisted query state to None")
+            self._last_X = None
+            self._last_query_state = inferred_query_state
 
     def _new_train_plan(self, module, iters: int, **kwargs):
         if module is _lda_vb_python:
@@ -231,14 +302,23 @@ class TopicModel(BaseEstimator, TransformerMixin):
         all other model parameters (word distributions, topic-priors) fixed.
 
         If "resume" is true, then we assume this is the _second_ time training on the given dataset, and
-        use the past set of feature-assignments as the initial state to refine given the data. This is
-        a strange thing to do
+        use the past set of feature-assignments as the initial state to refine given the data. This is to
+        transform more.... An ideal way of doing this woule be just to pass in an initial transform as an
+        input, but expanding that into variational distributions, or past samples, would be too much. So
+        we just do this hack where the class retains the state of the last transformed data in order to
+        be able to continue from where we left off.
+
         :param X: the document statistics, and associated features
         :param y: Not used, part of the sklearn API
         :param iterations: how many iterations to run in the query phase
+        :param persist_query_state: set to true to be able to continue where you left off on a second
+        call to transform
+        :param resume: set to true to continue where you left off on a second call to transform. Requires
+        that you set persist_query_state to True in the previous round.
         :param kwargs: Any futher (undocumented) arguments.
         :return: a distribution of topic-assignment probabilities one for each document.
         """
+        logging.debug("Transforming data")
         module = self._module
         if self._model_state is None:
             raise ValueError("Untrained model")
@@ -251,16 +331,20 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self._model_state, inferred_query_state = module.query(X, self._model_state, input_query, query_plan)
 
         self.transform_metrics_ = None
-        if kwargs.get('persist_query_state', True):
-            self._bound = math.nan
-            self._last_query_state = inferred_query_state
+        self._bound = math.nan
+        self._set_or_clear_last_query_state(X, inferred_query_state, kwargs.get('persist_query_state'))
 
-        return self._module.topicDists(self._last_query_state)
+        ret_val = self._module.topicDists(inferred_query_state)
+        logging.info(f"Obtained a {ret_val.shape} topic-assignments matrix after {iters} iterations")
+        return ret_val
 
-    def make_or_resume_query_state(self, X, should_resume):
+    def make_or_resume_query_state(self, X: DataSet, should_resume: bool):
         if should_resume:
-            logging.info("Resuming from last query state")
-            input_query = self._last_query_state
+            if self._last_X is X:
+                logging.info("Resuming from last query state")
+                input_query = self._last_query_state
+            else:
+                raise ValueError("Attempting to resume with a different dataset to last fit/transform run")
         else:
             logging.info("Creating new query state")
             input_query = self._module.newQueryState(X, self._model_state, self.debug)
@@ -268,77 +352,84 @@ class TopicModel(BaseEstimator, TransformerMixin):
 
     @property
     def components_(self):
-        return self._module.wordDists(self._last_query_state)
+        return self._module.wordDists(self._model_state)
 
-    def score(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, method="varbound", **kwargs) -> float:
+    def score(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, method: Union[ScoreMethod, str] = ScoreMethod.LogLikelihoodPoint, **kwargs) -> float:
         """
         Infers topic weights for the given data, holding the components
         (i.e. vocabularies) fixed.
+
+        A few possibilities:
+        1. The component strengths (y) are provided, and we invent a corresponding query
+           state object, and use it for evaluation
+        2. The component strengths (y) are not provided, so we have to do a transform:
+           a. If we've already done a transform on _this exact data_ and we have cached the
+              transform result, use that cache.
+           b. If we haven't done a transform on that exact data
+               (i) Do a transform and if persist_query_state is true, save (i.e. cache) the
+                   result for later
+               (ii) Do a transform, and if persist_query_state is false, don't cache the result.
 
         Returns the variational lower-bound calculated on the given data,
         which is an approximation of the true log-likelihood.
         """
-        if method == "loglikelihood":
-            return self.score_with_point_log_likelihood(X, y, persist_query_state, **kwargs)
-        elif method == "perplexity":
-            return self.score_with_perplexity(X, y, persist_query_state, **kwargs)
-        elif method == "doc-completion-perplexity":
-            return self.score_with_doc_completion_perplexity(X, y, persist_query_state, **kwargs)
-        elif method is not None and method != 'varbound':
-            raise ValueError(f"Unknown scoring method {method}")
+        if type(method) is str:
+            method = ScoreMethod.from_str(method)
 
-        old_last_query_state = self._last_query_state
-        if X is not self._last_X:  # an an optimisation, don't query twice if it's the exact same *object*
-            _ = self.transform(X, y, persist_query_state=True)
+        query_state = None
+        if y is None:
+            # If we've already transformed this data, and cached the result, then use that cached result.
+            if X is self._last_X:
+                if self._last_query_state is not None:
+                    logging.info("Re-using last persisted query state and its assignments for scoring")
+                    query_state = self._last_query_state
+                else:
+                    logging.info("Performing transform to obtain new query state with new assignments for scoring")
+                    query_state = self.find_query_state_via_transform(X, kwargs, persist_query_state)
+            elif X is not self._last_X:
+                logging.info("Performing transform to obtain new query state with new assignments for scoring")
+                query_state = self.find_query_state_via_transform(X, kwargs, persist_query_state)
+        else:  # if y is some
+            if self.kind.uses_sampling_based_inference():
+                if not method.is_point_estimate():
+                    raise ValueError("For a Gibbs-sampling based model, you can only use an externally sourced topic "
+                                     "assignments with point-estimated scores. Transform/fit with persist_query_state ="
+                                     " True  to make query-state available for call to score")
+            logging.info("Creating new query state with given assignments (skipping transform step) for scoring")
+            query_state = self.make_or_resume_query_state(X, should_resume=False)._replace(topicDists=y)
 
-        bound = self._module.var_bound(X, self._model_state, self._last_query_state)
+        if method.is_point_estimate():
+            logging.info("Obtaining point estimate of log-likelihodd")
+            log_prob = self._module.log_likelihood_point(X, self._model_state, query_state).sum()
+        else:
+            logging.info("Obtaining expected value (samples, variational bound) of log likelihood")
+            log_prob = self._module.log_likelihood_expected(X, self._model_state, query_state).sum()
+            
+        if method.is_perplexity():
+            logging.info("Converting log likelihood to perplexity")
+            return self._module.perplexity_from_like(
+                log_prob,
+                X.word_count
+            )
+        else:
+            return log_prob
+
+    def find_query_state_via_transform(self,
+                                       X: DataSet,
+                                       transform_kwargs: Dict[str, str],
+                                       persist_query_state: bool) -> object:
+        last_query_state_backup, last_X_backup = None, None
+        if not persist_query_state and (self._last_query_state is not None):
+            last_query_state_backup = self._last_query_state
+            last_X_backup = self._last_X
+
+        _ = self.transform(X, persist_query_state=True, **dict_without(transform_kwargs, 'persist_query_state'))
+        query_state = self._last_query_state
+
         if not persist_query_state:
-            self._last_query_state = old_last_query_state
+            self._last_query_state = last_query_state_backup
+            self._last_X = last_X_backup
 
-        return bound
-
-    def score_with_point_log_likelihood(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, **kwargs) -> float:
-        """
-        Infers topic weights for the given data, holding the components
-        (i.e. vocabularies) fixed.
-
-        Returns the approximate, point-estimated, log-likelihood
-        """
-        old_last_query_state = self._last_query_state
-        if X is not self._last_X:  # an an optimisation, don't query twice if it's the exact same *object*
-            _ = self.transform(X, y, persist_query_state=True)
-
-        bound = self._module.log_likelihood(X, self._model_state, self._last_query_state)
-        if not persist_query_state:
-            self._last_query_state = old_last_query_state
-
-        return bound
-
-    def score_with_perplexity(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, **kwargs) -> float:
-        """
-        Infers topic weights for the given data, holding the components
-        (i.e. vocabularies) fixed.
-
-        Calcuates the approximate, point-estimated, log-likelihood; then
-        uses that to calculate the perplexit.
-        """
-
-        return self._module.perplexity_from_like(
-            self.score_with_point_log_likelihood(X, y, persist_query_state),
-            np.sum(X.words, axis=1)
-        )
-
-    def score_with_doc_completion_perplexity(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, **kwargs) -> float:
-        """
-        Infers topic weights for the half the symbols in the given data, holding the
-        components (i.e. vocabularies) fixed.
-
-        Calcuates the approximate, point-estimated, log-likelihood of the other
-        half with the components and loadings; then uses that to calculate the
-        perplexity.
-        """
-
-        return self._module.perplexity_from_like(
-            self.score_with_point_log_likelihood(X, y, persist_query_state),
-            np.sum(X.words, axis=1)
-        )
+        return query_state
+            
+        
