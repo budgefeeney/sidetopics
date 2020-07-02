@@ -11,7 +11,8 @@ import unittest
 
 from sidetopics.model import DataSet
 from sidetopics.model.sklearn import *
-from sidetopics.model.sklearn.lda_cvb import TopicModelType
+from sidetopics.model.sklearn.lda_cvb import TopicModelType, ScoreMethod
+from sidetopics.model.evals import perplexity_from_like
 
 AVG_DOC_LEN = 250
 DOC_COUNT = 100
@@ -82,7 +83,15 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
         model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
+
+        perp_2e = model.score(dataset, method=ScoreMethod.PerplexityBoundOrSampled)
+        score_0 = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        score_0e = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+        perp_0e = perplexity_from_like(score_0e)
+
+        self.assertEquals(perp_2e, perp_0e)
 
         print(f'{assignments}')
 
@@ -101,6 +110,7 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
+
 
     def test_mom_vb_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -130,6 +140,68 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
+
+    def test_mom_vb_score_point(self):
+        full_data_raw = TopicModelTestSample.new_fixed(0xBADB055)
+        full_dataset = full_data_raw.as_dataset(debug=True)
+        train_data, test_data = full_dataset.cross_valid_split(test_fold_id=0, num_folds=4, debug=True)
+        est_data, eval_data = test_data.doc_completion_split(debug=True)
+
+        model = TopicModel(kind=TopicModelType.MOM_VB, n_components=full_data_raw.n_components, seed=0xC0FFEE)
+        model.fit(train_data, iterations=100, persist_query_state=True)
+
+        y = model.transform(est_data, persist_query_state=False)
+        self.assertIsNone(model.query_state_)
+
+        _ = model.transform(est_data, persist_query_state=True)
+        q = model.query_state_
+        self.assertIsNotNone(q)
+
+        self.assertEqual(model.score(eval_data),
+                         model.score(eval_data, method=ScoreMethod.LogLikelihoodPoint),
+                         "Should default to point estimation.")
+        self.assertEqual(model.score(eval_data, y=y),
+                         model.score(eval_data, y=y, method=ScoreMethod.LogLikelihoodPoint),
+                         "Should default to point estimation.")
+
+        score_with_prior = model.score(eval_data)
+        score_with_posterior_1 = model.score(eval_data, y=y)
+        score_with_posterior_2 = model.score(eval_data, y_query_state=q)
+        self.assertEqual(int(score_with_posterior_1), int(score_with_posterior_2),
+                         "Should get the same point-estimate score irrespective of whether assignments or query state are passed")
+        self.assertTrue(score_with_posterior_1 < 0, "Likelihood scores should always be negative")
+        self.assertTrue(score_with_prior < score_with_posterior_1,
+                        "Likelihood using the prior should be worse (i.e. less) than likelihood with the posterior")
+        
+        perp_0 = model.score(eval_data, method=ScoreMethod.PerplexityPoint)
+        perp_1 = model.score(eval_data, y=y, method=ScoreMethod.PerplexityPoint)
+        perp_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.PerplexityPoint)
+        self.assertNotEqual(perp_0, perp_1)
+        self.assertEqual(perp_1, perp_2)
+        self.assertEqual(perp_0, perplexity_from_like(score_with_prior, eval_data.word_count))
+        self.assertEqual(perp_1, perplexity_from_like(score_with_posterior_1, eval_data.word_count))
+        self.assertEqual(perp_2, perplexity_from_like(score_with_posterior_2, eval_data.word_count))
+
+    def test_mom_vb_score_bound_or_sampled(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+        evalcase = TopicModelTestSample.new_fixed(seed=0xC0FFEE).as_dataset(debug=True)
+
+        model = TopicModel(kind=TopicModelType.MOM_VB, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset, iterations=100, persist_query_state=True)
+
+        score_0 = model.score(dataset, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+        _ = model.transform(evalcase, persist_query_state=True)  # Should overwrite old query state
+        score_1 = model.score(dataset)
+        score_2 = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+
+        self.assertTrue(score_0 == score_1 == score_2, msg="Should have same values for all three scores, but got"
+                                                           f"{score_0}, {score_1}, {score_2}")
+
+        perp_0 = model.score(dataset, method=ScoreMethod.PerplexityBoundOrSampled)
+        perp_2 = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityBoundOrSampled)
+        self.assertEqual(perp_0, perp_2)
+        self.assertEqual(perp_0, perplexity_from_like(score_2, dataset.word_count))
 
     def test_mom_gibbs_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)

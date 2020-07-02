@@ -5,10 +5,11 @@ import numpy.random as rd
 import scipy.sparse as ssp
 import pickle as pkl
 from math import ceil
+import logging
 
 class DataSet:
 
-    def __init__(self, words, feats=None, links=None, order=None, limit=0, debug=False):
+    def __init__(self, words, feats=None, links=None, order=None, limit=0, debug=False, auto_convert_to_sparse=True):
         '''
         The three matrices that make up our features.
 
@@ -27,12 +28,16 @@ class DataSet:
         assert links is None or links.shape[0] == words.shape[0], "Differing row-counts for document-word and document-link matrices"
 
         if not debug:
-            assert type(words) is ssp.csr_matrix, "Words are not stored as a sparse CSR matrix"
-            assert links is None or type(links) is ssp.csr_matrix, "Links are not stored as a sparse CSR matrix"
+            assert (type(words) is ssp.csr_matrix) or auto_convert_to_sparse, "Words are not stored as a sparse CSR matrix"
+            assert links is None or (type(links) is ssp.csr_matrix or auto_convert_to_sparse), "Links are not stored as a sparse CSR matrix"
             assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
         else:
             if type(words) is not ssp.csr_matrix:
+                logging.warning("Converting words to sparse CSR matrix")
                 words = ssp.csr_matrix(words)
+            if (links is not None) and (type(links) is not ssp.csr_matrix):
+                logging.warning("Converting links to sparse CSR matrix")
+                links = ssp.csr_matrix(links)
 
         # Now that the checks are done with, assign the values and apply the ordering.
         self._words = words
@@ -308,13 +313,15 @@ class DataSet:
         return train_range, query_range
 
 
-    def cross_valid_split (self, test_fold_id, num_folds):
+    def cross_valid_split (self, test_fold_id, num_folds, debug: bool = False):
         '''
         For cross-validation, used the K-folds method to partition the
         data in the train and query components.
 
         Returns a tuple, the left being the Input object with the training
         data, the right being the input object with the query data
+        :param debug: If true, allows for splits with very few distinct words,
+        same behaviour as for the constructor debug parameter.
         '''
         train_range, query_range = self.cross_valid_split_indices(test_fold_id, num_folds)
 
@@ -322,19 +329,21 @@ class DataSet:
             self._words[train_range], \
             None if self._feats is None else self._feats[train_range], \
             None if self._links is None else self._links[train_range], \
-            self._order[train_range]
+            self._order[train_range],
+            debug = debug
         )
         query = DataSet ( \
             self._words[query_range], \
             None if self._feats is None else self._feats[query_range], \
             None if self._links is None else self._links[query_range], \
-            self._order[query_range]
+            self._order[query_range],
+            debug=debug
         )
 
         return train, query
 
 
-    def doc_completion_split(self, min_unique_word_count=0, seed=0xBADB055, est_prop=0.5):
+    def doc_completion_split(self, min_unique_word_count=0, seed=0xBADB055, est_prop=0.5, debug=False):
         '''
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
@@ -355,6 +364,8 @@ class DataSet:
         first returned dataset - the estimation one. This is occurences and not
         unique words, ideally both documents will have at least one occurence of
         each word that occurs in the master document.
+        :param debug: If true, allows for splits with very few distinct words,
+        same behaviour as for the constructor debug parameter.
         '''
         if self._feats is not None:
             return self, self
@@ -390,8 +401,8 @@ class DataSet:
                     raise ValueError ("Not implemente for features and/or links")
 
         return \
-            DataSet(words_train, self._feats, self._links), \
-            DataSet(words_query, self._feats, self._links)
+            DataSet(words_train, self._feats, self._links, debug=debug), \
+            DataSet(words_query, self._feats, self._links, debug=debug)
 
 
     def link_prediction_split(self, symmetric=True, seed=0xC0FFEE):

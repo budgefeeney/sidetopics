@@ -6,6 +6,7 @@ Mixture of Multinomials implement using a MAP EM algorithm.
 import numpy as np
 import numpy.random as rd
 import scipy.special as fns
+from typing import Sized
 
 
 from sidetopics.util.misc import constantArray
@@ -13,6 +14,7 @@ from sidetopics.util.misc import constantArray
 from sidetopics.model.evals import perplexity_from_like
 from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from sidetopics.util.overflow_safe import safe_log
+from sidetopics.model.common import DataSet
 
 from collections import namedtuple
 
@@ -80,7 +82,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
     if topicPrior is None:
         topicPrior = constantArray((K,), 5.0 / K + 0.5, dtype)  # From Griffiths and Steyvers 2004
     elif type(topicPrior) is float:
-        topicPrior = constantArray((K,), topicPrior, dtype)  # From Griffiths and Steyvers 2004
+        topicPrior = constantArray((K,), topicPrior, dtype)
     if vocabPrior is None:
         vocabPrior = VocabPrior
 
@@ -143,6 +145,18 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
     return TrainPlan(iterations, epsilon, logFrequency, fastButInaccurate, debug)
 
 
+def corpusTopicDistDirichletParam(model: ModelState) -> np.ndarray:
+    return model.corpusTopicDist
+
+
+def corpusTopicDist(model: ModelState) -> np.ndarray:
+    return model.corpusTopicDist / model.corpusTopicDist.sum()
+
+
+def wordDistsDirichletParam(modelState):
+    return modelState.wordDists.copy()
+
+
 def wordDists(modelState):
     '''
     The K x T matrix of  word distributions inferred for the K topics
@@ -154,28 +168,20 @@ def wordDists(modelState):
     return result
 
 
-def topicDists(queryState):
+def doc_count(query: QueryState) -> int:
+    return len(query.docLens)
+
+
+def topicDistsDirichletParam(query: QueryState) -> np.ndarray:
+    return topicDists(query) * doc_count(query)
+
+
+def topicDists(queryState: QueryState) -> np.ndarray:
     '''
-    The D x T matrix of distributions over K topics for each of the
+    The D x K matrix of distributions over K topics for each of the
     D documents
     '''
     return queryState.topicDists
-
-
-# TODO Verify this is correct
-def log_likelihood(data, model, query, topicDistOverride=None):
-    '''
-    Return the log-likelihood of the given data according to the model
-    and the parameters inferred for datapoints in the query-state object
-
-    Actually returns a vector of D document specific log likelihoods
-    '''
-    tops = topicDistOverride \
-        if topicDistOverride is not None \
-        else topicDists(query)
-    wordLikely = sparseScalarProductOfSafeLnDot(data.words, tops, wordDists(model)).sum()
-    return wordLikely
-    # return (data.words.dot(wordDists(model).T) * model.corpusTopicDist).sum()
 
 
 def train(data, model, query, plan, updateVocab=True):
@@ -212,6 +218,7 @@ def train(data, model, query, plan, updateVocab=True):
         raise ValueError("Input document-term matrix contains at least one document with no words")
     assert dtype == np.float64, "Only implemented for 64-bit floats"
 
+    topicDists = None
     for itr in range(iterations):
         # E-Step
         safe_log(wordDists, out=wordDists)
@@ -239,7 +246,7 @@ def train(data, model, query, plan, updateVocab=True):
 
             iters.append(itr)
             bnds.append(var_bound(data, m, q))
-            likes.append(log_likelihood(data, m, q))
+            likes.append(log_likelihood_point(data, m, q))
 
             perp = perplexity_from_like(likes[-1], W.sum())
             print("Iteration %d : Train Perp = %4.0f  Bound = %.3f" % (itr, perp, bnds[-1]))
@@ -247,7 +254,7 @@ def train(data, model, query, plan, updateVocab=True):
             if len(iters) > 2 and iters[-1] > 50:
                 lastPerp = perplexity_from_like(likes[-2], W.sum())
                 if lastPerp - perp < 1:
-                    break;
+                    break
 
     return ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, True, dtype, model.name), \
            QueryState(query.docLens, topicDists, True), \
@@ -273,8 +280,9 @@ def query(data, model, queryState, _):
     defensive copy if you want it)
     The query object with the update query parameters
     '''
-    K, wordDists, corpusTopicDist, topicPrior, vocabPrior = \
+    K, wordDists, corpusTopicDist, _, vocabPrior = \
         model.K, model.wordDists, model.corpusTopicDist, model.topicPrior, model.vocabPrior
+    corpusTopicDist /= corpusTopicDist.sum()
     topicDists = queryState.topicDists
 
     W = data.words
@@ -289,7 +297,55 @@ def query(data, model, queryState, _):
     return model, QueryState(queryState.docLens, np.exp(topicDists), True)
 
 
-def var_bound(data, model, query):
+def log_likelihood_expected(data: DataSet, model: ModelState, query: QueryState) -> float:
+    ll = 0  # log likelihood
+
+    lls = np.zeros(shape=(doc_count(query), model.K), dtype=model.dtype)
+
+    # p(z=k | alpha)
+    alpha = corpusTopicDistDirichletParam(model)  # D x K  # FIXME This the posterior p(z=k|x)
+    alpha_sum = alpha.sum(axis=1) # D x 1
+
+    lls += np.log(fns.gamma(alpha_sum))[:, np.newaxis]
+    lls -= np.log(fns.gamma(alpha_sum + 1))[:, np.newaxis]
+    # FIXME this memory explosion needs to be contained
+    lls += np.sum(np.log(fns.gamma(np.diag((model.K, model.K))[np.newaxis, :, :] + alpha[:, :, np.newaxis])), axis=2)
+    lls -= np.log(fns.gamma(alpha))
+
+    # p(X = x|z=k, beta)
+    beta = wordDistsDirichletParam(model)  # K x T
+    beta_sum = beta.sum(axis=1)  # K x 1
+    lls += np.log(fns.gamma(beta_sum))[np.newaxis, :]
+    lls -= np.log(np.gamma(np.sum(data.words, axis=1)[:, np.newaxis] + beta_sum[np.newaxis, :]))
+    lls += np.sum(np.log(np.gamma(data.words + beta)))
+    lls -= np.sum(np.log(fns.gamma(beta)), axis=1)[np.newaxis, :]
+
+    max_lls = lls.max(axis=1)
+    np.exp(lls, out=lls)
+
+    lls = max_lls + np.log(lls.sum(axis=1))
+
+    return lls.sum()
+
+
+def log_likelihood_point(data: DataSet, model: ModelState, query: QueryState = None) -> float:
+    lls = data.words @ np.log(wordDists(model).T)
+    if query is not None:
+        lls += query.topicDists
+    else:
+        lls += np.log(corpusTopicDist(model))[np.newaxis, :]
+
+    max_lls = lls.max(axis=1)
+    lls -= max_lls[:, np.newaxis]
+    np.exp(lls, out=lls)
+
+    lls = max_lls + np.log(lls.sum(axis=1))
+
+    return lls.sum()
+
+
+
+def var_bound(data, model, query, topicDistOverride=None):
     '''
     Determines the variational bounds.
     '''
@@ -301,11 +357,17 @@ def var_bound(data, model, query):
     K, topicPrior, vocabPrior, wordDists, corpusTopicDist, dtype = \
         model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.corpusTopicDist, model.dtype
 
+    tops = topicDistOverride \
+        if topicDistOverride is not None \
+        else topicDists(query)
+
     # Initialize z matrix if necessary
     W = data.words
     D, T = W.shape
 
-    #  ln p(x,z) >= sum_k p(z=k|x) * (ln p(x|z=k, phi) + p(z=k)) + H[q]
+    wordLikely = sparseScalarProductOfSafeLnDot(data.words, tops, wordDists(model)).sum()
+    topicLikely = topicMeans.dot(fns.digamma(corpusTopicDist) - fns.digamma(corpusTopicDist.sum()))
+
 
     # Expected joint
     like = W.dot(safe_log(wordDists).T) # D*K
@@ -315,7 +377,7 @@ def var_bound(data, model, query):
     # Entropy
     ent = (-topicMeans * safe_log(topicMeans)).sum()
 
-    return like.sum() + bound
+    return like.sum() + ent
 
 
 

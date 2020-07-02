@@ -315,7 +315,7 @@ def var_bound_intermediate (data, model, query, n_kt, n_k):
         model.dtype, \
         model.name)
 
-    return var_bound (data, model, query)
+    return log_likelihood_expected(data, model, query)
 
 def log_likely_intermediate (data, model, query, n_kt, n_k):
     model = ModelState(\
@@ -328,7 +328,7 @@ def log_likely_intermediate (data, model, query, n_kt, n_k):
         model.dtype, \
         model.name)
 
-    return log_likelihood (data, model, query)
+    return log_likelihood_point(data, model, query)
 
 def query(data, modelState, queryState, queryPlan):
     '''
@@ -349,7 +349,7 @@ def query(data, modelState, queryState, queryPlan):
     return modelState, queryState
 
 
-def log_likelihood (data, modelState, queryState):
+def log_likelihood_point(data, modelState, queryState):
     '''
     Return the log-likelihood of the given data W according to the model
     and the parameters inferred for the entries in W stored in the
@@ -389,12 +389,12 @@ def log_likelihood (data, modelState, queryState):
     return ln_likely
 
 
-def var_bound(data, modelState, queryState):
-    '''
+def log_likelihood_expected(data, modelState, queryState):
+    """
     Determines the variational bounds. Values are mutated in place, but are
     reset afterwards to their initial values. So it's safe to call in a serial
     manner.
-    '''
+    """
     # Unpack the the structs, for ease of access and efficiency
     W     = data.words
     D,T   = W.shape

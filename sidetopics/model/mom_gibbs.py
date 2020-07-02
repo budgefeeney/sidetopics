@@ -165,7 +165,7 @@ def topicDists(queryState):
 
 
 # TODO Verify this is correct
-def log_likelihood(data, model, query, topicDistOverride=None):
+def log_likelihood_point(data, model, query, topicDistOverride=None):
     '''
     Return the log-likelihood of the given data according to the model
     and the parameters inferred for datapoints in the query-state object
@@ -334,14 +334,11 @@ def query(data, model, queryState, queryPlan):
     return model, QueryState(queryState.docLens, sample_accum, True)
 
 
-
 def var_bound(data, model, query):
     '''
     A total nonsense in this case which we retain just so all the other functions
     continue to work.
     '''
-    bound = 0
-
     # Unpack the the structs, for ease of access and efficiency
     docLens, topicMeans = \
         query.docLens, query.topicDists
@@ -355,13 +352,13 @@ def var_bound(data, model, query):
     #  ln p(x,z) >= sum_k p(z=k|x) * (ln p(x|z=k, phi) + p(z=k)) + H[q]
 
     # Expected joint
-    like = W.dot(safe_log(wordDists).T) # D*K
+    like = W.dot(safe_log(wordDists).T)  # D*K
     like *= safe_log(topicMeans)
 
     # Entropy
     ent = (-topicMeans * safe_log(topicMeans)).sum()
 
-    return like.sum() + bound
+    return like.sum() + ent
 
 
 

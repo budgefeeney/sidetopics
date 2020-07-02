@@ -44,7 +44,7 @@ def dict_without(d: Dict[str, str], key: str) -> Dict[str, str]:
 
 class ScoreMethod(enum.Enum):
     LogLikelihoodPoint = 'log_likelihood_point'
-    LogLikelihoodExpectation = 'log_likelihood_expectation'
+    LogLikelihoodBoundOrSampled = 'log_likelihood_expectation'
     PerplexityPoint = 'perplexity_point'
     PerplexityBoundOrSampled = 'perplexity_expectation'
 
@@ -258,7 +258,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         else:
             logging.info("Resetting persisted query state to None")
             self._last_X = None
-            self._last_query_state = inferred_query_state
+            self._last_query_state = None
 
     def _new_train_plan(self, module, iters: int, **kwargs):
         if module is _lda_vb_python:
@@ -354,42 +354,51 @@ class TopicModel(BaseEstimator, TransformerMixin):
     def components_(self):
         return self._module.wordDists(self._model_state)
 
-    def score(self, X: DataSet, y: np.ndarray = None, persist_query_state: bool = False, method: Union[ScoreMethod, str] = ScoreMethod.LogLikelihoodPoint, **kwargs) -> float:
+    @property
+    def query_state_(self):
+        return self._last_query_state
+
+    def score(self, X: DataSet, y: np.ndarray = None, y_query_state: object = None, method: Union[ScoreMethod, str] = ScoreMethod.LogLikelihoodPoint, **kwargs) -> float:
         """
-        Infers topic weights for the given data, holding the components
-        (i.e. vocabularies) fixed.
+        Uses the given topic assignments `y` to determine the fit of the given model according
+        to either log-likelihood, or perplexity (which is a function of log likelihood).
 
-        A few possibilities:
-        1. The component strengths (y) are provided, and we invent a corresponding query
-           state object, and use it for evaluation
-        2. The component strengths (y) are not provided, so we have to do a transform:
-           a. If we've already done a transform on _this exact data_ and we have cached the
-              transform result, use that cache.
-           b. If we haven't done a transform on that exact data
-               (i) Do a transform and if persist_query_state is true, save (i.e. cache) the
-                   result for later
-               (ii) Do a transform, and if persist_query_state is false, don't cache the result.
+        The log likelihood can be determined either via a point estimate (substituting in the
+        _mean_ of the parameter posteriors into the likelihood equataion) or by taking the
+        full joint expectation of the data and all parameters, marginalising out the uncertainty.
 
-        Returns the variational lower-bound calculated on the given data,
-        which is an approximation of the true log-likelihood.
+        In the case where no assignments `y` are provided, the prior (which may have been
+        learnt from the data) is used instead.
+
+        Instead of `y` you can instead provide the QueryState object (see the query_state_
+        property) as `y_query_state`. It is mandatory to provide this for topic-model
+        types that use sampling based inference. It is an error to provide both `y` and
+        `y_query_state`. It is a okay to provide neither: in that case the prior over
+        topics will be used, i.e. the stanard equation for the log-likelihood in a
+        mixture model.
+
+        :param X: the data to score with this model
+        :param y: the topic assignments obtained with `fit` which we're using to score the
+        data. Alternatively you can provide y_query_state instead, which is required for
+        cases where `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param y_query_state: the query-state obtained by calling the `fit` function with
+        `perist_query_state=True` and then accessing the `query_state_` property. This
+        provide additional information about the uncertainty of y and is vital for when
+        `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param method the scoring method to use. If a string, we delegate to `ScoreMethod.from_str()`
         """
         if type(method) is str:
             method = ScoreMethod.from_str(method)
 
-        query_state = None
-        if y is None:
-            # If we've already transformed this data, and cached the result, then use that cached result.
-            if X is self._last_X:
-                if self._last_query_state is not None:
-                    logging.info("Re-using last persisted query state and its assignments for scoring")
-                    query_state = self._last_query_state
-                else:
-                    logging.info("Performing transform to obtain new query state with new assignments for scoring")
-                    query_state = self.find_query_state_via_transform(X, kwargs, persist_query_state)
-            elif X is not self._last_X:
-                logging.info("Performing transform to obtain new query state with new assignments for scoring")
-                query_state = self.find_query_state_via_transform(X, kwargs, persist_query_state)
-        else:  # if y is some
+        if (y is not None) and (y_query_state is not None):
+            raise ValueError("Cannot specify both y and y_query_state at the same time")
+
+        if (y is None) and (y_query_state is None):
+            logging.warning("Using prior topic assignments to score data according to model.")
+            query_state = None
+        elif y is None:
+            query_state = y_query_state
+        elif y_query_state is None:
             if self.kind.uses_sampling_based_inference():
                 if not method.is_point_estimate():
                     raise ValueError("For a Gibbs-sampling based model, you can only use an externally sourced topic "
@@ -397,6 +406,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
                                      " True  to make query-state available for call to score")
             logging.info("Creating new query state with given assignments (skipping transform step) for scoring")
             query_state = self.make_or_resume_query_state(X, should_resume=False)._replace(topicDists=y)
+
 
         if method.is_point_estimate():
             logging.info("Obtaining point estimate of log-likelihodd")
