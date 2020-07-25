@@ -4,7 +4,7 @@ this far, to facilitate running them within the newer scikit-learn compatible
 frameworks.
 """
 
-from typing import Union, Dict
+from typing import Union, Dict, Optional
 from types import ModuleType
 import enum
 
@@ -73,10 +73,10 @@ class TopicModelType(enum.Enum):
     MOM_VB = _mom_em
     MOM_GIBBS = _mom_gibbs
 
-    def uses_sampling_based_inference(self) -> bool:
-        return (self is TopicModelType.MOM_GIBBS) or (self is TopicModelType.LDA_GIBBS)
-
-
+    def uses_point_based_inference(self) -> bool:
+        uses_bayesian_inference = (self is TopicModelType.MOM_GIBBS) \
+                                or (self is TopicModelType.LDA_GIBBS)
+        return not uses_bayesian_inference
 
 
 class EpochMetrics(NamedTuple):
@@ -104,10 +104,10 @@ class TopicModel(BaseEstimator, TransformerMixin):
     _module: ModuleType
     kind: TopicModelType
 
-    _model_state: _lda_cvb0.ModelState
-    _last_query_state: _lda_cvb0.QueryState
-    _last_X: DataSet
-    _bound: float
+    _model_state: object
+    _last_query_state: object
+    _last_X: Optional[DataSet]
+    _bound: Optional[float]
     fit_metrics_: EpochMetrics
     transform_metrics_: EpochMetrics
 
@@ -198,6 +198,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result.set_params(**result.get_params())
         result._model_state = _lda_cvb0.newModelFromExisting(self._model_state)
         result._last_query_state = self._last_query_state
+        return result
 
     def fit_transform(self,  X: DataSet, y: np.ndarray = None, **kwargs) -> np.ndarray:
         return self.fit(
@@ -213,7 +214,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
     def fit(self,
             X: DataSet,
             y: np.ndarray = None,
-            **kwargs) -> "LdaCvb":
+            **kwargs) -> "TopicModel":
         """
         Fits the current model. If called twice, will use the previous _trained_ model
         state as the current initial value to refine, i.e. it';; train further
@@ -392,21 +393,18 @@ class TopicModel(BaseEstimator, TransformerMixin):
 
         if (y is not None) and (y_query_state is not None):
             raise ValueError("Cannot specify both y and y_query_state at the same time")
-
-        if (y is None) and (y_query_state is None):
+        elif (y is None) and (y_query_state is None):
             logging.warning("Using prior topic assignments to score data according to model.")
             query_state = None
-        elif y is None:
-            query_state = y_query_state
-        elif y_query_state is None:
-            if self.kind.uses_sampling_based_inference():
-                if not method.is_point_estimate():
-                    raise ValueError("For a Gibbs-sampling based model, you can only use an externally sourced topic "
-                                     "assignments with point-estimated scores. Transform/fit with persist_query_state ="
-                                     " True  to make query-state available for call to score")
+        elif y is not None:
+            if not (method.is_point_estimate() and self.kind.uses_point_based_inference()):
+                raise ValueError("For a Bayesian-inference based model, you can cannot provide topics as a point "
+                                 "estimate, you need to provide the full distribution, via the state retured by "
+                                 "the query_state_ property (set when persist_query_state=True in fit() and predict())")
             logging.info("Creating new query state with given assignments (skipping transform step) for scoring")
             query_state = self.make_or_resume_query_state(X, should_resume=False)._replace(topicDists=y)
-
+        elif y_query_state is not None:
+            query_state = y_query_state
 
         if method.is_point_estimate():
             logging.info("Obtaining point estimate of log-likelihodd")

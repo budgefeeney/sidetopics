@@ -3,24 +3,29 @@ Mixture of Multinomials implement using a MAP EM algorithm.
 
 @author: bryanfeeney
 '''
+from numbers import Number
+
 import numpy as np
 import numpy.random as rd
 import scipy.special as fns
-from typing import Sized
+from typing import Sized, Tuple
+import logging
 
 
 from sidetopics.util.misc import constantArray
 
 from sidetopics.model.evals import perplexity_from_like
-from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot, sparseScalarProductOfDot
 from sidetopics.util.overflow_safe import safe_log
 from sidetopics.model.common import DataSet
 
 from collections import namedtuple
 
+CHANGE_TOLERANCE = 0.001
+
 MODEL_NAME = "mom/em"
 DTYPE = np.float64
-VocabPrior = 1.1
+VOCAB_PRIOR = 1.1
 
 # After how many training iterations should we stop to update the hyperparameters
 HyperParamUpdateInterval = 5
@@ -37,7 +42,7 @@ QueryState = namedtuple( \
 
 ModelState = namedtuple( \
     'ModelState', \
-    'K topicPrior vocabPrior wordDists corpusTopicDist processed dtype name'
+    'K topicPrior vocabPrior wordDistParam corpusTopicDistParam processed dtype name'
 )
 
 
@@ -49,14 +54,14 @@ def newModelFromExisting(model):
         model.K, \
         model.topicPrior, \
         model.vocabPrior, \
-        None if model.wordDists is None else model.wordDists.copy(),
-        None if model.corpusTopicDist is None else model.corpusTopicDist.copy(),
+        None if model.wordDistParam is None else model.wordDistParam.copy(),
+        None if model.corpusTopicDistParam is None else model.corpusTopicDistParam.copy(),
         model.processed, \
         model.dtype, \
         model.name)
 
 
-def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYPE):
+def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VOCAB_PRIOR, dtype=DTYPE):
     '''
     Creates a new LDA ModelState for the given training set and
     the given number of topics. Everything is instantiated purely
@@ -84,21 +89,25 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=VocabPrior, dtype=DTYP
     elif type(topicPrior) is float:
         topicPrior = constantArray((K,), topicPrior, dtype)
     if vocabPrior is None:
-        vocabPrior = VocabPrior
+        vocabPrior = VOCAB_PRIOR
+    if issubclass(type(vocabPrior), Number):
+        fill_value = vocabPrior
+        vocabPrior = np.ndarray((T,), dtype=dtype)
+        vocabPrior[:] = fill_value
 
-    wordDists = np.ones((K, T), dtype=dtype)
+    wordDistParam = np.ones((K, T), dtype=dtype)
     for k in range(K):
         docLenSum = 0
         while docLenSum < 1000:
             randomDoc = rd.randint(0, data.doc_count, size=1)
             sample_doc = data.words[randomDoc, :]
-            wordDists[k, sample_doc.indices] += sample_doc.data
+            wordDistParam[k, sample_doc.indices] += sample_doc.data
             docLenSum += sample_doc.sum()
-        wordDists[k, :] /= wordDists[k, :].sum()
+        # wordDists[k, :] /= wordDists[k, :].sum()
 
-    corpusTopicDist = np.array([1./K] * K, dtype=dtype)
+    corpusTopicDistParam = topicPrior.copy()
 
-    return ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, False, dtype, MODEL_NAME)
+    return ModelState(K, topicPrior, vocabPrior, wordDistParam, corpusTopicDistParam, False, dtype, MODEL_NAME)
 
 
 def newQueryState(data, modelState, debug):
@@ -126,8 +135,6 @@ def newQueryState(data, modelState, debug):
     dist /= dist.sum()
 
     topicDists = rd.dirichlet(dist, size=data.doc_count).astype(modelState.dtype)
-    topicDists *= docLens[:, np.newaxis]
-    topicDists += modelState.topicPrior[np.newaxis, :]
 
     return QueryState(docLens, topicDists, False)
 
@@ -146,34 +153,24 @@ def newTrainPlan(iterations=100, epsilon=2, logFrequency=10, fastButInaccurate=F
 
 
 def corpusTopicDistDirichletParam(model: ModelState) -> np.ndarray:
-    return model.corpusTopicDist
+    return model.corpusTopicDistParam
 
 
 def corpusTopicDist(model: ModelState) -> np.ndarray:
-    return model.corpusTopicDist / model.corpusTopicDist.sum()
-
+    return model.corpusTopicDistParam / model.corpusTopicDistParam.sum()
 
 def wordDistsDirichletParam(modelState):
-    return modelState.wordDists.copy()
-
+    return modelState.wordDistParam
 
 def wordDists(modelState):
     '''
     The K x T matrix of  word distributions inferred for the K topics
     '''
-    result = modelState.wordDists.copy()
+    result = modelState.wordDistParam.copy()
     norm = result.sum(axis=1)
     result /= norm[:, np.newaxis]
 
     return result
-
-
-def doc_count(query: QueryState) -> int:
-    return len(query.docLens)
-
-
-def topicDistsDirichletParam(query: QueryState) -> np.ndarray:
-    return topicDists(query) * doc_count(query)
 
 
 def topicDists(queryState: QueryState) -> np.ndarray:
@@ -184,15 +181,19 @@ def topicDists(queryState: QueryState) -> np.ndarray:
     return queryState.topicDists
 
 
-def train(data, model, query, plan, updateVocab=True):
-    '''
+def doc_count(query: QueryState) -> int:
+    return len(query.docLens)
+
+
+def train(data, model: ModelState, query: QueryState, plan: TrainPlan, updateVocab=True):
+    """
     Infers the topic distributions in general, and specifically for
     each individual datapoint,
 
     Params:
     data - the training data, we just use the DxT document-term matrix
     model - the initial model configuration. This is MUTATED IN-PLACE
-    qyery - the query results - essentially all the "local" variables
+    query - the query results - essentially all the "local" variables
             matched to the given observations. Also MUTATED IN-PLACE
     plan  - how to execute the training process (e.g. iterations,
             log-interval etc.)
@@ -201,13 +202,13 @@ def train(data, model, query, plan, updateVocab=True):
     The updated model object (note parameters are updated in place, so make a
     defensive copy if you want it)
     The query object with the update query parameters
-    '''
+    """
     iterations, epsilon, logFrequency, fastButInaccurate, debug = \
         plan.iterations, plan.epsilon, plan.logFrequency, plan.fastButInaccurate, plan.debug
-    docLens, topicMeans = \
-        query.docLens, query.topicDists
-    K, topicPrior, vocabPrior, wordDists, corpusTopicDist, dtype = \
-        model.K, model.topicPrior, model.vocabPrior, model.wordDists, model.corpusTopicDist, model.dtype
+    docLens = query.docLens
+    topicDist = topicDists(query)
+    K, topicPrior, vocabPrior, wordDistParam, corpusTopicDistParam, dtype = \
+        model.K, model.topicPrior, model.vocabPrior, wordDistsDirichletParam(model), corpusTopicDistDirichletParam(model), model.dtype
 
     W = data.words
 
@@ -218,31 +219,36 @@ def train(data, model, query, plan, updateVocab=True):
         raise ValueError("Input document-term matrix contains at least one document with no words")
     assert dtype == np.float64, "Only implemented for 64-bit floats"
 
-    topicDists = None
+    lnCorpusTopicDist = fns.digamma(corpusTopicDistParam) - fns.digamma(corpusTopicDistParam.sum())
+    lnWordDist = fns.digamma(wordDistParam) - fns.digamma(wordDistParam.sum(axis=1))[:, np.newaxis]
+    oldTopicDist = np.ndarray(topicDist.shape, dtype=topicDist.dtype)
+
     for itr in range(iterations):
-        # E-Step
-        safe_log(wordDists, out=wordDists)
-        safe_log(corpusTopicDist, out=corpusTopicDist)
+        oldTopicDist[:, :] = topicDist[:, :]
 
-        topicDists = W.dot(wordDists.T) + corpusTopicDist[np.newaxis, :]
-        #topicDists -= topicDists.max(axis=1)[:, np.newaxis] # TODO Ensure this is okay
-        norms = fns.logsumexp(topicDists, axis=1)
-        topicDists -= norms[:, np.newaxis]
+        topicDist[:, :] = (data.words @ lnWordDist.T)
+        topicDist[:, :] += lnCorpusTopicDist[np.newaxis, :]
+        topicDist -= topicDist.max(axis=1)[:, np.newaxis]
+        np.exp(topicDist, out=topicDist)
+        topicDist /= topicDist.sum(axis=1)[:, np.newaxis]
 
-        np.exp(topicDists, out=topicDists)
+        if np.abs(oldTopicDist - topicDist).sum() < CHANGE_TOLERANCE * topicDist.shape[0] * topicDist.shape[1]:
+            logging.info(f"Stopping train after {itr + 1} iterations as change in topic distibution is minimal")
+            break
 
-        # M-Step
-        wordDists = (W.T.dot(topicDists)).T
-        wordDists += vocabPrior
-        wordDists /= wordDists.sum(axis=1)[:, np.newaxis]
+        corpusTopicDistParam = topicDist.sum(axis=0) + model.topicPrior
+        fns.digamma(corpusTopicDistParam, out=lnCorpusTopicDist)
+        lnCorpusTopicDist -= fns.digamma(corpusTopicDistParam.sum())
 
-        corpusTopicDist     = topicDists.sum(axis=0)
-        corpusTopicDist[:] += topicPrior
-        corpusTopicDist    /= corpusTopicDist.sum()
+        # Derive new parameter estimates
+        wordDistParam = (data.words.T @ topicDist).T \
+                      + model.vocabPrior[np.newaxis, :]
+        fns.digamma(wordDistParam, out=lnWordDist)
+        lnWordDist -= fns.digamma(wordDistParam.sum(axis=1))[:, np.newaxis]
 
         if debug or (logFrequency > 0 and itr % logFrequency == 0):
-            m = ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, True, dtype, model.name)
-            q = QueryState(query.docLens, topicDists, True)
+            m = ModelState(K, topicPrior, vocabPrior, wordDistParam, corpusTopicDistParam, True, dtype, model.name)
+            q = QueryState(query.docLens, topicDist, True)
 
             iters.append(itr)
             bnds.append(var_bound(data, m, q))
@@ -256,12 +262,12 @@ def train(data, model, query, plan, updateVocab=True):
                 if lastPerp - perp < 1:
                     break
 
-    return ModelState(K, topicPrior, vocabPrior, wordDists, corpusTopicDist, True, dtype, model.name), \
-           QueryState(query.docLens, topicDists, True), \
+    return ModelState(K, topicPrior, vocabPrior, wordDistParam, corpusTopicDistParam, True, dtype, model.name), \
+           QueryState(query.docLens, topicDist, True), \
            (np.array(iters, dtype=np.int32), np.array(bnds), np.array(likes))
 
 
-def query(data, model, queryState, _):
+def query(data: DataSet, model: ModelState, queryState: QueryState, plan: TrainPlan) -> Tuple[ModelState, QueryState]:
     '''
     Infers the topic distributions in general, and specifically for
     each individual datapoint, without altering the model
@@ -280,47 +286,74 @@ def query(data, model, queryState, _):
     defensive copy if you want it)
     The query object with the update query parameters
     '''
-    K, wordDists, corpusTopicDist, _, vocabPrior = \
-        model.K, model.wordDists, model.corpusTopicDist, model.topicPrior, model.vocabPrior
-    corpusTopicDist /= corpusTopicDist.sum()
-    topicDists = queryState.topicDists
+    lnCorpusTopicDist = fns.digamma(corpusTopicDistDirichletParam(model))
+    lnCorpusTopicDist -= fns.digamma(corpusTopicDistDirichletParam(model).sum())
 
-    W = data.words
+    lnWordDist = fns.digamma(wordDistsDirichletParam(model))
+    lnWordDist -= fns.digamma(wordDistsDirichletParam(model).sum(axis=1))[:, np.newaxis]
 
-    wordDists = safe_log(wordDists)
-    corpusTopicDist = safe_log(corpusTopicDist)
+    topicDist = topicDists(queryState)
+    oldTopicDist = np.ndarray(topicDist.shape, dtype=topicDist.dtype)
+    for itr in range(plan.iterations):
+        oldTopicDist[:, :] = topicDist
+        topicDist = (data.words @ lnWordDist.T) + lnCorpusTopicDist[np.newaxis, :]
+        topicDist -= topicDist.max(axis=1)[:, np.newaxis]
+        np.exp(topicDist, out=topicDist)
+        topicDist /= topicDist.sum(axis=1)[:, np.newaxis]
 
-    topicDists = W.dot(wordDists.T) + corpusTopicDist[np.newaxis, :]
-    norms = fns.logsumexp(topicDists, axis=1)
-    topicDists -= norms[:, np.newaxis]
+        delta = np.abs(topicDist - oldTopicDist).sum()
+        if delta < topicDist.shape[0] * topicDist.shape[1] * CHANGE_TOLERANCE:
+            logging.info(f"Stopping query after {itr + 1} iterations as change in topic distibution is minimal")
+            break
 
-    return model, QueryState(queryState.docLens, np.exp(topicDists), True)
+    logging.info(f"Returning query results after {itr + 1} iterations")
+    return model, QueryState(queryState.docLens, topicDist, True)
 
 
 def log_likelihood_expected(data: DataSet, model: ModelState, query: QueryState) -> float:
-    ll = 0  # log likelihood
-
-    lls = np.zeros(shape=(doc_count(query), model.K), dtype=model.dtype)
+    lls = np.zeros(shape=(len(data), model.K), dtype=model.dtype)
 
     # p(z=k | alpha)
-    alpha = corpusTopicDistDirichletParam(model)  # D x K  # FIXME This the posterior p(z=k|x)
-    alpha_sum = alpha.sum(axis=1) # D x 1
+    if query is None:  # user prior, the standard likelihood formula
+        logging.info("Returning likelihood based on prior over topic assignments")
+        alpha = np.ndarray(shape=(len(data), model.K), dtype=model.dtype)
+        alpha[:, :] = corpusTopicDistDirichletParam(model)[np.newaxis, :]
+        alpha_sum = np.ndarray(shape=(len(data),), dtype=model.dtype)
+        alpha_sum[:] = corpusTopicDistDirichletParam(model).sum()
+    else:  # Use a different distribution, e.g. the posterior from a doc-completion split
+        logging.info("Returning likelihood based on give (e.g. posterior) assignments")
+        alpha = topicDistsDirichletParam(query)  # DxK
+        alpha_sum = alpha.sum(axis=1)            # Dx1
 
-    lls += np.log(fns.gamma(alpha_sum))[:, np.newaxis]
-    lls -= np.log(fns.gamma(alpha_sum + 1))[:, np.newaxis]
+    lls = np.zeros(shape=(len(data), model.K), dtype=model.dtype)
+    lls += fns.loggamma(alpha_sum)[:, np.newaxis]
+    lls -= fns.loggamma(alpha_sum + 1)[:, np.newaxis]
     # FIXME this memory explosion needs to be contained
-    lls += np.sum(np.log(fns.gamma(np.diag((model.K, model.K))[np.newaxis, :, :] + alpha[:, :, np.newaxis])), axis=2)
-    lls -= np.log(fns.gamma(alpha))
+    lls += np.sum(fns.loggamma(np.eye(model.K)[np.newaxis, :, :] + alpha[:, :, np.newaxis]), axis=1)
+    lls -= np.sum(fns.loggamma(alpha), axis=1)[:, np.newaxis]
+
+    # # Try at this point using the point estimate of the prior and see what happens to isolate.
+    # if query is not None:
+    #     lls += np.log(query.topicDists)
+    # else:
+    #     lls += np.log(corpusTopicDist(model))[np.newaxis, :]
 
     # p(X = x|z=k, beta)
+    doc_lens = np.squeeze(np.array(data.words.sum(axis=1)))
+
     beta = wordDistsDirichletParam(model)  # K x T
     beta_sum = beta.sum(axis=1)  # K x 1
-    lls += np.log(fns.gamma(beta_sum))[np.newaxis, :]
-    lls -= np.log(np.gamma(np.sum(data.words, axis=1)[:, np.newaxis] + beta_sum[np.newaxis, :]))
-    lls += np.sum(np.log(np.gamma(data.words + beta)))
-    lls -= np.sum(np.log(fns.gamma(beta)), axis=1)[np.newaxis, :]
+
+    lls += fns.loggamma(beta_sum)[np.newaxis, :]
+    lls -= fns.loggamma(doc_lens[:, np.newaxis] + beta_sum[np.newaxis, :])
+    for k in range(model.K):
+        lls[:, k] += np.squeeze(np.array(
+            fns.loggamma(data.words + (beta[k, :])[np.newaxis, :]).sum(axis=1)
+        ))
+    lls -= np.sum(fns.loggamma(beta), axis=1)[np.newaxis, :]
 
     max_lls = lls.max(axis=1)
+    lls -= max_lls[:, np.newaxis]
     np.exp(lls, out=lls)
 
     lls = max_lls + np.log(lls.sum(axis=1))
@@ -329,18 +362,24 @@ def log_likelihood_expected(data: DataSet, model: ModelState, query: QueryState)
 
 
 def log_likelihood_point(data: DataSet, model: ModelState, query: QueryState = None) -> float:
-    lls = data.words @ np.log(wordDists(model).T)
-    if query is not None:
-        lls += query.topicDists
-    else:
-        lls += np.log(corpusTopicDist(model))[np.newaxis, :]
+    wordDist = wordDists((model))
 
+    # ln p(x|topic=k, word_dist) + ln p(topic=k) for all documents, for all k
+    lls = data.words @ np.log(wordDist.T)
+    if query is not None:
+        topicDist = topicDists(query)
+        lls += safe_log(topicDist)
+    else:
+        lls += safe_log(corpusTopicDist(model))[np.newaxis, :]
+
+    # Safe Log-sum-exp (of topic-specific log likelihoods)
     max_lls = lls.max(axis=1)
     lls -= max_lls[:, np.newaxis]
     np.exp(lls, out=lls)
 
     lls = max_lls + np.log(lls.sum(axis=1))
 
+    # Return corpus-total log likelihood
     return lls.sum()
 
 
