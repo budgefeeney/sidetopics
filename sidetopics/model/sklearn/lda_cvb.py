@@ -397,7 +397,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
             logging.warning("Using prior topic assignments to score data according to model.")
             query_state = None
         elif y is not None:
-            if not (method.is_point_estimate() and self.kind.uses_point_based_inference()):
+            if not self.kind.uses_point_based_inference():
                 raise ValueError("For a Bayesian-inference based model, you can cannot provide topics as a point "
                                  "estimate, you need to provide the full distribution, via the state retured by "
                                  "the query_state_ property (set when persist_query_state=True in fit() and predict())")

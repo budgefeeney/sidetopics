@@ -161,11 +161,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         nptest.assert_equal(
             (y2 * 100).astype(np.int32),
             (y * 100).astype(np.int32),
-            "Failed to optain same posterior distributions (via return value) with same model on same data to two decimal places")
+            "Failed to obtain same posterior distributions (via return value) with same model on same data to two decimal places")
         nptest.assert_equal(
             (model._module.topicDists(q) * 100).astype(np.int32),
             (y * 100).astype(np.int32),
-            "Failed to optain same posterior distributions (via query-state) with same model on same data to two decimal places")
+            "Failed to obtain same posterior distributions (via query-state) with same model on same data to two decimal places")
 
         self.assertEqual(model.score(eval_data),
                          model.score(eval_data, method=ScoreMethod.LogLikelihoodPoint),
@@ -213,21 +213,21 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
         score_with_prior = model.score(eval_data, method=ScoreMethod.LogLikelihoodBoundOrSampled)
         score_with_posterior_1 = model.score(eval_data, y=y, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-        score_with_posterior_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-        self.assertEqual(int(score_with_posterior_1), int(score_with_posterior_2),
-                         "Should get the same point-estimate score irrespective of whether assignments or query state are passed")
+
+        with self.assertRaises(Exception, msg="Can't do a full Basyesian posterior with MoM/VB"):
+            score_with_posterior_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.LogLikelihoodBoundOrSampled)
         self.assertTrue(score_with_posterior_1 < 0, "Likelihood scores should always be negative")
         self.assertTrue(score_with_prior < score_with_posterior_1,
                         "Likelihood using the prior should be worse (i.e. less) than likelihood with the posterior")
 
         perp_0 = model.score(eval_data, method=ScoreMethod.PerplexityBoundOrSampled)
         perp_1 = model.score(eval_data, y=y, method=ScoreMethod.PerplexityBoundOrSampled)
-        perp_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.PerplexityBoundOrSampled)
+        with self.assertRaises(Exception, msg="Can't do a full Basyesian posterior with MoM/VB"):
+            perp_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.PerplexityBoundOrSampled)
+
         self.assertNotEqual(perp_0, perp_1)
-        self.assertEqual(perp_1, perp_2)
         self.assertEqual(perp_0, perplexity_from_like(score_with_prior, eval_data.word_count))
         self.assertEqual(perp_1, perplexity_from_like(score_with_posterior_1, eval_data.word_count))
-        self.assertEqual(perp_2, perplexity_from_like(score_with_posterior_2, eval_data.word_count))
 
         self.assertTrue(15 < perp_0 < 20, f"Perplexity 0 is not within the range of sensible values. {perp_0}")
         self.assertTrue(15 < perp_1 < 20, f"Perplexity 1 & 2 is not within the range of sensible values. {perp_1}")

@@ -314,7 +314,7 @@ def log_likelihood_expected(data: DataSet, model: ModelState, query: QueryState)
     lls = np.zeros(shape=(len(data), model.K), dtype=model.dtype)
 
     # p(z=k | alpha)
-    if query is None:  # user prior, the standard likelihood formula
+    if query is None:  # use prior, the standard likelihood formula
         logging.info("Returning likelihood based on prior over topic assignments")
         alpha = np.ndarray(shape=(len(data), model.K), dtype=model.dtype)
         alpha[:, :] = corpusTopicDistDirichletParam(model)[np.newaxis, :]
