@@ -4,7 +4,6 @@ channels:
 dependencies:
   - python>=3.6
   - cython
-  - gcc
   - openmp
   - gsl
   - numpy
