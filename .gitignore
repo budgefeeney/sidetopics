@@ -31,6 +31,7 @@ nosetests.xml
 
 # Local conda environment
 env/
+.env/
 
 # Mr Developer
 .mr.developer.cfg

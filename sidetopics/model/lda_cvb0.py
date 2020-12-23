@@ -11,7 +11,7 @@ Created on 17 Jan 2014
 
 import os # Configuration for PyxImport later on. Requires GCC
 import sys
-os.environ['CC'] = os.environ['HOME'] + "/bin/cc"
+#os.environ['CC'] = os.environ['HOME'] + "/bin/cc"
 
 from math import log
 from math import pi
@@ -25,6 +25,8 @@ import numpy.random as rd
 import sys
 
 import sidetopics.model.lda_cvb0_fast as compiled
+
+from sidetopics.model import DataSet
 from sidetopics.model.evals import perplexity_from_like
 
 from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot
@@ -157,6 +159,7 @@ def newQueryState(data, modelState, debug=False):
     n_k  = np.asarray(n_k)
 
     return QueryState(W_list, docLens, n_dk, n_kt, n_k, z_dnk)
+
 
 def toWordList (w_csr):
     docLens = np.squeeze(np.asarray(w_csr.sum(axis=1))).astype(np.int32)

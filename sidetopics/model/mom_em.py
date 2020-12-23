@@ -181,6 +181,10 @@ def topicDists(queryState: QueryState) -> np.ndarray:
     return queryState.topicDists
 
 
+def topicDistsDirichletParam(queryState: QueryState) -> np.array:
+    raise NotImplementedError()
+
+
 def doc_count(query: QueryState) -> int:
     return len(query.docLens)
 
@@ -321,9 +325,9 @@ def log_likelihood_expected(data: DataSet, model: ModelState, query: QueryState)
         alpha_sum = np.ndarray(shape=(len(data),), dtype=model.dtype)
         alpha_sum[:] = corpusTopicDistDirichletParam(model).sum()
     else:  # Use a different distribution, e.g. the posterior from a doc-completion split
-        logging.info("Returning likelihood based on give (e.g. posterior) assignments")
-        alpha = topicDistsDirichletParam(query)  # DxK
-        alpha_sum = alpha.sum(axis=1)            # Dx1
+        logging.info("Returning likelihood based on given (e.g. posterior) assignments")
+        alpha = corpusTopicDistDirichletParam(model)  # DxK
+        alpha_sum = alpha.sum(axis=1)                 # Dx1
 
     lls = np.zeros(shape=(len(data), model.K), dtype=model.dtype)
     lls += fns.loggamma(alpha_sum)[:, np.newaxis]

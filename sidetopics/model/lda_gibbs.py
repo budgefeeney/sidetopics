@@ -10,7 +10,7 @@ Created on 17 Jan 2014
 '''
 
 import os # Configuration for PyxImport later on. Requires GCC
-os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
+# os.environ['CC']  = os.environ['HOME'] + "/bin/cc"
 
 from math import log
 from math import pi

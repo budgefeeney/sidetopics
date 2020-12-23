@@ -278,14 +278,15 @@ def sparseScalarProductOfSafeLnDot (A, B, C, out=None, start=None, end=None):
         out = A[start:end,:].copy()
 
     if (start, end) == (0, A.shape[0]) and A.dtype == np.float64:
-        out = A.copy()
-        oldWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8_full(
-             A.data, A.indices, A.indptr, B, C, out.data))
+        # out = A.copy()
+        # oldWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8_full(
+        #      A.data, A.indices, A.indptr, B, C, out.data))
         out = A.copy()
         newWay = np.sum(compiled.sparseScalarProductOfSafeLnDot_f8(
              A.data, A.indices, A.indptr, B, C, out.data, 0, A.shape[0]))
 
-        #print ("The old way was " + str(oldWay) + " and the new way was " + str(newWay))
+        # print ("The old way was " + str(oldWay) + " and the new way was " + str(newWay))
+        # raise ValueError("Mixed types")
     elif A.dtype == np.float64:
         compiled.sparseScalarProductOfSafeLnDot_f8(A.data, A.indices, A.indptr, B, C, out.data, start, end)
     elif A.dtype == np.float32:

@@ -26,6 +26,9 @@ import sidetopics.model.lda_vb_python as _lda_vb_python
 import sidetopics.model.mom_em as _mom_em
 import sidetopics.model.mom_gibbs as _mom_gibbs
 
+from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot
+from sidetopics.util.overflow_safe import safe_log
+
 
 _ = logging.getLogger()
 logging.basicConfig(level=logging.DEBUG,
@@ -73,10 +76,14 @@ class TopicModelType(enum.Enum):
     MOM_VB = _mom_em
     MOM_GIBBS = _mom_gibbs
 
-    def uses_point_based_inference(self) -> bool:
-        uses_bayesian_inference = (self is TopicModelType.MOM_GIBBS) \
-                                or (self is TopicModelType.LDA_GIBBS)
-        return not uses_bayesian_inference
+    def uses_bayesian_inference(self) -> bool:
+        return True
+
+    def is_mixture(self) -> bool:
+        return (self is TopicModelType.MOM_GIBBS) or (self is TopicModelType.MOM_VB)
+
+    def is_admixture(self) -> bool:
+        return not self.is_mixture()
 
 
 class EpochMetrics(NamedTuple):
@@ -394,21 +401,28 @@ class TopicModel(BaseEstimator, TransformerMixin):
         if (y is not None) and (y_query_state is not None):
             raise ValueError("Cannot specify both y and y_query_state at the same time")
         elif (y is None) and (y_query_state is None):
-            logging.warning("Using prior topic assignments to score data according to model.")
-            query_state = None
+            raise ValueError("Need to provide representation (y), or its distribution (y_query_state)")
         elif y is not None:
-            if not self.kind.uses_point_based_inference():
-                raise ValueError("For a Bayesian-inference based model, you can cannot provide topics as a point "
-                                 "estimate, you need to provide the full distribution, via the state retured by "
-                                 "the query_state_ property (set when persist_query_state=True in fit() and predict())")
-            logging.info("Creating new query state with given assignments (skipping transform step) for scoring")
-            query_state = self.make_or_resume_query_state(X, should_resume=False)._replace(topicDists=y)
+            if not method.is_point_estimate():
+                raise ValueError("Only support point scoring methods for point estimates of y. "
+                                 "Pass in the full query-state to get a Bayesian estimate")
+            query_state = self.make_or_resume_query_state(X, should_resume=False)
+            query_state_fields = dir(query_state)
+            if "topicDists" in query_state_fields:
+                query_state = query_state._replace(topicDists=(y * X.doc_lens[:, np.newaxis]).astype(self._model_state.dtype))
+            elif "n_dk" in query_state_fields:
+                n_dk = (y * X.doc_lens[:, np.newaxis]).astype(self._model_state.dtype)
+                n_k = n_dk.sum(axis=0)
+                query_state = query_state._replace(n_dk=n_dk, n_k=n_k)
+            else:
+                raise ValueError("Can't amend query-state")
         elif y_query_state is not None:
             query_state = y_query_state
+            y = self._module.topicDists(y_query_state)
 
         if method.is_point_estimate():
             logging.info("Obtaining point estimate of log-likelihodd")
-            log_prob = self._module.log_likelihood_point(X, self._model_state, query_state).sum()
+            log_prob = self.log_likelihood_score_point(X, y).sum()
         else:
             logging.info("Obtaining expected value (samples, variational bound) of log likelihood")
             log_prob = self._module.log_likelihood_expected(X, self._model_state, query_state).sum()
@@ -421,6 +435,82 @@ class TopicModel(BaseEstimator, TransformerMixin):
             )
         else:
             return log_prob
+
+    def log_likelihood_score_point(self, X: DataSet, y: np.ndarray) -> np.ndarray:
+        """
+        Return the log-likelihood for each individual document, according to the
+        underlying model
+
+        :param X: the input documents.
+        :param y: the per-document topic weightings
+        :return:  a log-likelihood per document, should be doc-count x 1
+        """
+        return TopicModel._log_likelihood_score_point(self.kind,
+                                                      X=X,
+                                                      weightings=y,
+                                                      components=self.components_)
+
+    @staticmethod
+    def _log_likelihood_score_point(model_type: TopicModelType,
+                                    X: DataSet,
+                                    weightings: np.ndarray,
+                                    components: np.ndarray) -> np.ndarray:
+        """
+        For a mixture model, where weightings are θ and components are ϕ, the
+        log likelihood is
+
+        ln p(x|X) =~ ln p(x; θ, ϕ) = ln (Σ_k θ[k] Π_t x_t ^ ϕ_k)
+        
+        For an admixture model, where weightings are θ and components are ϕ, the
+        log likelihood is
+        
+        ln p(x|X) =~ ln p(x; θ, ϕ) = ln (Π_n Π_t x_nt ^ (θ_k ϕ_kt))
+                                   = Σ_n Σ_t x_nt ln (θ_k ϕ_kt)
+
+        The type we use is determined by the topic-model type
+
+        :param model_type: the type of model, specifically we're intested to see if
+        this is a mixture or an admixture.
+        :param X: the input documents.
+        :param weightings: the per-document weightings, or a single per-corpus weighting
+        as used by mixture models. Should be doc-count x topic-count
+        :param components: the individual components. Should be topic-count x input-dimension
+        :return: a log-likelihood per document, should be doc-count x 1
+        """
+        if model_type.is_admixture():
+            words = X.words
+            if words.dtype != components.dtype:
+                words = words.astype(components.dtype)
+
+            #       Returns X.words * np.log(weightings @ components)
+            return sparseScalarProductOfSafeLnDot(words, weightings, components)
+        elif model_type.is_mixture():
+            lnWeights = safe_log(weightings)
+            lnComps = safe_log(components)
+
+            # Get the log-likelihoods for each component
+            per_doc_log_likes = (X.words @ lnComps.T)
+            if lnWeights.ndim == 1 or ((lnWeights.shape[0] == 1) and (X.words.shape[0] > 1)):
+                per_doc_log_likes += lnWeights[np.newaxis, :]
+            else:
+                per_doc_log_likes += lnWeights
+
+            # substract off a factor to avoid overflow/ underflow, then exponentiate to get likelioods
+            # (this is the usual log-sum-exp formula used for multinomial likelihoods)
+            max_log_like = per_doc_log_likes.max(axis=1)
+            per_doc_log_likes -= max_log_like[:, np.newaxis]
+            adj_per_doc_likes = np.exp(per_doc_log_likes, out=per_doc_log_likes)
+
+            # sum to get overall likelihood across all topics, adding back in the factor we used
+            # to control overflow.
+            result = adj_per_doc_likes.sum(axis=1)
+            result += max_log_like
+
+            return result
+        else:
+            raise ValueError(f"Unknown model-type: {model_type}")
+
+
 
     def find_query_state_via_transform(self,
                                        X: DataSet,

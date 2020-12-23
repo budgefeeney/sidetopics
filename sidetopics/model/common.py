@@ -140,6 +140,10 @@ class DataSet:
         return self._words.sum()
 
     @property
+    def doc_lens(self):
+        return np.squeeze(np.array(self.words.sum(axis=1)))
+
+    @property
     def order(self):
         '''
         :return: the subset of the rows originally read in that are contained in these

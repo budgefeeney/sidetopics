@@ -72,8 +72,32 @@ class TopicModelTestSample:
                                     lengths=lens)
 
 
+class ValidationRange(NamedTuple):
+    min_excl: float
+    max_excl: float
+
+    def in_range(self, val: float) -> bool:
+        return self.min_excl < val < self.max_excl
+
+    def assert_in_range(self, test: unittest.TestCase, **kwargs):
+        assert len(kwargs) == 1, "Only only key-word argument should be provided"
+        name = next(iter(kwargs.keys()))
+        val = kwargs[name]
+        test.assertTrue(self.in_range(val), f"Value of {name}, {val:.1f}, not in exclusive "
+                                            f"range {self.min_excl}..{self.max_excl}")
+
+
+
+LDA_PERP_RANGE = ValidationRange(min_excl=5.5, max_excl=7.5)
+LDA_LN_LIKE_RANGE = ValidationRange(min_excl=-200000, max_excl=-180000)
+
+MOM_PERP_RANGE = ValidationRange(min_excl=8, max_excl=11)
+MOM_LN_LIKE_RANGE = ValidationRange(min_excl=-230000, max_excl=-210000)
+
 class SklearnLdaCvbTest(unittest.TestCase):
     # Add a test to ensure that repeated calls to transform have the same effect (i.e. we're not training by accident)
+
+    skip_tests_on_expected_bounds: bool = True
 
     def test_lda_cvb0_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -83,18 +107,24 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments = model.fit_transform(dataset)
 
         model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
-        assignments_2 = model.fit_transform(dataset)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
         np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
                                              err_msg="Failed to respect initial seed")
 
-        perp_2e = model.score(dataset, method=ScoreMethod.PerplexityBoundOrSampled)
-        score_0 = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
-        score_0e = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-        perp_0e = perplexity_from_like(score_0e)
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
-        self.assertEquals(perp_2e, perp_0e)
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            LDA_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            LDA_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
 
-        print(f'{assignments}')
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
 
     def test_lda_cvb0_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -107,7 +137,7 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_CVB0, n_components=testcase.n_components, seed=0xC0FFEE)
-        _ = model.fit_transform(dataset, iterations=90)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
@@ -121,10 +151,24 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments = model.fit_transform(dataset)
 
         model = TopicModel(kind=TopicModelType.MOM_VB, n_components=testcase.n_components, seed=0xC0FFEE)
-        assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
 
-        print(f'{assignments}')
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        MOM_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        MOM_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            MOM_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            MOM_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
+
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
 
     def test_mom_vb_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -137,103 +181,12 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.MOM_VB, n_components=testcase.n_components, seed=0xC0FFEE)
-        _ = model.fit_transform(dataset, iterations=90)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
-    def test_mom_vb_score_point(self):
-        full_data_raw = TopicModelTestSample.new_fixed(0xBADB055)
-        full_dataset = full_data_raw.as_dataset(debug=True)
-        train_data, test_data = full_dataset.cross_valid_split(test_fold_id=0, num_folds=4, debug=True)
-        est_data, eval_data = test_data.doc_completion_split(debug=True)
 
-        model = TopicModel(kind=TopicModelType.MOM_VB, n_components=full_data_raw.n_components, seed=0xC077EE)
-        model.fit(train_data, iterations=1000, persist_query_state=True)
-
-        y = model.transform(est_data, persist_query_state=False)
-        self.assertIsNone(model.query_state_)
-
-        y2 = model.transform(est_data, persist_query_state=True)
-        q = model.query_state_
-        self.assertIsNotNone(q)
-
-        nptest.assert_equal(
-            (y2 * 100).astype(np.int32),
-            (y * 100).astype(np.int32),
-            "Failed to obtain same posterior distributions (via return value) with same model on same data to two decimal places")
-        nptest.assert_equal(
-            (model._module.topicDists(q) * 100).astype(np.int32),
-            (y * 100).astype(np.int32),
-            "Failed to obtain same posterior distributions (via query-state) with same model on same data to two decimal places")
-
-        self.assertEqual(model.score(eval_data),
-                         model.score(eval_data, method=ScoreMethod.LogLikelihoodPoint),
-                         "Should default to point estimation.")
-        self.assertEqual(model.score(eval_data, y=y),
-                         model.score(eval_data, y=y, method=ScoreMethod.LogLikelihoodPoint),
-                         "Should default to point estimation.")
-
-        score_with_prior = model.score(eval_data)
-        score_with_posterior_1 = model.score(eval_data, y=y)
-        score_with_posterior_2 = model.score(eval_data, y_query_state=q)
-        self.assertEqual(int(score_with_posterior_1), int(score_with_posterior_2),
-                         "Should get the same point-estimate score irrespective of whether assignments or query state are passed")
-        self.assertTrue(score_with_posterior_1 < 0, "Likelihood scores should always be negative")
-        self.assertTrue(score_with_prior < score_with_posterior_1,
-                        "Likelihood using the prior should be worse (i.e. less) than likelihood with the posterior")
-
-        perp_0 = model.score(eval_data, method=ScoreMethod.PerplexityPoint)
-        perp_1 = model.score(eval_data, y=y, method=ScoreMethod.PerplexityPoint)
-        perp_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.PerplexityPoint)
-        self.assertNotEqual(perp_0, perp_1)
-        self.assertEqual(perp_1, perp_2)
-        self.assertEqual(perp_0, perplexity_from_like(score_with_prior, eval_data.word_count))
-        self.assertEqual(perp_1, perplexity_from_like(score_with_posterior_1, eval_data.word_count))
-        self.assertEqual(perp_2, perplexity_from_like(score_with_posterior_2, eval_data.word_count))
-
-        self.assertTrue(7 < perp_0 < 11, f"Perplexity 0 is not within the range of sensible values. {perp_0}")
-        self.assertTrue(7 < perp_1 < 11, f"Perplexity 1 & 2 is not within the range of sensible values. {perp_1}")
-
-    def test_mom_vb_score_bound_or_sampled(self):
-        full_data_raw = TopicModelTestSample.new_fixed(0xBADB055)
-        full_dataset = full_data_raw.as_dataset(debug=True)
-        train_data, test_data = full_dataset.cross_valid_split(test_fold_id=0, num_folds=4, debug=True)
-        est_data, eval_data = test_data.doc_completion_split(debug=True)
-
-        model = TopicModel(kind=TopicModelType.MOM_VB, n_components=full_data_raw.n_components, seed=0xC0FFEE)
-        model.fit(train_data, iterations=100, persist_query_state=True)
-
-        y = model.transform(est_data, persist_query_state=False)
-        self.assertIsNone(model.query_state_)
-
-        _ = model.transform(est_data, persist_query_state=True)
-        q = model.query_state_
-        self.assertIsNotNone(q)
-
-        score_with_prior = model.score(eval_data, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-        score_with_posterior_1 = model.score(eval_data, y=y, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-
-        with self.assertRaises(Exception, msg="Can't do a full Basyesian posterior with MoM/VB"):
-            score_with_posterior_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.LogLikelihoodBoundOrSampled)
-        self.assertTrue(score_with_posterior_1 < 0, "Likelihood scores should always be negative")
-        self.assertTrue(score_with_prior < score_with_posterior_1,
-                        "Likelihood using the prior should be worse (i.e. less) than likelihood with the posterior")
-
-        perp_0 = model.score(eval_data, method=ScoreMethod.PerplexityBoundOrSampled)
-        perp_1 = model.score(eval_data, y=y, method=ScoreMethod.PerplexityBoundOrSampled)
-        with self.assertRaises(Exception, msg="Can't do a full Basyesian posterior with MoM/VB"):
-            perp_2 = model.score(eval_data, y_query_state=q, method=ScoreMethod.PerplexityBoundOrSampled)
-
-        self.assertNotEqual(perp_0, perp_1)
-        self.assertEqual(perp_0, perplexity_from_like(score_with_prior, eval_data.word_count))
-        self.assertEqual(perp_1, perplexity_from_like(score_with_posterior_1, eval_data.word_count))
-
-        self.assertTrue(15 < perp_0 < 20, f"Perplexity 0 is not within the range of sensible values. {perp_0}")
-        self.assertTrue(15 < perp_1 < 20, f"Perplexity 1 & 2 is not within the range of sensible values. {perp_1}")
-
-    def test_score_with_point_vs_score_bound_or_samples(self):
-        raise NotImplementedError()
 
     def test_mom_gibbs_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -243,10 +196,24 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments = model.fit_transform(dataset)
 
         model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
-        assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
 
-        print(f'{assignments}')
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        MOM_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        MOM_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            MOM_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            MOM_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
+
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
 
     def test_mom_gibbs_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -259,10 +226,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.MOM_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
-        _ = model.fit_transform(dataset, iterations=90)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
+
 
     def test_lda_cvb_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -270,11 +238,26 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
         model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
-        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
-        assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
 
-        print(f'{assignments}')
+        model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
+
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            LDA_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            LDA_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
+
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
 
     def test_lda_cvb_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
@@ -287,26 +270,40 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_CVB, n_components=testcase.n_components, seed=0xC0FFEE)
-        _ = model.fit_transform(dataset, iterations=90)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
 
-    def test_lda_vb_data(self):
+    def test_lda_vb_python_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50, seed=0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
 
-        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, iterations=50, seed=0xC0FFEE)
-        assignments_2 = model.fit_transform(dataset)
-        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
 
-        print(f'{assignments}')
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
-    def test_lda_vb_resume_simple_data(self):
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            LDA_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            LDA_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
+
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
+
+    def test_lda_vb_python_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
@@ -317,8 +314,8 @@ class SklearnLdaCvbTest(unittest.TestCase):
         dataset = testcase.as_dataset(debug=True)
 
         model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
-        _ = model.fit_transform(dataset, iterations=90)
-        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)  # FIXME resume applies to transform rather than fit, which resumed by default
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
@@ -327,37 +324,47 @@ class SklearnLdaCvbTest(unittest.TestCase):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components, seed=0xC0FFEE)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
         assignments = model.fit_transform(dataset)
 
-        self.assertCountEqual([0], [0], "Equal")
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        qs = model._last_query_state
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
 
-        print(f'{assignments}')
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
+            perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
+            LDA_PERP_RANGE.assert_in_range(self, expected_perplexity=perp_0e)
+            LDA_LN_LIKE_RANGE.assert_in_range(self, expected_log_likely=score_0e)
+
+            self.assertTrue(perp_0e > perp_0p, f"Expected perplexity {perp_0e} is not greater than {perp_0p}")
+
 
     def test_lda_gibbs_resume_simple_data(self):
         testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components,
-                           iterations=500, burn_in=500, thin=10, seed=0xC0FFEE)
-        assignments = model.fit_transform(dataset)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset, iterations=100)
 
-        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055 )
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
         dataset = testcase.as_dataset(debug=True)
 
-        model = TopicModel(kind=TopicModelType.LDA_GIBBS, n_components=testcase.n_components,
-                           iterations=500, burn_in=500, thin=10, query_iterations=100, seed=0xC0FFEE)
-        _tmp = model.fit_transform(dataset, iterations=400)
-        assignments_from_resume = model.fit_transform(dataset, iterations=100, burn_in=0, thin=10, resume=True)
+        model = TopicModel(kind=TopicModelType.LDA_VB_PYTHON_IMPL, n_components=testcase.n_components, seed=0xC0FFEE)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
-        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2)  # close enough for sampling...
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
 
-    def test_lda_svb(self):  #using the LDA_VB_PYTHON impl
-        pass
 
-    def test_lda_gibbs_resume_simple_data(self):  #using the LDA_VB_PYTHON impl
-        pass
 
     # Aim of the work is to compare MoM with LDA
     # To compare LDA Gibbs with LDA VB with LDA SVB
