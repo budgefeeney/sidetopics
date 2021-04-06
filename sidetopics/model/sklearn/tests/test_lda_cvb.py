@@ -12,7 +12,7 @@ import unittest
 
 from sidetopics.model import DataSet
 from sidetopics.model.sklearn import *
-from sidetopics.model.sklearn.lda_cvb import TopicModelType, ScoreMethod
+from sidetopics.model.sklearn.lda_cvb import TopicModelType, WrappedSckitLda, WrappedScikitHdp, ScoreMethod
 from sidetopics.model.evals import perplexity_from_like
 
 AVG_DOC_LEN = 250
@@ -274,6 +274,104 @@ class SklearnLdaCvbTest(unittest.TestCase):
         assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
+
+
+    def test_wrapped_lda_vb_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = WrappedSckitLda(n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset)
+
+        model = WrappedSckitLda(n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
+
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            raise NotImplementedError()
+
+
+    def test_wrapped_lda_vb_resume_simple_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = WrappedSckitLda(n_components=testcase.n_components, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset, iterations=100)
+
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = WrappedSckitLda(n_components=testcase.n_components, seed=0xC0FFEE)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
+
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2)
+
+    def test_gensim_dict_generation_for_hdp(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+        dictionary = dataset.gensim_dictionary()
+        print(str(dictionary))
+
+        self.assertEqual(
+            [(i, str(i)) for i in range(int(dataset.words.shape[1]))],
+            sorted(dictionary.items())
+        )
+
+    def test_wrapped_hdp_vb_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+        dict =  dataset.gensim_dictionary()
+
+        model = WrappedScikitHdp(n_components=testcase.n_components,
+                                 expected_corpus_size=dataset.doc_count,
+                                 dictionary=dict,
+                                 seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset)
+
+        model = WrappedScikitHdp(n_components=testcase.n_components,
+                                 expected_corpus_size=dataset.doc_count,
+                                 dictionary=dict,
+                                 seed=0xC0FFEE)
+        assignments_2 = model.fit_transform(dataset, persist_query_state=True)
+        np.testing.assert_array_almost_equal(assignments, assignments_2, decimal=3,
+                                             err_msg="Failed to respect initial seed")
+
+        score_0p = model.score(dataset, y=assignments, method=ScoreMethod.LogLikelihoodPoint)
+        perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
+        LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        if not self.skip_tests_on_expected_bounds:
+            raise NotImplementedError()
+
+
+    def test_wrapped_hdp_vb_resume_simple_data(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+        dict =  dataset.gensim_dictionary()
+
+        model = WrappedScikitHdp(n_components=testcase.n_components,
+                                 expected_corpus_size=dataset.doc_count,
+                                 dictionary=dict, seed=0xC0FFEE)
+        assignments = model.fit_transform(dataset, iterations=100)
+
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = WrappedScikitHdp(n_components=testcase.n_components,
+                                 expected_corpus_size=dataset.doc_count,
+                                 dictionary=dict, seed=0xC0FFEE)
+        _ = model.fit_transform(dataset, iterations=90, persist_query_state=True)
+        assignments_from_resume = model.fit_transform(dataset, iterations=10, resume=True)
+
+        np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=2)
 
 
     def test_lda_vb_python_data(self):

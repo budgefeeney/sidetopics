@@ -114,7 +114,7 @@ def newModelAtRandom(data, K, topicPrior=None, vocabPrior=None, dtype=DTYPE):
     return ModelState(K, topicPrior, vocabPrior, wordDists, dtype, MODEL_NAME)
 
 
-def newQueryState(data, modelState):
+def newQueryState(data, modelState, debug: bool = False):
     '''
     Creates a new LDA QueryState object. This contains all
     parameters and random variables tied to individual
@@ -130,7 +130,6 @@ def newQueryState(data, modelState):
     D,_ = data.words.shape
     print("Converting Bag of Words matrix to List of List representation... ", end="")
     W_list, docLens = toWordList(data.words)
-    print("Done")
 
     # Initialise the per-token assignments at random according to the dirichlet hyper
     topicDists = rd.dirichlet(modelState.topicPrior, size=D).astype(modelState.dtype)

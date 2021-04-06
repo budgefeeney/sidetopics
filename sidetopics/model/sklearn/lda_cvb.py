@@ -12,9 +12,11 @@ from sklearn.base import BaseEstimator
 from sklearn.base import TransformerMixin
 import numpy as np
 import numpy.random as rd
+import scipy.sparse as ssp
 import math
 import logging
 from typing import List, Tuple, NamedTuple
+import importlib
 
 from sidetopics.model.common import DataSet
 import sidetopics.model.lda_cvb0 as _lda_cvb0
@@ -25,10 +27,14 @@ import sidetopics.model.lda_svb as _lda_svb
 import sidetopics.model.lda_vb_python as _lda_vb_python
 import sidetopics.model.mom_em as _mom_em
 import sidetopics.model.mom_gibbs as _mom_gibbs
+from gensim.sklearn_api import HdpTransformer
+from gensim.corpora.dictionary import Dictionary
+from gensim import matutils
 
 from sidetopics.util.sparse_elementwise import sparseScalarProductOfSafeLnDot
 from sidetopics.util.overflow_safe import safe_log
-
+from sklearn.decomposition import LatentDirichletAllocation
+from numpy.random import RandomState
 
 _ = logging.getLogger()
 logging.basicConfig(level=logging.DEBUG,
@@ -57,11 +63,11 @@ class ScoreMethod(enum.Enum):
         for possibility in ScoreMethod:
             if name == possibility.value:
                 return possibility
-        raise ValueError("No score methodd with that name")
-    
+        raise ValueError("No score method with that name")
+
     def is_point_estimate(self) -> bool:
         return self in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]
-    
+
     def is_perplexity(self) -> bool:
         return self in [ScoreMethod.PerplexityBoundOrSampled, ScoreMethod.PerplexityPoint]
 
@@ -107,9 +113,7 @@ class TrainingStyleTypes(enum.Enum):
 
 
 class TopicModel(BaseEstimator, TransformerMixin):
-
-    _module: ModuleType
-    kind: TopicModelType
+    kind_name: str
 
     _model_state: object
     _last_query_state: object
@@ -128,22 +132,22 @@ class TopicModel(BaseEstimator, TransformerMixin):
     topic_word_prior: Union[float, np.ndarray]
 
     # For online learning
-    batchSize: int = 0  # 0 implies full-batch "batch" learning, rather than minibatch online learning
-    rate_delay: float = 0.6
-    forgetting_rate: float = 0.6
-    rate_a: float = 2
-    rate_b: float = 0.5
-    rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH
+    batchSize: int
+    rate_delay: float
+    forgetting_rate: float
+    rate_a: float
+    rate_b: float
+    rate_algor: TrainingStyleTypes
 
     # For sampling-based learning
-    burn_in: int = -1
-    thin: int = -1
+    burn_in: int
+    thin: int
 
     log_frequency: int
-    debug: bool = False
+    debug: bool
 
     def __init__(self,
-                 kind: TopicModelType,
+                 kind: Union[str, TopicModelType],
                  n_components: int=10,
                  doc_topic_prior: Union[float, np.ndarray] = None,
                  topic_word_prior: Union[float, np.ndarray] = None,
@@ -160,10 +164,13 @@ class TopicModel(BaseEstimator, TransformerMixin):
                  rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH,
                  burn_in: int = -1,
                  thin: int = -1,
+                 default_scoring_method: ScoreMethod = ScoreMethod.LogLikelihoodPoint,
                  debug: bool = False,
                  seed: int = 0xC0FFEE):
-        self._module = kind.value
-        self.kind = kind
+        if type(kind) is TopicModelType:
+            self.kind = kind.name
+        else:
+            self.kind = kind
 
         self._model_state = None
         self._last_query_state = None
@@ -192,9 +199,11 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self.thin = thin
 
         self.debug = debug
+        self.default_scoring_method = default_scoring_method
+
         rd.seed(seed)
-        if self._module is _lda_gibbs:
-            self._module.seed_rng(seed)
+        if TopicModelType[self.kind] is TopicModelType.LDA_GIBBS:
+            TopicModelType.LDA_GIBBS.value.seed_rng(seed)
 
     def copy(self) -> "TopicModel":
         """
@@ -207,7 +216,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result._last_query_state = self._last_query_state
         return result
 
-    def fit_transform(self,  X: DataSet, y: np.ndarray = None, **kwargs) -> np.ndarray:
+    def fit_transform(self,  X: Union[np.ndarray, DataSet], y: np.ndarray = None, **kwargs) -> np.ndarray:
         return self.fit(
             X, y,
             persist_query_state=True,
@@ -219,7 +228,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         )
 
     def fit(self,
-            X: DataSet,
+            X: Union[np.ndarray, DataSet],
             y: np.ndarray = None,
             **kwargs) -> "TopicModel":
         """
@@ -236,7 +245,10 @@ class TopicModel(BaseEstimator, TransformerMixin):
         :param kwargs: Any further (undocumented) arguments.
         :return: a reference to this model object
         """
-        module = self._module
+        if type(X) is not DataSet:
+            X = DataSet(words=X)
+
+        module = TopicModelType[self.kind].value
         if self._model_state is None:
             logging.info("Creating new model-state at random")
             self._model_state = module.newModelAtRandom(data=X,
@@ -245,6 +257,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
                                                         K=self.n_components)
         else:
             logging.info("Resuming fit using previous model state")
+
 
         iters = kwargs.get('iterations') or self.iterations
         train_plan = self._new_train_plan(module, iters, **kwargs)
@@ -326,8 +339,11 @@ class TopicModel(BaseEstimator, TransformerMixin):
         :param kwargs: Any futher (undocumented) arguments.
         :return: a distribution of topic-assignment probabilities one for each document.
         """
+        if type(X) is not DataSet:
+            X = DataSet(words=X)
+
         logging.debug("Transforming data")
-        module = self._module
+        module = TopicModelType[self.kind].value
         if self._model_state is None:
             raise ValueError("Untrained model")
 
@@ -342,11 +358,12 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self._bound = math.nan
         self._set_or_clear_last_query_state(X, inferred_query_state, kwargs.get('persist_query_state'))
 
-        ret_val = self._module.topicDists(inferred_query_state)
+        ret_val = module.topicDists(inferred_query_state)
         logging.info(f"Obtained a {ret_val.shape} topic-assignments matrix after {iters} iterations")
         return ret_val
 
     def make_or_resume_query_state(self, X: DataSet, should_resume: bool):
+        module = TopicModelType[self.kind].value
         if should_resume:
             if self._last_X is X:
                 logging.info("Resuming from last query state")
@@ -355,18 +372,19 @@ class TopicModel(BaseEstimator, TransformerMixin):
                 raise ValueError("Attempting to resume with a different dataset to last fit/transform run")
         else:
             logging.info("Creating new query state")
-            input_query = self._module.newQueryState(X, self._model_state, self.debug)
+            input_query = module.newQueryState(X, self._model_state, self.debug)
         return input_query
 
     @property
     def components_(self):
-        return self._module.wordDists(self._model_state)
+        module = TopicModelType[self.kind].value
+        return module.wordDists(self._model_state)
 
     @property
     def query_state_(self):
         return self._last_query_state
 
-    def score(self, X: DataSet, y: np.ndarray = None, y_query_state: object = None, method: Union[ScoreMethod, str] = ScoreMethod.LogLikelihoodPoint, **kwargs) -> float:
+    def score(self, X: DataSet, y: np.ndarray = None, y_query_state: object = None, method: Union[ScoreMethod, str] = None, **kwargs) -> float:
         """
         Uses the given topic assignments `y` to determine the fit of the given model according
         to either log-likelihood, or perplexity (which is a function of log likelihood).
@@ -395,7 +413,12 @@ class TopicModel(BaseEstimator, TransformerMixin):
         `TopicModel.kind.uses_sampling_based_inference() == True`
         :param method the scoring method to use. If a string, we delegate to `ScoreMethod.from_str()`
         """
-        if type(method) is str:
+        module = TopicModelType[self.kind].value
+        if type(X) is not DataSet:
+            X = DataSet(words=X)
+        if method is None:
+            method = self.default_scoring_method
+        elif type(method) is str:
             method = ScoreMethod.from_str(method)
 
         if (y is not None) and (y_query_state is not None):
@@ -418,18 +441,18 @@ class TopicModel(BaseEstimator, TransformerMixin):
                 raise ValueError("Can't amend query-state")
         elif y_query_state is not None:
             query_state = y_query_state
-            y = self._module.topicDists(y_query_state)
+            y = module.topicDists(y_query_state)
 
         if method.is_point_estimate():
             logging.info("Obtaining point estimate of log-likelihodd")
             log_prob = self.log_likelihood_score_point(X, y).sum()
         else:
             logging.info("Obtaining expected value (samples, variational bound) of log likelihood")
-            log_prob = self._module.log_likelihood_expected(X, self._model_state, query_state).sum()
-            
+            log_prob = module.log_likelihood_expected(X, self._model_state, query_state).sum()
+
         if method.is_perplexity():
             logging.info("Converting log likelihood to perplexity")
-            return self._module.perplexity_from_like(
+            return module.perplexity_from_like(
                 log_prob,
                 X.word_count
             )
@@ -445,7 +468,7 @@ class TopicModel(BaseEstimator, TransformerMixin):
         :param y: the per-document topic weightings
         :return:  a log-likelihood per document, should be doc-count x 1
         """
-        return TopicModel._log_likelihood_score_point(self.kind,
+        return TopicModel._log_likelihood_score_point(TopicModelType[self.kind],
                                                       X=X,
                                                       weightings=y,
                                                       components=self.components_)
@@ -460,10 +483,10 @@ class TopicModel(BaseEstimator, TransformerMixin):
         log likelihood is
 
         ln p(x|X) =~ ln p(x; θ, ϕ) = ln (Σ_k θ[k] Π_t x_t ^ ϕ_k)
-        
+
         For an admixture model, where weightings are θ and components are ϕ, the
         log likelihood is
-        
+
         ln p(x|X) =~ ln p(x; θ, ϕ) = ln (Π_n Π_t x_nt ^ (θ_k ϕ_kt))
                                    = Σ_n Σ_t x_nt ln (θ_k ϕ_kt)
 
@@ -529,5 +552,342 @@ class TopicModel(BaseEstimator, TransformerMixin):
             self._last_X = last_X_backup
 
         return query_state
-            
-        
+
+
+
+class WrappedSckitLda(LatentDirichletAllocation):
+
+    def __init__(self,
+                 n_components: int=10,
+                 doc_topic_prior: Union[float, np.ndarray] = None,
+                 topic_word_prior: Union[float, np.ndarray] = None,
+                 iterations: int = 1000,
+                 query_iterations: int = None,
+                 perp_tolerance: float = None,
+                 use_approximations: bool = False,
+                 log_frequency: int = 0,
+                 batchSize: int = 0,  # 0 implies full-batch "batch" learning, rather than minibatch online learning
+                 rate_delay: float = 0.6,
+                 forgetting_rate: float = 0.6,
+                 rate_a: float = 2,
+                 rate_b: float = 0.5,
+                 rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH,
+                 burn_in: int = -1,
+                 thin: int = -1,
+                 default_scoring_method: ScoreMethod = ScoreMethod.LogLikelihoodPoint,
+                 debug: bool = False,
+                 seed: int = 0xC0FFEE) -> None:
+        if batchSize == 0:
+            super().__init__(
+                n_components=n_components,
+                doc_topic_prior=doc_topic_prior,
+                topic_word_prior=topic_word_prior,
+                learning_method='batch',
+                max_iter=iterations,
+                random_state=RandomState(seed),
+                verbose=int(debug),
+                perp_tol=perp_tolerance
+            )
+        else:
+            super().__init__(
+                n_components=n_components,
+                doc_topic_prior=doc_topic_prior,
+                topic_word_prior=topic_word_prior,
+                learning_method='online',
+                learning_decay=rate_b,
+                learning_offsetfloat=rate_a,
+                batch_size=batchSize,
+                max_iter=iterations,
+                random_state=RandomState(seed),
+                verbose=int(debug),
+                perp_tol=perp_tolerance
+            )
+        self.skip_init = False
+        self.default_scoring_method = default_scoring_method
+
+    def _init_latent_vars(self, n_features: int) -> None:
+        if self.skip_init:
+            return
+        else:
+            super()._init_latent_vars(n_features)
+
+    def fit(self,
+            X: Union[DataSet, np.ndarray],
+            y: np.ndarray = None,
+            **kwargs) -> "TopicModel":
+        try:
+            if kwargs.get('resume'):
+                self.skip_init = True
+
+            if type(X) is DataSet:
+                X = X.words
+
+            for k, v in kwargs.items():
+                if k != 'resume':
+                    logging.warning(f"Ignoring kwargs parameter {k}={v}")
+
+            super().fit(X, y)
+            return self
+        finally:
+            self.skip_init = False
+
+    def fit_transform(self, X: Union[DataSet, np.ndarray], y: np.ndarray = None, **kwargs) -> np.ndarray:
+        if type(X) is DataSet:
+            X = X.words
+        return super().fit_transform(X, y, **kwargs)
+
+    def transform(self,
+                  X: Union[DataSet, np.ndarray],
+                  y: np.ndarray = None,
+                  **kwargs) -> np.ndarray:
+        if type(X) is DataSet:
+            X = X.words
+        if y is not None:
+            raise ValueError("y is not allowed for wrapped scikit learn LDA")
+        return super().transform(X)
+
+    def score(self, X: Union[DataSet, np.ndarray], y: np.ndarray = None, y_query_state: object = None,
+              method: Union[ScoreMethod, str] = None, **kwargs) -> float:
+        """
+        Uses the given topic assignments `y` to determine the fit of the given model according
+        to either log-likelihood, or perplexity (which is a function of log likelihood).
+
+        The log likelihood can be determined either via a point estimate (substituting in the
+        _mean_ of the parameter posteriors into the likelihood equataion) or by taking the
+        full joint expectation of the data and all parameters, marginalising out the uncertainty.
+
+        In the case where no assignments `y` are provided, the prior (which may have been
+        learnt from the data) is used instead.
+
+        Instead of `y` you can instead provide the QueryState object (see the query_state_
+        property) as `y_query_state`. It is mandatory to provide this for topic-model
+        types that use sampling based inference. It is an error to provide both `y` and
+        `y_query_state`. It is a okay to provide neither: in that case the prior over
+        topics will be used, i.e. the stanard equation for the log-likelihood in a
+        mixture model.
+
+        :param X: the data to score with this model
+        :param y: the topic assignments obtained with `fit` which we're using to score the
+        data. Alternatively you can provide y_query_state instead, which is required for
+        cases where `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param y_query_state: the query-state obtained by calling the `fit` function with
+        `perist_query_state=True` and then accessing the `query_state_` property. This
+        provide additional information about the uncertainty of y and is vital for when
+        `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param method the scoring method to use. If a string, we delegate to `ScoreMethod.from_str()`
+        """
+        if type(X) is not DataSet:
+            X = DataSet(words=X)
+
+        if method is None:
+            method = self.default_scoring_method
+        elif type(method) is str:
+            method = ScoreMethod.from_str(method)
+
+        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
+            raise NotImplementedError(f"Method {method} not implemented")
+
+        component_dists = self.components_ / self.components_.sum(axis=1)[:, np.newaxis]
+        log_probs = sparseScalarProductOfSafeLnDot(X.words, y, component_dists).sum(axis=1)
+        log_probs = np.squeeze(np.array(log_probs))
+        log_prob  = log_probs.sum()
+
+        if method.is_perplexity():
+            from sidetopics.model.evals import perplexity_from_like
+
+            logging.info("Converting log likelihood to perplexity")
+            return perplexity_from_like(
+                log_prob,
+                X.word_count
+            )
+        else:
+            return log_prob
+
+
+class WrappedScikitHdp(HdpTransformer):
+
+    def __init__(self,
+                 dictionary: Dictionary,
+                 n_components: int=10,
+                 doc_topic_prior: Union[float, np.ndarray] = None,
+                 topic_word_prior: Union[float, np.ndarray] = None,
+                 iterations: int = 1000,
+                 query_iterations: int = None,
+                 perp_tolerance: float = None,
+                 use_approximations: bool = False,
+                 log_frequency: int = 0,
+                 batchSize: int = 0,  # 0 implies full-batch "batch" learning, rather than minibatch online learning
+                 rate_delay: float = 0.6,
+                 forgetting_rate: float = 0.6,
+                 rate_a: float = 2,
+                 rate_b: float = 0.5,
+                 rate_algor: TrainingStyleTypes = TrainingStyleTypes.BATCH,
+                 burn_in: int = -1,
+                 thin: int = -1,
+                 default_scoring_method: ScoreMethod = ScoreMethod.LogLikelihoodPoint,
+                 debug: bool = False,
+                 expected_corpus_size: int = 10_000,
+                 seed: int = 0xC0FFEE) -> None:
+
+        if batchSize == 0:
+            super().__init__(
+                id2word=dictionary,
+                T=n_components,
+                K=n_components,
+                max_chunks=iterations,
+                chunksize=expected_corpus_size,
+                kappa=forgetting_rate,
+                tau=rate_delay,
+                random_state=RandomState(seed),
+            )
+        else:
+            super().__init__(
+                id2word=dictionary,
+                T=n_components,
+                K=n_components,
+                max_chunks=iterations,
+                chunksize=batchSize,
+                kappa=forgetting_rate,
+                tau=rate_delay,
+                random_state=RandomState(seed)
+            )
+        self.default_scoring_method = default_scoring_method
+
+    @property
+    def components_(self) -> np.ndarray:
+        return self.gensim_model.m_lambda / self.gensim_model.m_lambda_sum[:, np.newaxis]
+
+    def fit(self,
+            X: Union[DataSet, np.ndarray],
+            y: np.ndarray = None,
+            **kwargs) -> "TopicModel":
+        if type(X) is DataSet:
+            X = X.words
+        if ssp.issparse(X):
+            X = matutils.Sparse2Corpus(sparse=X, documents_columns=False)
+
+        for k, v in kwargs.items():
+            if k != 'resume':
+                logging.warning(f"Ignoring kwargs parameter {k}={v}")
+
+        if kwargs.get('resume'):
+            super().partial_fit(X)
+        else:
+            super().fit(X, y)
+        return self
+
+    def fit_transform(self, X: Union[DataSet, np.ndarray], y: np.ndarray = None, **kwargs) -> np.ndarray:
+        if type(X) is DataSet:
+            X = X.words
+        if ssp.issparse(X):
+            X = matutils.Sparse2Corpus(sparse=X, documents_columns=False)
+        return super().fit_transform(X, y, **kwargs)
+
+    def transform(self,
+                  X: Union[DataSet, np.ndarray],
+                  y: np.ndarray = None,
+                  **kwargs) -> np.ndarray:
+        if type(X) is DataSet:
+            X = X.words
+        if ssp.issparse(X):
+            X = matutils.Sparse2Corpus(sparse=X, documents_columns=False)
+        if y is not None:
+            raise ValueError("y is not allowed for wrapped scikit learn LDA")
+        return super().transform(X)
+
+    def score(self, X: Union[DataSet, np.ndarray], y: np.ndarray = None, y_query_state: object = None,
+              method: Union[ScoreMethod, str] = None, **kwargs) -> float:
+        """
+        Uses the given topic assignments `y` to determine the fit of the given model according
+        to either log-likelihood, or perplexity (which is a function of log likelihood).
+
+        The log likelihood can be determined either via a point estimate (substituting in the
+        _mean_ of the parameter posteriors into the likelihood equataion) or by taking the
+        full joint expectation of the data and all parameters, marginalising out the uncertainty.
+
+        In the case where no assignments `y` are provided, the prior (which may have been
+        learnt from the data) is used instead.
+
+        Instead of `y` you can instead provide the QueryState object (see the query_state_
+        property) as `y_query_state`. It is mandatory to provide this for topic-model
+        types that use sampling based inference. It is an error to provide both `y` and
+        `y_query_state`. It is a okay to provide neither: in that case the prior over
+        topics will be used, i.e. the stanard equation for the log-likelihood in a
+        mixture model.
+
+        :param X: the data to score with this model
+        :param y: the topic assignments obtained with `fit` which we're using to score the
+        data. Alternatively you can provide y_query_state instead, which is required for
+        cases where `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param y_query_state: the query-state obtained by calling the `fit` function with
+        `perist_query_state=True` and then accessing the `query_state_` property. This
+        provide additional information about the uncertainty of y and is vital for when
+        `TopicModel.kind.uses_sampling_based_inference() == True`
+        :param method the scoring method to use. If a string, we delegate to `ScoreMethod.from_str()`
+        """
+        if type(X) is not DataSet:
+            X = DataSet(words=X)
+
+        if method is None:
+            method = self.default_scoring_method
+        elif type(method) is str:
+            method = ScoreMethod.from_str(method)
+
+        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
+            raise NotImplementedError(f"Method {method} not implemented")
+
+        component_dists = self.components_ / self.components_.sum(axis=1)[:, np.newaxis]
+        if y.dtype != X.words.dtype:
+            y =  y.astype(X.words.dtype)
+        if component_dists.dtype != X.words.dtype:
+            component_dists =  component_dists.astype(X.words.dtype)
+
+        log_probs = sparseScalarProductOfSafeLnDot(X.words, y, component_dists).sum(axis=1)
+        log_probs = np.squeeze(np.array(log_probs))
+        log_prob  = log_probs.sum()
+
+        if method.is_perplexity():
+            from sidetopics.model.evals import perplexity_from_like
+
+            logging.info("Converting log likelihood to perplexity")
+            return perplexity_from_like(
+                log_prob,
+                X.word_count
+            )
+        else:
+            return log_prob
+
+if __name__ == '__main__':
+    import pathlib
+    import sidetopics.model.sklearn as mytopics
+    from sklearn.model_selection import GridSearchCV
+
+    DATASET_DIR = pathlib.Path('/') / 'Volumes' / 'DatasetSSD'
+    CLEAN_DATASET_DIR = DATASET_DIR / 'words-only'
+
+    T20_NEWS_DIR = CLEAN_DATASET_DIR / '20news4'
+    NIPS_DIR = CLEAN_DATASET_DIR / 'nips'
+    REUTERS_DIR = CLEAN_DATASET_DIR / 'reuters'
+    TOPIC_COUNTS = [5, 10, 25, 50]
+
+    reuters = DataSet.from_files(words_file=REUTERS_DIR / 'words.pkl')
+    reuters.convert_to_dtype(np.float64)
+
+    model = mytopics.TopicModel(
+        kind=mytopics.TopicModelType.LDA_VB,
+        n_components=10,
+        seed=0xC0FFEE,
+        default_scoring_method=mytopics.ScoreMethod.PerplexityPoint
+    )
+
+
+    gmodel = GridSearchCV(
+        estimator=model,
+        cv=5,
+        n_jobs=4,
+        param_grid={
+            'n_components': TOPIC_COUNTS
+        }
+    )
+
+    gmodel.fit(reuters.words)

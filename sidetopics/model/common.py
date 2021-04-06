@@ -7,6 +7,8 @@ import pickle as pkl
 from math import ceil
 import logging
 
+from gensim.corpora.dictionary import Dictionary
+
 class DataSet:
 
     def __init__(self, words, feats=None, links=None, order=None, limit=0, debug=False, auto_convert_to_sparse=True):
@@ -166,6 +168,19 @@ class DataSet:
     def link_count(self):
         assert self._links is not None, "Calling link_count when no links matrix was every loaded"
         return self._links.sum()
+
+    def gensim_dictionary(self) -> Dictionary:
+        """
+        Creates a dummy dictionary for use with Gensim APIs, which expect one.
+        Tokens will be "word-0", "word-1", ..., "word-1545", "word-1546", ..., etc.
+
+        :return: A dummy gensim dictionary with invented word IDs
+        """
+        def per_doc_word_freq_iter():
+            for row in range(self._words.shape[0]):
+                yield [(w, int(self._words[row, w])) for w in self._words[row, :].nonzero()[1]]
+
+        return Dictionary.from_corpus(per_doc_word_freq_iter())
 
 
     def __len__(self):
