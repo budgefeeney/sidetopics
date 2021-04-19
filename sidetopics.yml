@@ -9,7 +9,7 @@ dependencies:
   - numpy
   - scipy
   - scikit-learn
-  - gensim
+  - gensim<4.0
   - pandas
   - numpy
   - bottleneck
