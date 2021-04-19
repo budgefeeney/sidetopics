@@ -201,9 +201,15 @@ class TopicModel(BaseEstimator, TransformerMixin):
         self.debug = debug
         self.default_scoring_method = default_scoring_method
 
-        rd.seed(seed)
-        if TopicModelType[self.kind] is TopicModelType.LDA_GIBBS:
-            TopicModelType.LDA_GIBBS.value.seed_rng(seed)
+        self.seed = seed
+            
+    
+    def __setattr__(self, name, value) -> None:
+        if name == 'seed':
+            rd.seed(value)
+            if TopicModelType[self.kind] is TopicModelType.LDA_GIBBS:
+                TopicModelType.LDA_GIBBS.value.seed_rng(value)
+        super().__setattr__(name, value)
 
     def copy(self) -> "TopicModel":
         """
@@ -215,6 +221,8 @@ class TopicModel(BaseEstimator, TransformerMixin):
         result._model_state = _lda_cvb0.newModelFromExisting(self._model_state)
         result._last_query_state = self._last_query_state
         return result
+    
+    
 
     def fit_transform(self,  X: Union[np.ndarray, DataSet], y: np.ndarray = None, **kwargs) -> np.ndarray:
         return self.fit(
