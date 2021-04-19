@@ -9,6 +9,7 @@ import numpy as np
 import numpy.testing as nptest
 import numpy.random as rd
 import unittest
+from sklearn.model_selection import GridSearchCV
 
 from sidetopics.model import DataSet
 from sidetopics.model.sklearn import *
@@ -186,6 +187,28 @@ class SklearnLdaCvbTest(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(assignments, assignments_from_resume, decimal=3)
 
+
+    def test_mom_vb_grid_search_cv(self):
+        testcase = TopicModelTestSample.new_fixed(seed=0xBADB055)
+        dataset = testcase.as_dataset(debug=True)
+
+        model = TopicModel(
+            kind=TopicModelType.MOM_VB,
+            n_components=10,
+            seed=0xC0FFEE,
+            default_scoring_method=ScoreMethod.PerplexityPoint
+        )
+
+        gmodel = GridSearchCV(
+            estimator=model,
+            cv=5,
+            n_jobs=5,
+            param_grid={
+                'n_components': [5, 10, 50]
+            }
+        )
+
+        gmodel.fit(dataset.words)
 
 
     def test_mom_gibbs_data(self):

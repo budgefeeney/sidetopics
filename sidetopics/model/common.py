@@ -32,7 +32,8 @@ class DataSet:
         if not debug:
             assert (type(words) is ssp.csr_matrix) or auto_convert_to_sparse, "Words are not stored as a sparse CSR matrix"
             assert links is None or (type(links) is ssp.csr_matrix or auto_convert_to_sparse), "Links are not stored as a sparse CSR matrix"
-            assert words.shape[1] > 100, "Fewer than 100 words in the document-words matrix, which seems unlikely"
+            if words.shape[1] < 100:
+                logging.warning("Fewer than 100 words in the document-words matrix, which seems unlikely")
         else:
             if type(words) is not ssp.csr_matrix:
                 logging.warning("Converting words to sparse CSR matrix")

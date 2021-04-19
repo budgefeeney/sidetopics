@@ -424,7 +424,8 @@ class TopicModel(BaseEstimator, TransformerMixin):
         if (y is not None) and (y_query_state is not None):
             raise ValueError("Cannot specify both y and y_query_state at the same time")
         elif (y is None) and (y_query_state is None):
-            raise ValueError("Need to provide representation (y), or its distribution (y_query_state)")
+            logging.warning("No representation (y), or distribution (y_query_state), querying for y instead")
+            y = self.transform(X)
         elif y is not None:
             if not method.is_point_estimate():
                 raise ValueError("Only support point scoring methods for point estimates of y. "
@@ -856,38 +857,3 @@ class WrappedScikitHdp(HdpTransformer):
             )
         else:
             return log_prob
-
-if __name__ == '__main__':
-    import pathlib
-    import sidetopics.model.sklearn as mytopics
-    from sklearn.model_selection import GridSearchCV
-
-    DATASET_DIR = pathlib.Path('/') / 'Volumes' / 'DatasetSSD'
-    CLEAN_DATASET_DIR = DATASET_DIR / 'words-only'
-
-    T20_NEWS_DIR = CLEAN_DATASET_DIR / '20news4'
-    NIPS_DIR = CLEAN_DATASET_DIR / 'nips'
-    REUTERS_DIR = CLEAN_DATASET_DIR / 'reuters'
-    TOPIC_COUNTS = [5, 10, 25, 50]
-
-    reuters = DataSet.from_files(words_file=REUTERS_DIR / 'words.pkl')
-    reuters.convert_to_dtype(np.float64)
-
-    model = mytopics.TopicModel(
-        kind=mytopics.TopicModelType.LDA_VB,
-        n_components=10,
-        seed=0xC0FFEE,
-        default_scoring_method=mytopics.ScoreMethod.PerplexityPoint
-    )
-
-
-    gmodel = GridSearchCV(
-        estimator=model,
-        cv=5,
-        n_jobs=4,
-        param_grid={
-            'n_components': TOPIC_COUNTS
-        }
-    )
-
-    gmodel.fit(reuters.words)
