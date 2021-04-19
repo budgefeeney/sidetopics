@@ -6,7 +6,6 @@ dependencies:
   - cython
   - openmp
   - gsl
-  - gcc
   - numpy
   - scipy
   - scikit-learn
