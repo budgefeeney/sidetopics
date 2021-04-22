@@ -56,6 +56,8 @@ class ScoreMethod(enum.Enum):
     LogLikelihoodBoundOrSampled = 'log_likelihood_expectation'
     PerplexityPoint = 'perplexity_point'
     PerplexityBoundOrSampled = 'perplexity_expectation'
+    DocCompletionLogLikelihoodPoint = 'doc_completion_log_likelihood_point'
+    DocCompletionPerplexityPoint = 'doc_completion_perplexity_point'
 
     @staticmethod
     def from_str(name: str) -> "ScoreMethod":
@@ -66,10 +68,23 @@ class ScoreMethod(enum.Enum):
         raise ValueError("No score method with that name")
 
     def is_point_estimate(self) -> bool:
-        return self in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]
+        return self in [ScoreMethod.LogLikelihoodPoint,
+                        ScoreMethod.PerplexityPoint,
+                        ScoreMethod.DocCompletionLogLikelihoodPoint,
+                        ScoreMethod.DocCompletionPerplexityPoint
+                       ]
 
     def is_perplexity(self) -> bool:
-        return self in [ScoreMethod.PerplexityBoundOrSampled, ScoreMethod.PerplexityPoint]
+        return self in [ScoreMethod.PerplexityBoundOrSampled,
+                        ScoreMethod.PerplexityPoint,
+                        ScoreMethod.
+                        ScoreMethod.DocCompletionPerplexityPoint
+                       ]
+
+    def is_doc_completion(self) -> bool:
+        return self in [ScoreMethod.DocCompletionLogLikelihoodPoint,
+                        ScoreMethod.DocCompletionPerplexityPoint
+                        ]
 
 
 class TopicModelType(enum.Enum):
@@ -623,7 +638,7 @@ class WrappedSckitLda(LatentDirichletAllocation):
     def fit(self,
             X: Union[DataSet, np.ndarray],
             y: np.ndarray = None,
-            **kwargs) -> "TopicModel":
+            **kwargs) -> "WrappedSckitLda":
         try:
             if kwargs.get('resume'):
                 self.skip_init = True
@@ -769,7 +784,7 @@ class WrappedScikitHdp(HdpTransformer):
     def fit(self,
             X: Union[DataSet, np.ndarray],
             y: np.ndarray = None,
-            **kwargs) -> "TopicModel":
+            **kwargs) -> "WrappedScikitHdp":
         if type(X) is DataSet:
             X = X.words
         if ssp.issparse(X):
