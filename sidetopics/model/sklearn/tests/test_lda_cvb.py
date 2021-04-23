@@ -91,9 +91,11 @@ class ValidationRange(NamedTuple):
 
 LDA_PERP_RANGE = ValidationRange(min_excl=5.5, max_excl=7.5)
 LDA_LN_LIKE_RANGE = ValidationRange(min_excl=-200000, max_excl=-180000)
+LDA_DOC_COMP_LN_LIKE_RANGE = ValidationRange(min_excl=-100000, max_excl=-90000)
 
 MOM_PERP_RANGE = ValidationRange(min_excl=8, max_excl=11)
 MOM_LN_LIKE_RANGE = ValidationRange(min_excl=-230000, max_excl=-210000)
+MOM_DOC_COMP_LN_LIKE_RANGE = ValidationRange(min_excl=-115000, max_excl=-105000)
 
 class SklearnLdaCvbTest(unittest.TestCase):
     # Add a test to ensure that repeated calls to transform have the same effect (i.e. we're not training by accident)
@@ -117,6 +119,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
 
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
@@ -161,6 +168,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
         MOM_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         MOM_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        MOM_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        MOM_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
 
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
@@ -229,6 +241,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         MOM_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         MOM_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        MOM_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        MOM_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
+
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
             perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
@@ -273,6 +290,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
+
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
             perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
@@ -315,6 +337,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
 
         if not self.skip_tests_on_expected_bounds:
             raise NotImplementedError()
@@ -371,6 +398,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
+
         if not self.skip_tests_on_expected_bounds:
             raise NotImplementedError()
 
@@ -415,6 +447,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
 
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
+
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)
             perp_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.PerplexityBoundOrSampled)
@@ -458,6 +495,11 @@ class SklearnLdaCvbTest(unittest.TestCase):
         perp_0p = model.score(dataset, y=assignments, method=ScoreMethod.PerplexityPoint)
         LDA_PERP_RANGE.assert_in_range(self, point_perplexity=perp_0p)
         LDA_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=score_0p)
+
+        dc_score_0p = model.score(dataset, method=ScoreMethod.DocCompletionLogLikelihoodPoint)
+        dc_perp_0p = model.score(dataset.words, method=ScoreMethod.DocCompletionPerplexityPoint)
+        LDA_PERP_RANGE.assert_in_range(self, point_perplexity=dc_perp_0p)  # Perp is invariant to word-count
+        LDA_DOC_COMP_LN_LIKE_RANGE.assert_in_range(self, point_log_likely=dc_score_0p)  # unlike log-likely
 
         if not self.skip_tests_on_expected_bounds:
             score_0e = model.score(dataset, y_query_state=qs, method=ScoreMethod.LogLikelihoodBoundOrSampled)

@@ -77,7 +77,6 @@ class ScoreMethod(enum.Enum):
     def is_perplexity(self) -> bool:
         return self in [ScoreMethod.PerplexityBoundOrSampled,
                         ScoreMethod.PerplexityPoint,
-                        ScoreMethod.
                         ScoreMethod.DocCompletionPerplexityPoint
                        ]
 
@@ -444,11 +443,19 @@ class TopicModel(BaseEstimator, TransformerMixin):
         elif type(method) is str:
             method = ScoreMethod.from_str(method)
 
+        if method.is_doc_completion() and ((y is not None) or (y_query_state) is not None):
+            logging.warning("Presuming X and y/y_query_state have been inferred appropriately for document completion")
+
         if (y is not None) and (y_query_state is not None):
             raise ValueError("Cannot specify both y and y_query_state at the same time")
         elif (y is None) and (y_query_state is None):
-            logging.warning("No representation (y), or distribution (y_query_state), querying for y instead")
-            y = self.transform(X)
+            if not method.is_doc_completion():
+                logging.warning("No representation (y), or distribution (y_query_state), querying for y instead")
+                y = self.transform(X)
+            else:
+                test_infer, test_eval = X.doc_completion_split()
+                y = self.transform(test_infer)
+                X = test_eval
         elif y is not None:
             if not method.is_point_estimate():
                 raise ValueError("Only support point scoring methods for point estimates of y. "
@@ -708,8 +715,28 @@ class WrappedSckitLda(LatentDirichletAllocation):
         elif type(method) is str:
             method = ScoreMethod.from_str(method)
 
+        if method.is_doc_completion() and ((y is not None) or (y_query_state) is not None):
+            logging.warning("Presuming X and y/y_query_state have been inferred appropriately for document completion")
+
         if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
             raise NotImplementedError(f"Method {method} not implemented")
+
+        if method.is_doc_completion() and ((y is not None) or (y_query_state) is not None):
+            logging.warning("Presuming X and y/y_query_state have been inferred appropriately for document completion")
+
+        if (y is not None) and (y_query_state is not None):
+            raise ValueError("Cannot specify both y and y_query_state at the same time")
+        elif (y is None) and (y_query_state is None):
+            if not method.is_doc_completion():
+                logging.warning("No representation (y), or distribution (y_query_state), querying for y instead")
+                y = self.transform(X)
+            else:
+                test_infer, test_eval = X.doc_completion_split()
+                y = self.transform(test_infer)
+                X = test_eval
+        # elif y is not None:  The limitation to non-Bayesian estimates means we don't have to worry about this case
+        elif y_query_state is not None:
+            raise ValueError("No such thing as a query-state for Wrapped LDA")
 
         component_dists = self.components_ / self.components_.sum(axis=1)[:, np.newaxis]
         log_probs = sparseScalarProductOfSafeLnDot(X.words, y, component_dists).sum(axis=1)
@@ -859,6 +886,20 @@ class WrappedScikitHdp(HdpTransformer):
 
         if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
             raise NotImplementedError(f"Method {method} not implemented")
+
+        if (y is not None) and (y_query_state is not None):
+            raise ValueError("Cannot specify both y and y_query_state at the same time")
+        elif (y is None) and (y_query_state is None):
+            if not method.is_doc_completion():
+                logging.warning("No representation (y), or distribution (y_query_state), querying for y instead")
+                y = self.transform(X)
+            else:
+                test_infer, test_eval = X.doc_completion_split()
+                y = self.transform(test_infer)
+                X = test_eval
+        # elif y is not None:  The limitation to non-Bayesian estimates means we don't have to worry about this case
+        elif y_query_state is not None:
+            raise ValueError("No such thing as a query-state for Wrapped LDA")
 
         component_dists = self.components_ / self.components_.sum(axis=1)[:, np.newaxis]
         if y.dtype != X.words.dtype:
