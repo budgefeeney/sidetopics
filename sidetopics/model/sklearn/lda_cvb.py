@@ -718,7 +718,8 @@ class WrappedSckitLda(LatentDirichletAllocation):
         if method.is_doc_completion() and ((y is not None) or (y_query_state) is not None):
             logging.warning("Presuming X and y/y_query_state have been inferred appropriately for document completion")
 
-        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
+        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint,
+                          ScoreMethod.DocCompletionLogLikelihoodPoint, ScoreMethod.DocCompletionPerplexityPoint]:
             raise NotImplementedError(f"Method {method} not implemented")
 
         if method.is_doc_completion() and ((y is not None) or (y_query_state) is not None):
@@ -884,7 +885,8 @@ class WrappedScikitHdp(HdpTransformer):
         elif type(method) is str:
             method = ScoreMethod.from_str(method)
 
-        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint]:
+        if method not in [ScoreMethod.LogLikelihoodPoint, ScoreMethod.PerplexityPoint,
+                          ScoreMethod.DocCompletionLogLikelihoodPoint, ScoreMethod.DocCompletionPerplexityPoint]:
             raise NotImplementedError(f"Method {method} not implemented")
 
         if (y is not None) and (y_query_state is not None):
