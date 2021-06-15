@@ -117,6 +117,14 @@ class DataSet:
                 self._order
             )
 
+    def words_with_min_freq(self, min_doc_count_incl: int = 10) -> ssp.csr_matrix:
+        docs_per_word_count = self.words.astype(bool).sum(axis=0)
+        words_mask = np.squeeze(np.array(docs_per_word_count >= min_doc_count_incl))
+        words_mask = words_mask.astype(np.int8)
+        words_mask = ssp.csr_matrix(words_mask).reshape((1, len(words_mask)))
+        pruned_words = self.words.multiply(words_mask)
+        
+        return pruned_words
 
     @property
     def words(self):
