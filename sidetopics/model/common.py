@@ -11,7 +11,8 @@ from gensim.corpora.dictionary import Dictionary
 
 class DataSet:
 
-    def __init__(self, words, feats=None, links=None, order=None, limit=0, debug=False, auto_convert_to_sparse=True):
+    def __init__(self, words, feats=None, links=None, word_dict=None, doc_categories=None,
+                 order=None, limit=0, debug=False, auto_convert_to_sparse=True):
         """
         The three matrices that make up our features.
 
@@ -26,8 +27,12 @@ class DataSet:
         """
         assert words.shape[0] > 0,   "No rows in the document-words matrix"
 
-        assert feats is None or feats.shape[0] == words.shape[0], "Differing row-counts for document-word and document-feature matrices"
-        assert links is None or links.shape[0] == words.shape[0], "Differing row-counts for document-word and document-link matrices"
+        assert feats is None or feats.shape[0] == words.shape[0], \
+            f"Differing row-counts for document-word ({words.shape[0]}) and document-feature matrices ({feats.shape[0]})"
+        assert links is None or links.shape[0] == words.shape[0], \
+            f"Differing row-counts for document-word ({words.shape[0]}) and document-link matrices ({links.shape[0]})"
+        assert doc_categories is None or len(doc_categories) == words.shape[0], \
+            f"Differing counts of documents ({words.shape[0]}) and document-categories ({len(doc_categories)})"
 
         if not debug:
             assert (type(words) is ssp.csr_matrix) or auto_convert_to_sparse, "Words are not stored as a sparse CSR matrix"
@@ -46,6 +51,8 @@ class DataSet:
         self._words = words
         self._feats = feats
         self._links = links
+        self._doc_categories = doc_categories
+        self._word_dict = word_dict
 
         num_docs = words.shape[0]
         if 0 < limit < num_docs:
@@ -60,8 +67,9 @@ class DataSet:
             self._order = np.linspace(0, num_docs - 1, num_docs).astype(np.int32)
 
     @classmethod
-    def from_files(cls, words_file, feats_file=None, links_file=None, order=None, limit=0):
-        '''
+    def from_files(cls, words_file, feats_file=None, links_file=None, word_dict_file=None, doc_category_file=None,
+                   order=None, limit=0):
+        """
         The three matrices that make up our features. Each one is loaded in from
         the given pickle file.
 
@@ -71,9 +79,10 @@ class DataSet:
 
         If limit is greater than zero, then only the first "limit" documents are
         considered.
-        '''
+        """
         with open(words_file, 'rb') as f:
             words = pkl.load(f)
+            logging.info(f"Read in {words.shape[0]} documents with a vocabulary of {words.shape[1]} from {words_file}")
 
         if feats_file is not None:
             with open(feats_file, 'rb') as f:
@@ -84,20 +93,51 @@ class DataSet:
         if links_file is not None:
             with open(links_file, 'rb') as f:
                 links = pkl.load(f)
+                logging.info(f"Read in {links.shape[0]} links with a out-link count of {links.shape[1]} from {links_file}")
         else:
             links = None
 
-        result = DataSet(words, feats, links, order=None, limit=limit)
+        if doc_category_file is not None:
+            with open(doc_category_file, 'rb') as f:
+                flat_cats = pkl.load(f)
+                cat_count = len(set(s.strip() for s in flat_cats))
+                doc_categories = []
+                current = []
+                for cat in flat_cats:
+                    if cat.endswith('\n'):
+                        current += [cat[:-1]]
+                        doc_categories += [current]
+                        current = []
+                    else:
+                        current += [cat]
+                if len(current) > 0:
+                    doc_categories += [ current ]
+                logging.info(f"Read in {cat_count} labels/categories for {len(doc_categories)} documents from {doc_category_file}")
+        else:
+            doc_categories = None
+
+        if word_dict_file is not None:
+            with open(word_dict_file, 'rb') as f:
+                word_dict = pkl.load(f)
+                logging.info(f"Read in {len(set(word_dict))} distinct words for a dictionary from {word_dict_file}")
+        else:
+            word_dict = None
+
+        result = DataSet(words, feats, links,
+                         doc_categories=doc_categories, word_dict=word_dict,
+                         order=None, limit=limit)
         if order is not None:
             result._reorder(order)
 
         return result
 
-    def copy_with_changes(self, words=None, feats=None, links=None):
+    def copy_with_changes(self, words=None, feats=None, links=None, word_dict=None, doc_categories=None):
         return DataSet(
             self._words if words is None else words,
             self._feats if feats is None else feats,
             self._links if links is None else links,
+            self._word_dict if word_dict is None else word_dict,
+            self._doc_categories if doc_categories is None else doc_categories,
             self._order
         )
 
@@ -107,6 +147,8 @@ class DataSet:
                 self._words.copy(deep=True),
                 self._feats.copy(deep=True) if self._feats is not None else None,
                 self._links.copy(deep=True) if self._links is not None else None,
+                list(self._word_dict) if self._word_dict is not None else None,
+                list(self._doc_categories) if self._doc_categories is not None else None,
                 self._order.copy(deep=True) if self._order is not None else None
             )
         else:
@@ -114,14 +156,26 @@ class DataSet:
                 self._words,
                 self._feats,
                 self._links,
+                self._word_dict,
+                self._doc_categories,
                 self._order
             )
 
-    def words_with_min_freq(self, min_doc_count_incl: int = 10) -> ssp.csr_matrix:
+    def words_with_min_freq(self, min_doc_count_incl: int = 10) -> "DataSet":
         docs_per_word_count = np.squeeze(np.array(self.words.astype(bool).sum(axis=0)))
         retain_word_ids = np.where(docs_per_word_count >= min_doc_count_incl)[0]
+
         pruned_words = ssp.csr_matrix(self.words[:, retain_word_ids])
-        return pruned_words
+        pruned_dict = self._word_dict[list(retain_word_ids)]
+
+        return DataSet(
+            pruned_words,
+            self._feats,
+            self._links,
+            pruned_dict,
+            self._doc_categories,
+            self._order
+        )
 
     @property
     def words(self):
@@ -139,6 +193,16 @@ class DataSet:
 
 
     @property
+    def word_dict(self):
+        return self._word_dict
+
+
+    @property
+    def doc_categories(self):
+        return self._doc_categories
+
+
+    @property
     def doc_count(self):
         return self._words.shape[0]
 
@@ -153,10 +217,10 @@ class DataSet:
 
     @property
     def order(self):
-        '''
+        """
         :return: the subset of the rows originally read in that are contained in these
         matrices
-        '''
+        """
         return self._order
 
     def has_links(self):
@@ -194,29 +258,29 @@ class DataSet:
 
 
     def convert_to_dtype(self, dtype):
-        '''
+        """
         Inplace conversion to given dtype
-        '''
+        """
         self.convert_to_dtypes(dtype, dtype, dtype)
 
 
     def convert_to_dtypes(self, words_dtype, feats_dtype, links_dtype):
-        '''
+        """
         Inplace conversion to given dtypes
-        '''
+        """
         self._words = self._words.astype(words_dtype)
         self._feats = None if self._feats is None else self._feats.astype(feats_dtype)
         self._links = None if self._links is None else self._links.astype(links_dtype)
 
 
     def add_intercept_to_feats_if_required(self):
-        '''
+        """
         If there is no element in the features which is set to 1 for all
         documents, then add just such an element and return True.
 
         If such an element already exists, do nothing and return False
         :return: True if features where changed, False otherwise.
-        '''
+        """
         if self._feats is None:
             return;
 
@@ -229,37 +293,38 @@ class DataSet:
 
 
     def _reorder (self, order):
-        '''
+        """
         Reorders the rows of all matrices according to the given order, which may
         be smaller than the total of rows. Additionally, if links is square, its
         columns are also re-ordered.
 
         Maybe this should update the order property as well...
-        '''
+        """
         self._words = self._words[order, :]
+        self._doc_categories = self._doc_categories[list(order)]
         self._feats = None if self._feats is None else self._feats[order, :]
         self._links = _reorder_link_matrix(self._links, order)
 
 
     def convert_to_undirected_graph(self):
-        '''
+        """
         Converts the link matrix to an undirected graph in-place. If a link
         exists in either direction, it will now exist in both directions.
-        '''
+        """
         assert self._links is not None, "Can't call this if there are no links"
         self._links = self._links + self._links.T
 
 
     def convert_to_binary_link_matrix(self):
-        '''
+        """
         Converts the link matrix to a binary 0-1 matrix in-place.
-        '''
+        """
         assert self._links is not None, "Can't call this if there are no links"
         self._links.data.fill(1)
 
 
     def prune_and_shuffle(self, min_unique_word_count=0.5, min_link_count=0, seed=0xC0FFEE):
-        '''
+        """
         This IN-PLACE operation prunes out any documents where the document-length
         is less than the minimum, and the shuffles the matrices in a coherent manner.
 
@@ -271,7 +336,7 @@ class DataSet:
         the document for it to be retained.
         :param min_link_count the minimum number of FIXME in/out links that must be FIXME
         in order for a document to be retained in addition to the unique word count
-        '''
+        """
         rng = rd.RandomState(seed)
 
         tmp = self._words.astype(np.bool).astype(np.int32)
@@ -313,7 +378,7 @@ class DataSet:
 
 
     def cross_valid_split_indices (self, test_fold_id, num_folds):
-        '''
+        """
         For cross-validation, used the K-folds method to partition the
         data in the train and query components.
 
@@ -321,7 +386,7 @@ class DataSet:
         data, the right being the input object with the query data
 
         This just returns the train and query indices respectively
-        '''
+        """
         assert test_fold_id < num_folds, "The query fold ID can't be greater than the total number of folds"
         assert num_folds > 1, "The number of folds should be greater than one"
 
@@ -339,7 +404,7 @@ class DataSet:
 
 
     def cross_valid_split (self, test_fold_id, num_folds, debug: bool = False):
-        '''
+        """
         For cross-validation, used the K-folds method to partition the
         data in the train and query components.
 
@@ -347,21 +412,25 @@ class DataSet:
         data, the right being the input object with the query data
         :param debug: If true, allows for splits with very few distinct words,
         same behaviour as for the constructor debug parameter.
-        '''
+        """
         train_range, query_range = self.cross_valid_split_indices(test_fold_id, num_folds)
 
-        train = DataSet ( \
-            self._words[train_range], \
-            None if self._feats is None else self._feats[train_range], \
-            None if self._links is None else self._links[train_range], \
-            self._order[train_range],
-            debug = debug
+        train = DataSet (
+            self._words[train_range],
+            None if self._feats is None else self._feats[train_range],
+            None if self._links is None else self._links[train_range],
+            word_dict=None if self._word_dict is None else self._word_dict,
+            doc_categories=None if self._doc_categories is None else self._doc_categories[list(train_range)],
+            order=self._order[train_range],
+            debug=debug
         )
-        query = DataSet ( \
-            self._words[query_range], \
-            None if self._feats is None else self._feats[query_range], \
-            None if self._links is None else self._links[query_range], \
-            self._order[query_range],
+        query = DataSet (
+            self._words[query_range],
+            None if self._feats is None else self._feats[query_range],
+            None if self._links is None else self._links[query_range],
+            word_dict=None if self._word_dict is None else self._word_dict,
+            doc_categories=None if self._doc_categories is None else self._doc_categories[list(query_range)],
+            order=self._order[query_range],
             debug=debug
         )
 
@@ -369,7 +438,7 @@ class DataSet:
 
 
     def doc_completion_split(self, min_unique_word_count=0, seed=0xBADB055, est_prop=0.5, debug=False):
-        '''
+        """
         Returns two variants of this dataset - usually this is the query segment
         from cross_valid_split().
 
@@ -391,7 +460,7 @@ class DataSet:
         each word that occurs in the master document.
         :param debug: If true, allows for splits with very few distinct words,
         same behaviour as for the constructor debug parameter.
-        '''
+        """
         if self._feats is not None:
             return self, self
 
@@ -423,15 +492,15 @@ class DataSet:
                 
                 # FIXME Need to handle links and feats as well...
                 if (self._feats is not None) or (self._links is not None):
-                    raise ValueError ("Not implemente for features and/or links")
+                    raise ValueError ("Not implemented for features and/or links")
 
         return \
-            DataSet(words_train, self._feats, self._links, debug=debug), \
-            DataSet(words_query, self._feats, self._links, debug=debug)
+            DataSet(words_train, self._feats, self._links, self._word_dict, self._doc_categories, debug=debug), \
+            DataSet(words_query, self._feats, self._links, self._word_dict, self._doc_categories, debug=debug)
 
 
     def link_prediction_split(self, symmetric=True, seed=0xC0FFEE):
-        '''
+        """
         Returns two variants of this DataSet, both having the exact same words and features
         (by reference, no copies), but having different sets of links. For each document,
         its links are partitioned into two sets at random, according to the given seed. Where
@@ -439,7 +508,7 @@ class DataSet:
 
         If symmetric is true, the two partitioned matrices will also be symmetric. This is
         primarily a requirement of undirected graphs.
-        '''
+        """
         assert self._links is not None, "Can't do a link prediction split if there are no links!"
 
         rng = rd.RandomState(seed)
@@ -450,12 +519,12 @@ class DataSet:
             links_train, links_query = _split(self._links, rng)
 
         return \
-            DataSet(self._words, self._feats, links_train), \
-            DataSet(self._words, self._feats, links_query)
+            DataSet(self._words, self._feats, links_train, self._word_dict, self._doc_categories), \
+            DataSet(self._words, self._feats, links_query, self._word_dict, self._doc_categories)
 
 
     def folded_link_prediction_split(self, min_link_count, fold_id, fold_count, symmetric=False):
-        '''
+        """
         Returns two variants of this DataSet, both having the exact same words and features
         (by reference, no copies), but having different sets of links. For each document
         having more than min_link_count links, a proportion of those links is removed.
@@ -464,7 +533,7 @@ class DataSet:
 
         If symmetric is true, the two partitioned matrices will also be symmetric. This is
         primarily a requirement of undirected graphs.
-        '''
+        """
         assert self._links is not None, "Can't do a link prediction split if there are no links!"
 
         if symmetric:
@@ -473,12 +542,12 @@ class DataSet:
             links_train, links_query, docSubset = _folded_split(self._links, fold_id, fold_count, min_link_count)
 
         return \
-            DataSet(self._words, self._feats, links_train), \
-            DataSet(self._words, self._feats, links_query), \
+            DataSet(self._words, self._feats, links_train, self._word_dict, self._doc_categories), \
+            DataSet(self._words, self._feats, links_query, self._word_dict, self._doc_categories), \
             docSubset
 
     def split_on_feature(self, features):
-        '''
+        """
         Returns two datasets. The left consists of all documents for which
         none of the features are set. The right consists of all documents for
         which the first feature is set.
@@ -486,7 +555,7 @@ class DataSet:
         :param features: the features used to make the split
         :return: two DataSet object, with _shallow_ copies of the given
         data
-        '''
+        """
         def two_dim_reorder(matrix, row_order, col_order):
             return (matrix[row_order,:])[:,col_order]
 
@@ -498,13 +567,17 @@ class DataSet:
         trainDocs = np.where(mask < Epsilon)[0]
         queryDocs = np.where(np.ndarray(buffer=self._feats[:,features[0]].todense(), shape=(self._feats.shape[0],)) > Epsilon)[0]
 
-        return DataSet(words=self._words[trainDocs,:], \
-                       feats=self._feats[trainDocs,:], \
-                       links=two_dim_reorder(self._links, trainDocs, trainDocs), \
+        return DataSet(words=self._words[trainDocs,:],
+                       feats=self._feats[trainDocs,:],
+                       links=two_dim_reorder(self._links, trainDocs, trainDocs),
+                       word_dict=self._word_dict,
+                       doc_categories=self._doc_categories,
                        order=self._order[trainDocs]), \
-               DataSet(words=self._words[queryDocs,:], \
-                       feats=self._feats[queryDocs,:], \
-                       links=two_dim_reorder(self._links, queryDocs, trainDocs), \
+               DataSet(words=self._words[queryDocs,:],
+                       feats=self._feats[queryDocs,:],
+                       links=two_dim_reorder(self._links, queryDocs, trainDocs),
+                       word_dict=self._word_dict,
+                       doc_categories=self._doc_categories,
                        order=self._order[queryDocs]), \
                trainDocs
 
@@ -526,14 +599,14 @@ def dropcols_coo(M, idx_to_drop):
 
 
 def _split(X, rng):
-    '''
+    """
     Given a  matrix, splits it into two matrices such that their sum is equal to the
     given matrix. Moreover, if an element of one of the partitioned matrices is non-zero,
     then it _will_ be zero in the other partitioned matrix
 
     A random number generator is provided to determine how the "random" split should be
     performed.
-    '''
+    """
     nnz = X.nnz
     coo = X.tocoo(copy=False)
 
@@ -552,11 +625,11 @@ def _split(X, rng):
 
 
 def _symm_csr(dat, row, col, shape):
-    '''
+    """
     Creates a symmetric matrix from the given data and row and column coordinates,
     where the coorindates are for the upper triangle only. These are then copied
     to create the lower-triangle. The returned matrix is in CSR format.
-    '''
+    """
     count = len(dat)
 
     nu_dat = np.ndarray(shape=(count*2,), dtype=dat.dtype)
@@ -576,7 +649,7 @@ def _symm_csr(dat, row, col, shape):
 
 
 def _split_symm(X, rng):
-    '''
+    """
     Given a symmetric matrix, splits it into two symmetric matrices such that their
     sum is equal to the given matrix. Moreover, if an element of one of the
     partitioned matrices is non-zero, then it _will_ be zero in the other partitioned
@@ -584,7 +657,7 @@ def _split_symm(X, rng):
 
     A random number generator is provided to determine how the "random" split should be
     performed.
-    '''
+    """
     nnz = X.nnz
     coo = X.tocoo(copy=False)
 
@@ -603,7 +676,7 @@ def _split_symm(X, rng):
 
 
 def _folded_split(X, fold_id, fold_count, min_link_count):
-    '''
+    """
     Given a  matrix, splits it into two matrices such that their sum is equal to the
     given matrix. Moreover, if an element of one of the partitioned matrices is non-zero,
     then it _will_ be zero in the other partitioned matrix
@@ -618,7 +691,7 @@ def _folded_split(X, fold_id, fold_count, min_link_count):
      - a matrix with the majority of links
      - a matrix with the removed links
      - a list of the rows where links were removed.
-    '''
+    """
     Lptr, Lind, Ldat = [0], [], []
     Rptr, Rind, Rdat = [0], [], []
     docSubset = []
@@ -671,14 +744,14 @@ def _folded_split(X, fold_id, fold_count, min_link_count):
 
 
 def _reorder_link_matrix(matrix, order):
-    '''
+    """
     Returns a matrix containing only the given rows (in order).
     If the original matrix is square, the resulting matrix will
      also only have the columns specific by order
     :param matrix: the matrix to reorder
     :param order: the ordering to apply to rows (and maybe columns)
     :return:the re-ordered matrix
-    '''
+    """
     return None if matrix is None \
             else ((matrix[order, :])[:, order] \
                 if matrix.shape[0] == matrix.shape[1] \
