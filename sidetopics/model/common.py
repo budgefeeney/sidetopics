@@ -12,7 +12,7 @@ from gensim.corpora.dictionary import Dictionary
 class DataSet:
 
     def __init__(self, words, feats=None, links=None, order=None, limit=0, debug=False, auto_convert_to_sparse=True):
-        '''
+        """
         The three matrices that make up our features.
 
         If order is not none, then it means that the matrices were altered before
@@ -23,7 +23,7 @@ class DataSet:
 
         If limit is greater than zero, then only the first "limit" documents are
         considered.
-        '''
+        """
         assert words.shape[0] > 0,   "No rows in the document-words matrix"
 
         assert feats is None or feats.shape[0] == words.shape[0], "Differing row-counts for document-word and document-feature matrices"
@@ -118,12 +118,9 @@ class DataSet:
             )
 
     def words_with_min_freq(self, min_doc_count_incl: int = 10) -> ssp.csr_matrix:
-        docs_per_word_count = self.words.astype(bool).sum(axis=0)
-        words_mask = np.squeeze(np.array(docs_per_word_count >= min_doc_count_incl))
-        words_mask = words_mask.astype(np.int8)
-        words_mask = ssp.csr_matrix(words_mask).reshape((1, len(words_mask)))
-        pruned_words = self.words.multiply(words_mask)
-        
+        docs_per_word_count = np.squeeze(np.array(self.words.astype(bool).sum(axis=0)))
+        retain_word_ids = np.where(docs_per_word_count >= min_doc_count_incl)[0]
+        pruned_words = ssp.csr_matrix(self.words[:, retain_word_ids])
         return pruned_words
 
     @property
@@ -329,7 +326,7 @@ class DataSet:
         assert num_folds > 1, "The number of folds should be greater than one"
 
         doc_count = self.doc_count
-        query_size  = ceil(doc_count / num_folds) # a single fold
+        query_size  = ceil(doc_count / num_folds)  # a single fold
         train_size = doc_count - query_size
 
         start = query_size * test_fold_id
@@ -510,6 +507,22 @@ class DataSet:
                        links=two_dim_reorder(self._links, queryDocs, trainDocs), \
                        order=self._order[queryDocs]), \
                trainDocs
+
+
+def dropcols_fancy(M, idx_to_drop):
+    idx_to_drop = np.unique(idx_to_drop)
+    keep = ~np.in1d(np.arange(M.shape[1]), idx_to_drop, assume_unique=True)
+    return M[:, np.where(keep)[0]]
+
+
+def dropcols_coo(M, idx_to_drop):
+    idx_to_drop = np.unique(idx_to_drop)
+    C = M.tocoo()
+    keep = ~np.in1d(C.col, idx_to_drop)
+    C.data, C.row, C.col = C.data[keep], C.row[keep], C.col[keep]
+    C.col -= idx_to_drop.searchsorted(C.col)    # decrement column indices
+    C._shape = (C.shape[0], C.shape[1] - len(idx_to_drop))
+    return C.tocsr()
 
 
 def _split(X, rng):
